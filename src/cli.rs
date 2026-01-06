@@ -1,0 +1,93 @@
+use clap::{Parser, Subcommand};
+
+#[derive(Parser)]
+#[command(name = "pebbles")]
+#[command(author, version, about = "A rock-solid issue management tool built on top of Jujutsu", long_about = None)]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Commands,
+}
+
+#[derive(Subcommand)]
+pub enum Commands {
+    #[command(about = "Initialize pebbles in the current repository")]
+    Init,
+
+    #[command(about = "Create a new issue")]
+    New {
+        #[arg(help = "Issue title")]
+        title: String,
+
+        #[arg(short, long, help = "Issue description")]
+        description: Option<String>,
+
+        #[arg(short = 't', long, default_value = "bug", help = "Issue type (bug, ux_problem, usecase, design, validation, epic, milestone)")]
+        issue_type: String,
+    },
+
+    #[command(about = "List all issues")]
+    List {
+        #[arg(short, long, help = "Filter by status (todo, in_progress, done, blocked)")]
+        status: Option<String>,
+
+        #[arg(short = 't', long, help = "Filter by type (bug, ux_problem, etc.)")]
+        issue_type: Option<String>,
+    },
+
+    #[command(about = "Show details of an issue")]
+    Show {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+    },
+
+    #[command(about = "Update issue status")]
+    Status {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(help = "New status (todo, in_progress, done, blocked)")]
+        status: String,
+    },
+
+    #[command(about = "Update issue details")]
+    Update {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(short, long, help = "New title")]
+        title: Option<String>,
+
+        #[arg(short, long, help = "New description")]
+        description: Option<String>,
+    },
+
+    #[command(about = "Delete an issue")]
+    Delete {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+    },
+
+    #[command(about = "Add a relationship between issues")]
+    Link {
+        #[arg(help = "Source issue ID")]
+        source: String,
+
+        #[arg(help = "Relationship type (part_of, required_for, scheduled_before)")]
+        relation: String,
+
+        #[arg(help = "Target issue ID")]
+        target: String,
+    },
+
+    #[command(about = "Remove a relationship between issues")]
+    Unlink {
+        #[arg(help = "Source issue ID")]
+        source: String,
+
+        #[arg(help = "Relationship type (part_of, required_for, scheduled_before)")]
+        relation: String,
+
+        #[arg(help = "Target issue ID")]
+        target: String,
+    },
+}
