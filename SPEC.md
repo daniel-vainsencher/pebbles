@@ -164,8 +164,9 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 - `delete <id>` - Delete issue
 - `link <source> <relation> <target>` - Create relationship
 - `unlink <source> <relation> <target>` - Remove relationship
+- `epic <id>` - Show epic with all child issues
 
-See [`Commands` enum](src/cli.rs#L11-L93) for complete argument specifications.
+See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 ## Behavior
 
@@ -224,7 +225,7 @@ Features mentioned in historical documentation but not yet implemented:
 - TUI (Terminal User Interface)
 - Fuzzy search
 - Bulk operations
-- View commands (graph, route, next, epic)
+- View commands (graph, route, next)
 - Full-text search
 - Export/import functionality
 - Templates per issue type
