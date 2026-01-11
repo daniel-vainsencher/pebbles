@@ -2,7 +2,7 @@
   "id": "5caeee91-23a5-40a7-8b12-8f3b9f086016",
   "title": "Add project summary/overview command",
   "description": "Add 'pebbles summary' or 'pebbles status' command showing project health at a glance:\n\nExample output:\n  Project Overview\n  ════════════════\n  Total issues: 12\n  \n  By Status:\n    TODO: 10 (83%)\n    IN_PROGRESS: 1 (8%)\n    BLOCKED: 1 (8%)\n    DONE: 0 (0%)\n  \n  By Type:\n    Usecases: 8\n    UX Problems: 2\n    Design: 1\n    Epics: 1\n  \n  Epics: 1 total\n    Feature Development (3 issues, 0 done)\n  \n  Ready to work on: 3 issues (use 'pebbles next' to see)\n\nBenefits:\n- Quick project health check\n- Understand scope and progress\n- Find bottlenecks (many blocked issues)\n- Entry point for navigation\n\nUseful for standup updates and project status.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:07:44.818158411Z",
-  "updated_at": "2026-01-11T03:09:56.795373540Z"
+  "updated_at": "2026-01-11T12:33:06.263267415Z"
 }
