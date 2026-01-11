@@ -9,6 +9,20 @@ pub fn print_issue_list(issues: &[Issue]) {
         return;
     }
 
+    // Build epic counts: map epic_id -> (total, done)
+    let mut epic_counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
+    for issue in issues {
+        for rel in &issue.relationships {
+            if rel.relation_type == crate::models::RelationType::PartOf {
+                let entry = epic_counts.entry(rel.target_id).or_insert((0, 0));
+                entry.0 += 1;
+                if issue.status == Status::Done {
+                    entry.1 += 1;
+                }
+            }
+        }
+    }
+
     for issue in issues {
         let status_str = match issue.status {
             Status::Todo => "TODO".yellow(),
@@ -28,12 +42,25 @@ pub fn print_issue_list(issues: &[Issue]) {
         };
 
         let id_short = issue.short_id();
+
+        // Add epic count for epics
+        let count_str = if issue.issue_type == IssueType::Epic {
+            if let Some((total, done)) = epic_counts.get(&issue.id) {
+                format!(" ({}/{})", done, total).dimmed().to_string()
+            } else {
+                " (0)".dimmed().to_string()
+            }
+        } else {
+            String::new()
+        };
+
         println!(
-            "{} {} {} {}",
+            "{} {} {} {}{}",
             id_short.dimmed(),
             format!("[{}]", type_str),
             format!("[{}]", status_str),
-            issue.title.bold()
+            issue.title.bold(),
+            count_str
         );
     }
 }
