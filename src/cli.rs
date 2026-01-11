@@ -32,6 +32,9 @@ pub enum Commands {
 
         #[arg(short = 't', long, help = "Filter by type (bug, ux_problem, etc.)")]
         issue_type: Option<String>,
+
+        #[arg(long, help = "Show hierarchical tree structure with epic relationships")]
+        tree: bool,
     },
 
     #[command(about = "Show details of an issue")]

@@ -177,3 +177,146 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
 
     println!();
 }
+
+pub fn print_issue_tree(issues: &[Issue]) {
+    if issues.is_empty() {
+        println!("{}", "No issues found.".dimmed());
+        return;
+    }
+
+    // Separate epics and non-epics
+    let epics: Vec<&Issue> = issues.iter().filter(|i| i.issue_type == IssueType::Epic).collect();
+    let non_epics: Vec<&Issue> = issues.iter().filter(|i| i.issue_type != IssueType::Epic).collect();
+
+    // Build epic counts
+    let mut epic_counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
+    for issue in &non_epics {
+        for rel in &issue.relationships {
+            if rel.relation_type == crate::models::RelationType::PartOf {
+                let entry = epic_counts.entry(rel.target_id).or_insert((0, 0));
+                entry.0 += 1;
+                if issue.status == Status::Done {
+                    entry.1 += 1;
+                }
+            }
+        }
+    }
+
+    // Display epics with their children
+    for epic in &epics {
+        let status_str = match epic.status {
+            Status::Todo => "TODO".yellow(),
+            Status::InProgress => "IN PROGRESS".blue(),
+            Status::Done => "DONE".green(),
+            Status::Blocked => "BLOCKED".red(),
+        };
+
+        let count_str = if let Some((total, done)) = epic_counts.get(&epic.id) {
+            format!(" ({}/{})", done, total).dimmed().to_string()
+        } else {
+            " (0)".dimmed().to_string()
+        };
+
+        println!(
+            "{} {} {} {}{}",
+            epic.short_id().dimmed(),
+            "[epic]".yellow().bold(),
+            format!("[{}]", status_str),
+            epic.title.bold(),
+            count_str
+        );
+
+        // Find and display children
+        let mut children: Vec<&Issue> = non_epics
+            .iter()
+            .filter(|issue| {
+                issue.relationships.iter().any(|rel| {
+                    rel.relation_type == crate::models::RelationType::PartOf
+                        && rel.target_id == epic.id
+                })
+            })
+            .copied()
+            .collect();
+
+        children.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+        for (idx, child) in children.iter().enumerate() {
+            let is_last = idx == children.len() - 1;
+            let prefix = if is_last { "└─" } else { "├─" };
+
+            let status_str = match child.status {
+                Status::Todo => "TODO".yellow(),
+                Status::InProgress => "IN PROGRESS".blue(),
+                Status::Done => "DONE".green(),
+                Status::Blocked => "BLOCKED".red(),
+            };
+
+            let type_str = match child.issue_type {
+                IssueType::Bug => "bug".red(),
+                IssueType::UxProblem => "ux".magenta(),
+                IssueType::Usecase => "uc".cyan(),
+                IssueType::Design => "des".blue(),
+                IssueType::Validation => "val".green(),
+                IssueType::Epic => "epic".yellow().bold(),
+                IssueType::Milestone => "mile".yellow().bold(),
+            };
+
+            println!(
+                "  {} {} {} {} {}",
+                prefix.dimmed(),
+                child.short_id().dimmed(),
+                format!("[{}]", type_str),
+                format!("[{}]", status_str),
+                child.title
+            );
+        }
+
+        if !children.is_empty() {
+            println!();
+        }
+    }
+
+    // Display orphaned issues (not part of any epic)
+    let orphans: Vec<&Issue> = non_epics
+        .iter()
+        .filter(|issue| {
+            !issue.relationships.iter().any(|rel| {
+                rel.relation_type == crate::models::RelationType::PartOf
+            })
+        })
+        .copied()
+        .collect();
+
+    if !orphans.is_empty() {
+        if !epics.is_empty() {
+            println!("{}", "Orphaned Issues:".bold());
+        }
+
+        for issue in orphans {
+            let status_str = match issue.status {
+                Status::Todo => "TODO".yellow(),
+                Status::InProgress => "IN PROGRESS".blue(),
+                Status::Done => "DONE".green(),
+                Status::Blocked => "BLOCKED".red(),
+            };
+
+            let type_str = match issue.issue_type {
+                IssueType::Bug => "bug".red(),
+                IssueType::UxProblem => "ux".magenta(),
+                IssueType::Usecase => "uc".cyan(),
+                IssueType::Design => "des".blue(),
+                IssueType::Validation => "val".green(),
+                IssueType::Epic => "epic".yellow().bold(),
+                IssueType::Milestone => "mile".yellow().bold(),
+            };
+
+            println!(
+                "{} {} {} {}",
+                issue.short_id().dimmed(),
+                format!("[{}]", type_str),
+                format!("[{}]", status_str),
+                issue.title.bold()
+            );
+        }
+    }
+}

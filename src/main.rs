@@ -8,7 +8,7 @@ mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use display::{print_epic_view, print_issue_detail, print_issue_list};
+use display::{print_epic_view, print_issue_detail, print_issue_list, print_issue_tree};
 use operations::Operations;
 use std::env;
 
@@ -30,7 +30,7 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles);
         }
 
-        Commands::List { status, issue_type } => {
+        Commands::List { status, issue_type, tree } => {
             let status_filter = if let Some(s) = status {
                 Some(s.parse().map_err(|e: String| anyhow::anyhow!(e))?)
             } else {
@@ -42,7 +42,11 @@ fn main() -> Result<()> {
                 None
             };
             let issues = ops.list(status_filter, type_filter)?;
-            print_issue_list(&issues);
+            if tree {
+                print_issue_tree(&issues);
+            } else {
+                print_issue_list(&issues);
+            }
         }
 
         Commands::Show { id } => {
