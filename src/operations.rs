@@ -224,6 +224,40 @@ impl Operations {
         Ok((epic, child_issues))
     }
 
+    pub fn next(&self) -> Result<Vec<Issue>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let all_issues = self.storage.load_all_issues()?;
+
+        let todo_issues: Vec<Issue> = all_issues
+            .iter()
+            .filter(|issue| issue.status == Status::Todo)
+            .cloned()
+            .collect();
+
+        let mut unblocked_issues: Vec<Issue> = todo_issues
+            .into_iter()
+            .filter(|issue| {
+                for rel in &issue.relationships {
+                    if rel.relation_type == RelationType::RequiredFor {
+                        if let Ok(required_issue) = self.storage.load_issue(&rel.target_id) {
+                            if required_issue.status != Status::Done {
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            })
+            .collect();
+
+        unblocked_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+        Ok(unblocked_issues)
+    }
+
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
         let mut titles = HashMap::new();
         for rel in &issue.relationships {

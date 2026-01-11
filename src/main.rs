@@ -89,6 +89,11 @@ fn main() -> Result<()> {
             let (epic, child_issues) = ops.epic(&id)?;
             print_epic_view(&epic, &child_issues);
         }
+
+        Commands::Next => {
+            let issues = ops.next()?;
+            print_issue_list(&issues);
+        }
     }
 
     Ok(())

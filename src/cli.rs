@@ -96,4 +96,7 @@ pub enum Commands {
         #[arg(help = "Epic ID (full UUID or prefix)")]
         id: String,
     },
+
+    #[command(about = "Show actionable TODO issues with no blockers")]
+    Next,
 }
