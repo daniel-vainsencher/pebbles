@@ -2,7 +2,7 @@
   "id": "5482d41d-dfa3-4435-8b8c-83fbb1f130ba",
   "title": "Show related issue titles in show command",
   "description": "When displaying issue details with 'pebbles show', include the titles of related issues instead of just IDs:\n\nCurrent:\n  Relationships:\n    part of a1b2c3d4\n    required for e5f6g7h8\n\nImproved:\n  Relationships:\n    part of a1b2c3d4 - Feature Development Epic\n    required for e5f6g7h8 - TUI Implementation\n\nBenefits:\n- Understand relationships without running multiple commands\n- Navigate context more easily\n- Especially helpful when viewing issues with many relationships\n\nImplementation: Load related issues when showing details and display title alongside ID.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:07:35.914925701Z",
-  "updated_at": "2026-01-11T03:09:56.679311068Z"
+  "updated_at": "2026-01-11T04:25:35.756210043Z"
 }

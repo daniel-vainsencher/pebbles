@@ -2,7 +2,7 @@
   "id": "e6d0c4a0-6785-4e78-8eda-b7de1f217cff",
   "title": "Show issue count for epics in list view",
   "description": "Display the number of child issues next to epic entries in list output:\n\nCurrent:\n  a1b2c3d4 [epic] [TODO] Feature Development\n\nImproved:\n  a1b2c3d4 [epic] [TODO] Feature Development (3 issues, 1 done)\n\nOr minimal:\n  a1b2c3d4 [epic] [TODO] Feature Development (3/1)\n\nBenefits:\n- See epic scope at a glance\n- Track progress without drilling down\n- Identify empty epics\n- Prioritize work on epics with many incomplete issues\n\nShould count issues with part_of relationship pointing to the epic.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:07:58.708433956Z",
-  "updated_at": "2026-01-11T04:14:46.371080749Z"
+  "updated_at": "2026-01-11T04:25:16.504358523Z"
 }
