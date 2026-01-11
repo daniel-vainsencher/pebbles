@@ -1,0 +1,12 @@
+{
+  "id": "d0138d18-7abc-4a9f-b1db-29b5e45612d2",
+  "title": "Add tag management CLI commands",
+  "description": "Commands to add, remove, and filter by tags",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T01:56:14.039735403Z",
+  "updated_at": "2026-01-11T01:56:14.039735403Z"
+}

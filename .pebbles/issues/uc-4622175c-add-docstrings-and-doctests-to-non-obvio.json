@@ -1,0 +1,12 @@
+{
+  "id": "4622175c-ae30-42aa-9495-21bbe0156646",
+  "title": "Add docstrings and doctests to non-obvious code",
+  "description": "Judiciously add docstrings and doctests to functions and structs where behavior is not obvious from the signature. Focus on:\n- Validation logic (can_be_part_of_epic, add_relationship)\n- Filename generation (file_name, short_code)\n- ID resolution and manipulation (short_id)\n- Index operations that have side effects\n- Complex FromStr implementations with multiple aliases\n\nFollow Rust documentation standards with /// and include doctests for key examples.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T02:41:34.753429035Z",
+  "updated_at": "2026-01-11T02:41:34.753429035Z"
+}

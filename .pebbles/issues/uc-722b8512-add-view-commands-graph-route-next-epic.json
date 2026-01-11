@@ -1,0 +1,17 @@
+{
+  "id": "722b8512-e2d0-4af4-8236-864ad379008f",
+  "title": "Add view commands: graph, route, next, epic",
+  "description": "Priority view commands:\n1. 'pebbles next' - Show actionable todo issues with no blockers (no required_for dependencies pointing to incomplete issues)\n2. 'pebbles epic <id>' - List all issues that are part_of the specified epic\n\nLower priority: 'pebbles graph' (ASCII relationship diagram), 'pebbles route <from> <to>' (dependency path)",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "ad694828-0e78-48ce-aa78-950c531d990d"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-11T01:56:13.923669090Z",
+  "updated_at": "2026-01-11T03:09:57.259373793Z"
+}

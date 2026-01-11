@@ -1,0 +1,12 @@
+{
+  "id": "e271f050-1448-4cc0-ad3b-99b46440abcf",
+  "title": "Use minimal distinguishing ID prefix length",
+  "description": "When displaying issue IDs in output, use the shortest prefix that uniquely identifies each issue in the current repository. Instead of always showing 8 characters, calculate the minimum prefix length needed to distinguish all issues. This makes IDs more readable when there are few issues and still unambiguous when there are many.",
+  "status": "todo",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T02:59:23.998875616Z",
+  "updated_at": "2026-01-11T02:59:23.998875616Z"
+}
