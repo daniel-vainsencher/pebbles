@@ -1,558 +1,346 @@
 # Pebbles Architecture
 
-## System Overview
+This document explains the design philosophy, system architecture, and key technical decisions behind Pebbles.
+
+## Design Philosophy
+
+Pebbles is built on three core principles:
+
+### 1. Simplicity
+
+No complex database schemas, no fragile state machines. Issues are plain JSON files. The index is a simple list. No magic, no surprises.
+
+**Benefits:**
+- Easy to understand and debug
+- No database corruption
+- No migration scripts
+- Works with standard Unix tools (grep, sed, awk)
+
+### 2. Reliability
+
+Plain text files tracked by version control eliminate entire categories of failure:
+- No database corruption
+- No lost data (everything is in version control)
+- No complex recovery procedures
+- No backup strategies needed (version control is the backup)
+
+### 3. Version Control First
+
+Let jj do what it does best: track changes, merge conflicts, sync across machines. Pebbles doesn't reimplement version control—it embraces it.
+
+**Why Jujutsu?**
+- Every change is automatically tracked (no git add/commit dance)
+- Conflicts are first-class and can be resolved incrementally
+- History rewriting is safe and intuitive
+- Works with git remotes for compatibility
+
+## System Architecture
+
+### High-Level Overview
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                         User / AI Agent                          │
-└─────────────────────┬───────────────────────────────────────────┘
-                      │
-                      │ CLI Commands
-                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                         CLI Layer (cli.rs)                       │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Commands: init, new, list, show, status, update, delete, │  │
-│  │            link, unlink                                    │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────┬───────────────────────────────────────────┘
-                      │
-                      │ Command Routing
-                      ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Operations Layer (operations.rs)               │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  Business Logic:                                           │  │
-│  │  - CRUD operations                                         │  │
-│  │  - Relationship validation                                 │  │
-│  │  - ID resolution                                           │  │
-│  │  - Filtering                                               │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└──────────┬──────────────────────────────────────┬───────────────┘
-           │                                      │
-           │                                      │
-           ▼                                      ▼
-┌──────────────────────────┐      ┌──────────────────────────────┐
-│  Storage (storage.rs)    │      │   Display (display.rs)       │
-│  ┌────────────────────┐  │      │  ┌────────────────────────┐  │
-│  │ - Load/Save Index  │  │      │  │ - Pretty print list    │  │
-│  │ - Load/Save Issues │  │      │  │ - Pretty print details │  │
-│  │ - Handle renames   │  │      │  │ - Colored output       │  │
-│  └────────────────────┘  │      │  └────────────────────────┘  │
-└──────────┬───────────────┘      └──────────────────────────────┘
-           │
-           ▼
-┌──────────────────────────┐      ┌──────────────────────────────┐
-│   JJ Integration (jj.rs) │      │   Models (models.rs)         │
-│  ┌────────────────────┐  │      │  ┌────────────────────────┐  │
-│  │ - Init repo        │  │      │  │ IssueType enum         │  │
-│  │ - Describe changes │  │      │  │ RelationType enum      │  │
-│  └────────────────────┘  │      │  │ Status enum            │  │
-└──────────┬───────────────┘      │  │ Issue struct           │  │
-           │                       │  │ Index struct           │  │
-           │                       │  └────────────────────────┘  │
-           ▼                       └──────────────────────────────┘
-┌─────────────────────────────────────────────────────────────────┐
-│                      Jujutsu Repository                          │
-│  ┌───────────────────────────────────────────────────────────┐  │
-│  │  .jj/                 (version control metadata)           │  │
-│  │  .pebbles/                                                   │  │
-│  │  ├── index.json      (issue metadata: id → filename)      │  │
-│  │  └── issues/                                               │  │
-│  │      ├── bug-a1b2c3d4-login-broken.json                   │  │
-│  │      ├── ux-e5f6g7h8-dashboard-redesign.json              │  │
-│  │      ├── epic-i9j0k1l2-user-auth.json                     │  │
-│  │      └── uc-m3n4o5p6-user-can-login.json                  │  │
-│  └───────────────────────────────────────────────────────────┘  │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────┐
+│     CLI     │  Command-line interface (clap)
+└──────┬──────┘
+       │
+┌──────▼──────┐
+│ Operations  │  Business logic and validation
+└──┬────────┬─┘
+   │        │
+   ▼        ▼
+┌─────┐  ┌─────┐
+│Store│  │  JJ │  Storage and version control
+└─────┘  └─────┘
+   │        │
+   ▼        ▼
+┌─────────────┐
+│ .pebbles/   │  File system
+│   + .jj/    │
+└─────────────┘
 ```
 
-## Data Flow
+### Module Responsibilities
 
-### Create Issue Flow
-
-```
-User: pebbles new "Title" --issue-type bug
-       │
-       ▼
-CLI: Parse command, extract title, type, description
-       │
-       ▼
-Operations: create(title, desc, type)
-       │
-       ├─► Create Issue struct with UUID
-       │
-       ├─► Load Index
-       │
-       ├─► Storage.save_issue(issue, &mut index)
-       │   │
-       │   ├─► Generate filename: bug-a1b2c3d4-title.json
-       │   ├─► Write JSON file
-       │   ├─► Update index with (id, filename)
-       │   │
-       │   ▼
-       ├─► Storage.save_index()
-       │
-       ├─► JJ.describe("Create bug: Title")
-       │   │
-       │   └─► jj describe -m "..."
-       │
-       ▼
-Display: print_issue_detail()
-```
-
-### List Issues Flow
-
-```
-User: pebbles list --status todo --issue-type bug
-       │
-       ▼
-CLI: Parse filters
-       │
-       ▼
-Operations: list(status_filter, type_filter)
-       │
-       ├─► Storage.load_all_issues()
-       │   │
-       │   ├─► Load index.json
-       │   ├─► For each issue in index:
-       │   │   ├─► Read file by name
-       │   │   └─► Deserialize JSON → Issue
-       │   │
-       │   ▼
-       ├─► Filter by status
-       ├─► Filter by type
-       ├─► Sort by updated_at
-       │
-       ▼
-Display: print_issue_list()
-```
-
-### Link Issues Flow
-
-```
-User: pebbles link <source> part_of <target>
-       │
-       ▼
-CLI: Parse source, relation, target
-       │
-       ▼
-Operations: add_relationship(source, relation, target)
-       │
-       ├─► Resolve source_id (short ID → UUID)
-       ├─► Resolve target_id
-       ├─► Load source issue
-       ├─► Load target issue
-       │
-       ├─► source_issue.add_relationship(relation, target_id)
-       │   │
-       │   ├─► Check for duplicates
-       │   ├─► Validate relationship type
-       │   │   (e.g., epic can't be part of epic)
-       │   ├─► Add to relationships vector
-       │   │
-       │   ▼
-       ├─► Storage.save_issue(source_issue, &mut index)
-       ├─► Storage.save_index()
-       ├─► JJ.describe("Add relationship: ...")
-       │
-       ▼
-Display: Success message
-```
-
-### Update Title Flow (with Rename)
-
-```
-User: pebbles update <id> --title "New Title"
-       │
-       ▼
-Operations: update(id, Some(title), None)
-       │
-       ├─► Resolve id
-       ├─► Load issue
-       ├─► Update issue.title = "New Title"
-       ├─► Update issue.updated_at
-       │
-       ├─► Storage.save_issue(issue, &mut index)
-       │   │
-       │   ├─► Generate new_filename: type-id-new-title.json
-       │   ├─► Get old_filename from index
-       │   ├─► If filenames differ:
-       │   │   ├─► Delete old file
-       │   │   ├─► Write new file
-       │   │   └─► Update index with new filename
-       │   │
-       │   ▼
-       ├─► Storage.save_index()
-       ├─► JJ.describe("Update bug: New Title")
-       │
-       ▼
-Display: print_issue_detail()
-```
-
-## Module Responsibilities
-
-### main.rs
-- Entry point
+**[`src/main.rs`](src/main.rs)** - Entry point
 - Parse CLI arguments
-- Create Operations instance
 - Route commands to operations
-- Handle errors
-- Display results
+- Handle errors and display results
 
-### cli.rs
-- Define CLI structure with clap
-- Command definitions
-- Argument parsing
-- Help text
+**[`src/cli.rs`](src/cli.rs)** - Command-line interface
+- Define command structure with clap
+- Parse arguments and options
+- Generate help text
 
-### models.rs
-- Data structures:
-  - `Issue`: Core issue type
-  - `IssueType`: Enum of issue types
-  - `RelationType`: Enum of relationship types
-  - `Status`: Enum of statuses
-  - `Relationship`: Relationship between issues
-  - `Index`: Metadata index
-  - `IssueMetadata`: Index entry
-- String parsing (FromStr implementations)
-- Display implementations
-- Business logic:
-  - `Issue::new()` - Create issue
-  - `Issue::update()` - Update timestamp
-  - `Issue::file_name()` - Generate filename
-  - `Issue::short_id()` - Get 8-char ID
-  - `Issue::add_relationship()` - Add with validation
-  - `Issue::remove_relationship()` - Remove relationship
+**[`src/models.rs`](src/models.rs)** - Data structures
+- Define `Issue`, `Status`, `IssueType`, `RelationType`
+- Implement serialization/deserialization
+- Business logic: validation, filename generation, relationship management
 
-### storage.rs
-- File I/O operations
-- Index management:
-  - `load_index()` - Read index.json
-  - `save_index()` - Write index.json
-- Issue operations:
-  - `load_issue(id)` - Read issue by ID
-  - `save_issue(issue, index)` - Write issue, handle renames
-  - `delete_issue(id, index)` - Delete issue file
-  - `load_all_issues()` - Read all issues
-- Path resolution:
-  - `issue_path(filename)` - Get full path
-- Error handling
+**[`src/storage.rs`](src/storage.rs)** - File I/O
+- Load/save index and issues
+- Handle file renames when titles change
+- Abstract file system operations
 
-### operations.rs
-- Business logic
-- Operations:
-  - `init()` - Initialize repository
-  - `create()` - Create issue
-  - `list()` - List with filtering
-  - `show()` - Show single issue
-  - `update_status()` - Change status
-  - `update()` - Update fields
-  - `delete()` - Delete issue
-  - `add_relationship()` - Link issues
-  - `remove_relationship()` - Unlink issues
-- Helpers:
-  - `resolve_id()` - Short ID → UUID
-- Validation
-- Coordination between storage and jj
+**[`src/operations.rs`](src/operations.rs)** - Business logic
+- Coordinate between storage and jj
+- Implement CRUD operations
+- Validate operations (e.g., relationship rules)
+- Resolve short IDs to UUIDs
 
-### jj.rs
-- Jujutsu integration
-- Commands:
-  - `init()` - Initialize jj repo
-  - `describe(message)` - Create commit
-  - `is_repo()` - Check if jj repo exists
-- Command execution
-- Error handling
+**[`src/jj.rs`](src/jj.rs)** - Jujutsu integration
+- Initialize repositories
+- Create changes with descriptive messages
+- Execute jj commands
 
-### display.rs
-- Terminal output formatting
-- Functions:
-  - `print_issue_list()` - Format issue list
-  - `print_issue_detail()` - Format single issue
-- Colored output
-- Unicode formatting
-- Status and type badges
+**[`src/display.rs`](src/display.rs)** - Terminal output
+- Format issue lists and details
+- Colorize output by type and status
+- Pretty-print with Unicode borders
 
-## Data Model
+### Data Flow Examples
 
-### Issue JSON Structure
+**Creating an issue:**
+1. CLI parses `new` command with title, description, type
+2. Operations creates `Issue` struct with UUID
+3. Operations saves issue via Storage (generates filename)
+4. Storage writes JSON file to `.pebbles/issues/`
+5. Storage updates index with ID → filename mapping
+6. JJ creates change: "Create {type}: {title}"
+7. Display shows created issue to user
 
-```json
-{
-  "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-  "title": "Login button broken",
-  "description": "Button doesn't respond on mobile",
-  "status": "todo",
-  "issue_type": "Bug",
-  "tags": ["mobile", "critical"],
-  "relationships": [
-    {
-      "relation_type": "PartOf",
-      "target_id": "12345678-abcd-efgh-ijkl-mnopqrstuvwx"
-    },
-    {
-      "relation_type": "RequiredFor",
-      "target_id": "abcdefgh-1234-5678-90ab-cdefghijklmn"
-    }
-  ],
-  "metadata": {
-    "priority": "high",
-    "assignee": "alice"
-  },
-  "created_at": "2026-01-06T10:30:00.000000Z",
-  "updated_at": "2026-01-06T15:45:00.000000Z"
-}
-```
+**Updating a title:**
+1. CLI parses `update` command with ID and new title
+2. Operations resolves short ID to UUID
+3. Operations loads issue via Storage
+4. Operations updates title and `updated_at` timestamp
+5. Storage generates new filename (title changed)
+6. Storage deletes old file, writes new file
+7. Storage updates index with new filename
+8. JJ creates change: "Update {type}: {title}"
+9. Display shows updated issue to user
 
-### Index JSON Structure
+See [SPEC.md](SPEC.md) for complete behavioral specifications.
 
-```json
-{
-  "issues": [
-    {
-      "id": "a1b2c3d4-e5f6-7890-1234-567890abcdef",
-      "file_name": "bug-a1b2c3d4-login-button-broken.json"
-    },
-    {
-      "id": "12345678-abcd-efgh-ijkl-mnopqrstuvwx",
-      "file_name": "epic-12345678-user-authentication.json"
-    }
-  ]
-}
-```
+## Key Design Decisions
 
-## Validation Rules
+### Individual JSON Files
 
-### Issue Type Validation
-- All types can be created independently
-- Type affects available operations (e.g., part_of validation)
+**Decision:** Store each issue as a separate JSON file instead of one large file or database.
 
-### Relationship Validation
+**Rationale:**
+- **Version control friendly:** Each issue change only affects one file
+- **No corruption cascade:** One corrupted file doesn't break everything
+- **Merge friendly:** Multiple people can edit different issues simultaneously
+- **Tool friendly:** Standard Unix tools can process individual files
 
-#### PartOf Relationships
-```rust
-// Allowed to be part of epic:
-Bug, UxProblem, Usecase, Design, Validation
+**Trade-offs:** Not ideal for millions of issues (but that's not our use case).
 
-// NOT allowed to be part of epic:
-Epic, Milestone
+### Meaningful Filenames
 
-// Validation in Issue::add_relationship()
-if relation_type == RelationType::PartOf {
-    match self.issue_type {
-        IssueType::Epic | IssueType::Milestone => {
-            return Err("Epic and Milestone cannot be part of an epic");
-        }
-        _ => {}
-    }
-}
-```
+**Decision:** Name files `{type}-{shortid}-{slug}.json` instead of `{uuid}.json`.
 
-#### Duplicate Prevention
-- Can't add the same relationship twice
-- Checked in `add_relationship()`
+**Rationale:**
+- **Human-readable diffs:** See what changed in `jj log` without opening files
+- **Easy browsing:** Know what an issue is about from filename
+- **Natural sorting:** Issues group by type
+- **Grep friendly:** Can search by filename patterns
 
-### File Naming
+**Trade-offs:** Must handle renames when titles change (appears as delete + add in jj).
 
-```rust
-pub fn file_name(&self) -> String {
-    let slug = slug::slugify(&self.title);
-    let short_slug = if slug.len() > 40 {
-        &slug[..40]
-    } else {
-        &slug
-    };
-    format!("{}-{}-{}.json", 
-        self.issue_type.short_code(), 
-        self.short_id(), 
-        short_slug)
-}
-```
+See [`Issue::file_name()`](src/models.rs#L178-L186) for implementation.
 
-**Examples:**
-- `bug-a1b2c3d4-login-button-broken.json`
-- `ux-e5f6g7h8-dashboard-redesign.json`
-- `epic-i9j0k1l2-user-authentication.json`
-- `uc-m3n4o5p6-user-can-login-with-email.json`
+### UUIDs Instead of Sequential IDs
 
-## Error Handling
+**Decision:** Use UUID v4 for issue IDs instead of sequential integers.
 
-### Strategy
-- Use `anyhow::Result` throughout
-- Context at each layer
-- User-friendly error messages
-- No panics in normal operation
+**Rationale:**
+- **No coordination needed:** Multiple people can create issues offline simultaneously
+- **No merge conflicts:** IDs never collide across branches or machines
+- **Globally unique:** Issues can be referenced across repositories
 
-### Error Propagation
+**Trade-offs:** UUIDs are longer, but short ID prefixes solve this for human use.
 
-```rust
-// Storage layer
-pub fn load_issue(&self, id: &Uuid) -> Result<Issue> {
-    let index = self.load_index()?;
-    let file_name = index.get_file_name(id)
-        .ok_or_else(|| anyhow::anyhow!("Issue not found in index: {}", id))?;
-    let path = self.issue_path(file_name);
-    let content = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read issue file: {}", file_name))?;
-    let issue: Issue = serde_json::from_str(&content)
-        .with_context(|| format!("Failed to parse issue file: {}", file_name))?;
-    Ok(issue)
-}
+### No Database
 
-// Operations layer adds more context
-pub fn show(&self, id: &str) -> Result<Issue> {
-    if !self.storage.exists() {
-        bail!("Pebbles not initialized. Run 'pebbles init' first.");
-    }
-    let uuid = self.resolve_id(id)?;
-    self.storage.load_issue(&uuid)
-}
-```
+**Decision:** JSON files instead of SQLite, PostgreSQL, etc.
 
-## Performance Considerations
+**Rationale:**
+- **Simpler:** No schema migrations, no connection management
+- **More reliable:** Databases can corrupt (especially SQLite in version control)
+- **More inspectable:** Any text editor can view/edit issues
+- **Better for version control:** Databases don't diff/merge well
 
-### Current Performance
-- **Storage:** O(1) file read/write
-- **Index lookup:** O(n) linear search
-- **List operations:** O(n) load all issues
-- **ID resolution:** O(n) prefix matching
-- **Acceptable for:** < 1000 issues
+**Trade-offs:** No SQL queries, but filtering in-memory works fine for < 10,000 issues.
 
-### Future Optimizations
-- HashMap for index (O(1) lookup)
-- Incremental loading
-- Caching layer
-- Parallel file operations
+### Jujutsu Over Git
+
+**Decision:** Built for jj, not git (though jj can coexist with git).
+
+**Rationale:**
+- **Automatic commits:** No need to remember `git add` and `git commit`
+- **Better conflicts:** Conflicts are first-class and can be resolved incrementally
+- **Flexible history:** Easy to reorganize and describe changes after the fact
+- **Perfect for automation:** No git staging area confusion
+
+**Compatibility:** jj works with git remotes via `jj git init --colocate`.
+
+### Three Relationship Types
+
+**Decision:** Explicit `part_of`, `required_for`, `scheduled_before` instead of generic "links".
+
+**Rationale:**
+- **Clear semantics:** Each type has specific meaning
+- **Type-specific validation:** Can enforce rules like "epics can't be part of epics"
+- **Better queries:** Can find all epic members or all dependencies separately
+
+See [`RelationType`](src/models.rs#L101-L107) and validation in [`Issue::add_relationship()`](src/models.rs#L188-L207).
+
+### HashMap Metadata
+
+**Decision:** Free-form `HashMap<String, String>` for custom fields instead of predefined fields.
+
+**Rationale:**
+- **Extensible without code changes:** Users can add custom fields without modifying Pebbles
+- **Type-specific fields:** Different issue types can have different metadata
+- **Future-proof:** New features can add metadata without schema migrations
+
+**Trade-offs:** No type safety for metadata values. CLI commands for metadata management not yet implemented.
+
+## Performance Characteristics
+
+Current implementation is optimized for:
+- **Repository size:** < 10,000 issues
+- **Team size:** Single user or small teams
+- **Access pattern:** Local file system
+
+**Current performance:**
+- **Issue loading:** O(n) where n = number of issues
+- **ID resolution:** O(n) linear search through index
+- **File operations:** O(1) per issue
+
+**Optimization opportunities (if needed):**
+- Use `HashMap<Uuid, String>` for O(1) index lookups
+- Add in-memory cache for frequently accessed issues
+- Parallelize issue loading with rayon
+
+For typical usage (< 1000 issues), current performance is negligible (< 100ms for most operations).
 
 ## Extension Points
 
+### Adding New Commands
+
+1. Add variant to [`Commands` enum](src/cli.rs#L11-L93)
+2. Add method to [`Operations` struct](src/operations.rs)
+3. Wire up in [`main.rs`](src/main.rs)
+4. Update display in [`display.rs`](src/display.rs) if needed
+
 ### Adding New Issue Types
-1. Add variant to `IssueType` enum
-2. Add to `FromStr` implementation
-3. Add short code to `short_code()`
-4. Add color to display.rs
+
+1. Add variant to [`IssueType` enum](src/models.rs#L40-L50)
+2. Add `FromStr` case for parsing
+3. Add short code in [`short_code()`](src/models.rs#L88-L98)
+4. Add color in [`display.rs`](src/display.rs)
 5. Update validation rules if needed
 
 ### Adding New Relationship Types
-1. Add variant to `RelationType` enum
-2. Add to `FromStr` implementation
-3. Add validation in `add_relationship()`
-4. Add display string in display.rs
 
-### Adding New Commands
-1. Add variant to `Commands` enum in cli.rs
-2. Add operation method in operations.rs
-3. Add command handler in main.rs
-4. Update display if needed
+1. Add variant to [`RelationType` enum](src/models.rs#L101-L107)
+2. Add `FromStr` case for parsing
+3. Add validation in [`Issue::add_relationship()`](src/models.rs#L188-L207)
+4. Add display formatting in [`display.rs`](src/display.rs)
 
-### Adding Custom Fields
-- Use `metadata` HashMap
-- No code changes required
-- Document expected fields per type
+### Using Custom Metadata
 
-## Testing Strategy
+Metadata is available in the data model but not yet exposed via CLI. Options:
 
-### Current State
-- Manual testing of all features
-- Integration testing via demo scripts
-- No unit tests yet
-
-### Recommended Tests
-```rust
-#[cfg(test)]
-mod tests {
-    // Unit tests for models
-    #[test]
-    fn test_issue_file_name() { }
-    
-    #[test]
-    fn test_relationship_validation() { }
-    
-    // Integration tests for operations
-    #[test]
-    fn test_create_and_load() { }
-    
-    #[test]
-    fn test_link_validation() { }
-}
-```
+1. **Direct JSON manipulation:** Edit issue files directly
+2. **Future CLI commands:** `pebbles metadata set <id> <key> <value>`
+3. **Scripts:** Use `jq` or similar to manipulate metadata
 
 ## Security Considerations
 
 ### File System
-- Issues stored as plain text JSON
-- No encryption (could add if needed)
-- Standard file permissions
+
+- Issues stored as plain text JSON (no encryption by default)
+- Standard file system permissions apply
+- Sensitive data should not be stored in issues without additional encryption
 
 ### Input Validation
-- All user input parsed and validated
-- UUID validation
-- Relationship validation
-- Type validation
 
-### Command Injection
-- All jj commands use proper argument passing
-- No shell evaluation of user input
+- All user input is validated before processing
+- UUIDs validated before file operations
+- Relationship types validated against rules
+- No shell command injection (jj arguments passed safely)
 
-## Future Architecture Improvements
+### Version Control
 
-### v0.3.0 - TUI
-```
-┌─────────────────────┐
-│   Ratatui Layer     │
-│  ┌───────────────┐  │
-│  │ List View     │  │
-│  │ Detail View   │  │
-│  │ Graph View    │  │
-│  └───────────────┘  │
-└──────────┬──────────┘
-           │
-    (reuse existing layers)
-```
+- All issue changes tracked by jj
+- Deleted issues can be recovered from history
+- Accidentally committed sensitive data can be removed with `jj abandon` or `jj obslog` operations
 
-### v0.4.0 - Search
-```
-┌─────────────────────┐
-│   Search Layer      │
-│  ┌───────────────┐  │
-│  │ Fuzzy Match   │  │
-│  │ Full Text     │  │
-│  │ Semantic      │  │
-│  └───────────────┘  │
-└──────────┬──────────┘
-           │
-    (reuse existing layers)
-```
+## Testing Strategy
 
-### v1.0.0 - Multi-Repo
-```
-┌─────────────────────┐
-│  Repository Manager │
-│  ┌───────────────┐  │
-│  │ Multi-repo    │  │
-│  │ Sync          │  │
-│  │ Aggregation   │  │
-│  └───────────────┘  │
-└──────────┬──────────┘
-           │
-    (multiple storage instances)
-```
+Current testing approach:
+- Manual testing of all commands
+- Integration testing via real usage
+- Dogfooding (managing Pebbles development with Pebbles)
 
-## Summary
+Future testing improvements:
+- Unit tests for model validation logic
+- Integration tests for full workflows
+- Property-based testing for edge cases
+- Performance benchmarks for large repositories
 
-Pebbles has a clean, layered architecture with clear separation of concerns:
-- **CLI** for user interaction
-- **Operations** for business logic
-- **Storage** for persistence
-- **Models** for data structures
-- **Display** for output formatting
-- **JJ** for version control
+See [CONTRIBUTING.md](CONTRIBUTING.md) for testing commands.
 
-This architecture makes it easy to:
-- Add new features
-- Test components
-- Extend functionality
-- Maintain code quality
+## Comparison with Alternatives
 
-The design prioritizes simplicity and reliability over complexity.
+### vs GitHub Issues
+- **Pebbles:** Offline-first, local, version-controlled, no server required
+- **GitHub:** Online, centralized, web-based, requires internet
+
+### vs Jira
+- **Pebbles:** Simple, fast, hackable, developer-focused
+- **GitHub:** Complex, slow, enterprise-focused, point-and-click UI
+
+### vs TODO.txt
+- **Pebbles:** Structured data, rich relationships, metadata, types
+- **TODO.txt:** Plain text, simpler, less structure
+
+### vs Git Issues (legacy system)
+- **Pebbles:** Jujutsu automatic tracking, simpler workflow
+- **Git Issues:** Manual git add/commit, more overhead
+
+## Future Architecture Considerations
+
+### Scalability
+
+If repositories grow beyond 10,000 issues:
+- Add caching layer for frequently accessed issues
+- Use HashMap-based index for O(1) lookups
+- Implement incremental loading (load issues on demand)
+- Consider splitting large epics into separate sub-repositories
+
+### Concurrent Access
+
+Current design assumes single-user operation. For concurrent use:
+- Jujutsu handles file conflicts automatically
+- Index conflicts require manual resolution
+- Could implement optimistic locking for index updates
+- Could use file-based locking for write operations
+
+### Search
+
+For better search capabilities:
+- Add full-text search index (tantivy or similar)
+- Implement fuzzy matching for titles (fuzzy-matcher already included)
+- Add semantic search with embeddings
+- Cache search results
+
+### Web UI
+
+If a web interface is added:
+- Pebbles core remains CLI
+- Web UI reads `.pebbles/` directly (read-only) or calls CLI (read-write)
+- WebSocket for live updates when files change
+- Static site generation for browsing issues offline
