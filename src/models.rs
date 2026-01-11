@@ -215,14 +215,6 @@ impl Issue {
         }
         removed
     }
-
-    pub fn get_relationships(&self, relation_type: RelationType) -> Vec<Uuid> {
-        self.relationships
-            .iter()
-            .filter(|r| r.relation_type == relation_type)
-            .map(|r| r.target_id)
-            .collect()
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -38,23 +38,6 @@ impl JJ {
         Ok(())
     }
 
-    pub fn commit(&self, message: &str) -> Result<()> {
-        let output = Command::new("jj")
-            .arg("commit")
-            .arg("-m")
-            .arg(message)
-            .current_dir(&self.repo_path)
-            .output()
-            .context("Failed to execute jj commit")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Failed to commit changes: {}", stderr);
-        }
-
-        Ok(())
-    }
-
     pub fn describe(&self, message: &str) -> Result<()> {
         let output = Command::new("jj")
             .arg("describe")
@@ -67,21 +50,6 @@ impl JJ {
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             bail!("Failed to describe changes: {}", stderr);
-        }
-
-        Ok(())
-    }
-
-    pub fn new_change(&self) -> Result<()> {
-        let output = Command::new("jj")
-            .arg("new")
-            .current_dir(&self.repo_path)
-            .output()
-            .context("Failed to execute jj new")?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Failed to create new change: {}", stderr);
         }
 
         Ok(())
