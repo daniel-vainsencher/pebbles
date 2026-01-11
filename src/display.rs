@@ -119,3 +119,61 @@ pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>)
     println!("{}: {}", "File".bold(), issue.file_name().dimmed());
     println!("{}", "━".repeat(60).dimmed());
 }
+
+pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
+    let status_str = match epic.status {
+        Status::Todo => "TODO".yellow(),
+        Status::InProgress => "IN PROGRESS".blue(),
+        Status::Done => "DONE".green(),
+        Status::Blocked => "BLOCKED".red(),
+    };
+
+    println!("{}", "━".repeat(60).dimmed());
+    println!("{}: {}", "Epic".bold(), epic.title.bold());
+    println!("{}: {}", "ID".bold(), epic.short_id().cyan());
+    println!("{}: {}", "Status".bold(), status_str);
+
+    if let Some(desc) = &epic.description {
+        println!("\n{}", desc);
+    }
+
+    let done_count = child_issues.iter().filter(|i| i.status == Status::Done).count();
+    let total_count = child_issues.len();
+    println!("\n{}: {}/{}", "Progress".bold(), done_count, total_count);
+
+    println!("{}", "━".repeat(60).dimmed());
+
+    if child_issues.is_empty() {
+        println!("\n{}", "No child issues found.".dimmed());
+    } else {
+        println!("\n{}:", "Child Issues".bold());
+        for issue in child_issues {
+            let status_str = match issue.status {
+                Status::Todo => "TODO".yellow(),
+                Status::InProgress => "IN PROGRESS".blue(),
+                Status::Done => "DONE".green(),
+                Status::Blocked => "BLOCKED".red(),
+            };
+
+            let type_str = match issue.issue_type {
+                IssueType::Bug => "bug".red(),
+                IssueType::UxProblem => "ux".magenta(),
+                IssueType::Usecase => "uc".cyan(),
+                IssueType::Design => "des".blue(),
+                IssueType::Validation => "val".green(),
+                IssueType::Epic => "epic".yellow().bold(),
+                IssueType::Milestone => "mile".yellow().bold(),
+            };
+
+            println!(
+                "  {} {} {} {}",
+                issue.short_id().dimmed(),
+                format!("[{}]", type_str),
+                format!("[{}]", status_str),
+                issue.title
+            );
+        }
+    }
+
+    println!();
+}

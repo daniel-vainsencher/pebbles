@@ -8,7 +8,7 @@ mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use display::{print_issue_detail, print_issue_list};
+use display::{print_epic_view, print_issue_detail, print_issue_list};
 use operations::Operations;
 use std::env;
 
@@ -83,6 +83,11 @@ fn main() -> Result<()> {
             let relation_type = relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             ops.remove_relationship(&source, relation_type, &target)?;
             println!("✓ Removed relationship");
+        }
+
+        Commands::Epic { id } => {
+            let (epic, child_issues) = ops.epic(&id)?;
+            print_epic_view(&epic, &child_issues);
         }
     }
 

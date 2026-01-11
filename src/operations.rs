@@ -197,6 +197,33 @@ impl Operations {
         Ok(())
     }
 
+    pub fn epic(&self, id: &str) -> Result<(Issue, Vec<Issue>)> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let uuid = self.resolve_id(id)?;
+        let epic = self.storage.load_issue(&uuid)?;
+
+        if epic.issue_type != IssueType::Epic {
+            bail!("Issue {} is not an epic (it's a {})", uuid, epic.issue_type);
+        }
+
+        let all_issues = self.storage.load_all_issues()?;
+        let mut child_issues: Vec<Issue> = all_issues
+            .into_iter()
+            .filter(|issue| {
+                issue.relationships.iter().any(|rel| {
+                    rel.relation_type == RelationType::PartOf && rel.target_id == uuid
+                })
+            })
+            .collect();
+
+        child_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+
+        Ok((epic, child_issues))
+    }
+
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
         let mut titles = HashMap::new();
         for rel in &issue.relationships {

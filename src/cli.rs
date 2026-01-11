@@ -90,4 +90,10 @@ pub enum Commands {
         #[arg(help = "Target issue ID")]
         target: String,
     },
+
+    #[command(about = "Show an epic with all its child issues")]
+    Epic {
+        #[arg(help = "Epic ID (full UUID or prefix)")]
+        id: String,
+    },
 }
