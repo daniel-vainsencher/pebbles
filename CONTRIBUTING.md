@@ -17,15 +17,39 @@ Thank you for your interest in contributing to Pebbles! This guide will help you
 git clone <repository-url>
 cd pebbles
 
-# Build in debug mode
+# Build in debug mode (fast builds for testing)
 cargo build
 
-# Build in release mode
+# Build in release mode (optimized for performance)
 cargo build --release
 
 # Run without installing
 cargo run -- <command>
 ```
+
+### Development Workflow
+
+**When developing new features:**
+
+1. **Test with debug builds** - Fast compilation for rapid iteration:
+   ```bash
+   cargo build
+   ./target/debug/pebbles <command>
+   ```
+
+2. **Use installed version for regular work** - Use the `pebbles` command for normal usage:
+   ```bash
+   pebbles list
+   pebbles new "My issue"
+   ```
+
+3. **Install when feature is complete** - Replace the installed version:
+   ```bash
+   cargo install --path .
+   # Now `pebbles` uses the new version
+   ```
+
+This keeps your development and production environments separate. Debug builds are much faster to compile (~1s vs ~30s for release), making the test-fix-test cycle faster.
 
 ### Running Tests
 
