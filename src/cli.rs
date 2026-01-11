@@ -35,6 +35,9 @@ pub enum Commands {
 
         #[arg(long, help = "Show hierarchical tree structure with epic relationships")]
         tree: bool,
+
+        #[arg(long, help = "Show only orphaned issues (not part of any epic)")]
+        orphaned: bool,
     },
 
     #[command(about = "Show details of an issue")]

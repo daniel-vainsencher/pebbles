@@ -30,7 +30,7 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles);
         }
 
-        Commands::List { status, issue_type, tree } => {
+        Commands::List { status, issue_type, tree, orphaned } => {
             let status_filter = if let Some(s) = status {
                 Some(s.parse().map_err(|e: String| anyhow::anyhow!(e))?)
             } else {
@@ -41,7 +41,17 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            let issues = ops.list(status_filter, type_filter)?;
+            let mut issues = ops.list(status_filter, type_filter)?;
+
+            if orphaned {
+                issues.retain(|issue| {
+                    issue.issue_type.can_be_part_of_epic()
+                        && !issue.relationships.iter().any(|rel| {
+                            rel.relation_type == crate::models::RelationType::PartOf
+                        })
+                });
+            }
+
             if tree {
                 print_issue_tree(&issues);
             } else {
