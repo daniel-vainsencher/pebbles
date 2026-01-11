@@ -1,0 +1,12 @@
+{
+  "id": "b9713e50-ca71-42b3-89b4-aec4901411f2",
+  "title": "Add command to change issue type",
+  "description": "Support converting issues between types (e.g., promoting a usecase to an epic, or demoting an epic to a usecase).\n\nUse case: Sometimes you create an issue and later realize it should be a different type:\n- A usecase grows and should become an epic\n- An epic is too small and should be a usecase\n- A bug turns out to be a ux_problem\n\nCommand: pebbles convert <id> <new-type>\n\nImplementation considerations:\n- Validate type transitions (e.g., converting epic with children?)\n- Update filename to reflect new type short code\n- Update issue_type field\n- Create jj change describing the conversion",
+  "status": "done",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T05:14:02.782509084Z",
+  "updated_at": "2026-01-11T05:19:18.090945739Z"
+}

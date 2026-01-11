@@ -79,6 +79,10 @@
     {
       "id": "ad694828-0e78-48ce-aa78-950c531d990d",
       "file_name": "epic-ad694828-navigation-and-project-visibility-epic.json"
+    },
+    {
+      "id": "b9713e50-ca71-42b3-89b4-aec4901411f2",
+      "file_name": "uc-b9713e50-add-command-to-change-issue-type.json"
     }
   ]
 }
