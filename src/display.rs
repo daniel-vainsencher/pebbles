@@ -1,5 +1,7 @@
 use colored::*;
 use crate::models::{Issue, IssueType, RelationType, Status};
+use std::collections::HashMap;
+use uuid::Uuid;
 
 pub fn print_issue_list(issues: &[Issue]) {
     if issues.is_empty() {
@@ -36,7 +38,7 @@ pub fn print_issue_list(issues: &[Issue]) {
     }
 }
 
-pub fn print_issue_detail(issue: &Issue) {
+pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>) {
     let status_str = match issue.status {
         Status::Todo => "TODO".yellow(),
         Status::InProgress => "IN PROGRESS".blue(),
@@ -51,15 +53,15 @@ pub fn print_issue_detail(issue: &Issue) {
     println!("{}: {}", "Title".bold(), issue.title);
     println!("{}: {}", "Type".bold(), type_str.cyan());
     println!("{}: {}", "Status".bold(), status_str);
-    
+
     if let Some(desc) = &issue.description {
         println!("{}: {}", "Description".bold(), desc);
     }
-    
+
     if !issue.tags.is_empty() {
         println!("{}: {}", "Tags".bold(), issue.tags.join(", "));
     }
-    
+
     if !issue.relationships.is_empty() {
         println!("\n{}", "Relationships:".bold());
         for rel in &issue.relationships {
@@ -68,7 +70,13 @@ pub fn print_issue_detail(issue: &Issue) {
                 RelationType::RequiredFor => "required for",
                 RelationType::ScheduledBefore => "scheduled before",
             };
-            println!("  {} {}", rel_str.dimmed(), rel.target_id.to_string()[..8].to_string().cyan());
+            let id_display = rel.target_id.to_string()[..8].to_string().cyan();
+
+            if let Some(title) = related_titles.get(&rel.target_id) {
+                println!("  {} {} ({})", rel_str.dimmed(), id_display, title.bold());
+            } else {
+                println!("  {} {}", rel_str.dimmed(), id_display);
+            }
         }
     }
 

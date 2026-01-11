@@ -26,7 +26,8 @@ fn main() -> Result<()> {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             let issue = ops.create(title, description, issue_type)?;
             println!("✓ Created issue {}", issue.short_id());
-            print_issue_detail(&issue);
+            let related_titles = ops.get_related_titles(&issue);
+            print_issue_detail(&issue, &related_titles);
         }
 
         Commands::List { status, issue_type } => {
@@ -46,22 +47,25 @@ fn main() -> Result<()> {
 
         Commands::Show { id } => {
             let issue = ops.show(&id)?;
-            print_issue_detail(&issue);
+            let related_titles = ops.get_related_titles(&issue);
+            print_issue_detail(&issue, &related_titles);
         }
 
         Commands::Status { id, status } => {
             let new_status = status.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             ops.update_status(&id, new_status)?;
             let issue = ops.show(&id)?;
+            let related_titles = ops.get_related_titles(&issue);
             println!("✓ Updated issue status");
-            print_issue_detail(&issue);
+            print_issue_detail(&issue, &related_titles);
         }
 
         Commands::Update { id, title, description } => {
             ops.update(&id, title, description)?;
             let issue = ops.show(&id)?;
+            let related_titles = ops.get_related_titles(&issue);
             println!("✓ Updated issue");
-            print_issue_detail(&issue);
+            print_issue_detail(&issue, &related_titles);
         }
 
         Commands::Delete { id } => {

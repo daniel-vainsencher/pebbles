@@ -1,5 +1,6 @@
 use anyhow::{Context, Result, bail};
 use std::path::Path;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::models::{Issue, IssueType, RelationType, Status};
@@ -196,10 +197,20 @@ impl Operations {
         Ok(())
     }
 
+    pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
+        let mut titles = HashMap::new();
+        for rel in &issue.relationships {
+            if let Ok(related_issue) = self.storage.load_issue(&rel.target_id) {
+                titles.insert(rel.target_id, related_issue.title);
+            }
+        }
+        titles
+    }
+
     fn resolve_id(&self, id_str: &str) -> Result<Uuid> {
         let index = self.storage.load_index()?;
         let all_ids = index.all_ids();
-        
+
         if let Ok(uuid) = Uuid::parse_str(id_str) {
             if all_ids.contains(&uuid) {
                 return Ok(uuid);
