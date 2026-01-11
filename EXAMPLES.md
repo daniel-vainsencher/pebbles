@@ -283,10 +283,10 @@ pebbles list --status todo | wc -l
 pebbles list --status done | wc -l
 
 # Search titles (using raw JSON)
-grep -r "authentication" .beads/issues/
+grep -r "authentication" .pebbles/issues/
 
 # Get oldest issue
-ls -lt .beads/issues/*.json | tail -1
+ls -lt .pebbles/issues/*.json | tail -1
 ```
 
 ### Scripting

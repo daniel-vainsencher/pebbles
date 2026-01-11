@@ -6,19 +6,19 @@ use uuid::Uuid;
 use crate::models::{Index, Issue};
 
 pub struct Storage {
-    beads_dir: PathBuf,
+    pebbles_dir: PathBuf,
     issues_dir: PathBuf,
     index_path: PathBuf,
 }
 
 impl Storage {
     pub fn new(repo_path: &Path) -> Result<Self> {
-        let beads_dir = repo_path.join(".beads");
-        let issues_dir = beads_dir.join("issues");
-        let index_path = beads_dir.join("index.json");
+        let pebbles_dir = repo_path.join(".pebbles");
+        let issues_dir = pebbles_dir.join("issues");
+        let index_path = pebbles_dir.join("index.json");
 
         Ok(Self {
-            beads_dir,
+            pebbles_dir,
             issues_dir,
             index_path,
         })
@@ -26,7 +26,7 @@ impl Storage {
 
     pub fn init(&self) -> Result<()> {
         fs::create_dir_all(&self.issues_dir)
-            .context("Failed to create .beads/issues directory")?;
+            .context("Failed to create .pebbles/issues directory")?;
 
         if !self.index_path.exists() {
             let index = Index::new();
@@ -37,7 +37,7 @@ impl Storage {
     }
 
     pub fn exists(&self) -> bool {
-        self.beads_dir.exists() && self.index_path.exists()
+        self.pebbles_dir.exists() && self.index_path.exists()
     }
 
     fn issue_path(&self, file_name: &str) -> PathBuf {

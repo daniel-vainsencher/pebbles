@@ -8,7 +8,7 @@ Pebbles is now a fully-functional, rock-solid issue management tool built on Juj
 
 ### Core Architecture (v0.1.0)
 - **Rust-based CLI** using clap for parsing
-- **JSON storage** in `.beads/` directory
+- **JSON storage** in `.pebbles/` directory
 - **Jujutsu integration** for version control
 - **CRUD operations** for issues
 - **Short ID support** for easy reference
@@ -46,7 +46,7 @@ pebbles/
 ├── SUMMARY.md           # This file
 └── LICENSE              # MIT license
 
-.beads/
+.pebbles/
 ├── index.json           # Issue metadata (id → filename mapping)
 └── issues/
     ├── bug-a1b2c3d4-login-button-broken.json

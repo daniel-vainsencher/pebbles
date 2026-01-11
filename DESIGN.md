@@ -109,7 +109,7 @@ Why not embedded in issues?
 ### File Layout
 
 ```
-.beads/
+.pebbles/
 ├── index.json           # Index of all issues
 └── issues/
     ├── <uuid1>.json

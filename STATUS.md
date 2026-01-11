@@ -11,7 +11,7 @@
 - [x] Jujutsu (jj) integration layer  
 - [x] Basic CRUD operations
 - [x] Simple CLI interface
-- [x] JSON storage in `.beads/` directory
+- [x] JSON storage in `.pebbles/` directory
 - [x] Status tracking (todo, in_progress, done)
 - [x] Short ID support
 - [x] Colored terminal output

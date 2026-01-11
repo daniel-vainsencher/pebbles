@@ -12,7 +12,7 @@
 - [x] Jujutsu (jj) integration layer
 - [x] Basic CRUD operations for issues
 - [x] Simple CLI with clap
-- [x] JSON-based storage in `.beads/` directory
+- [x] JSON-based storage in `.pebbles/` directory
 - [x] Status tracking (todo, in_progress, done)
 - [x] Short ID support
 - [x] Colored terminal output
@@ -67,7 +67,7 @@ pub struct Issue {
 ### File Structure
 
 ```
-.beads/
+.pebbles/
 ├── index.json                              # Metadata: id → filename mapping
 └── issues/
     ├── bug-7355bfc7-login-button-broken.json
@@ -282,7 +282,7 @@ pebbles new "Epic" --issue-type epic                  # ✅ Creates epic-xxx-slu
 pebbles list                                          # ✅ Shows colored types
 pebbles link <bug-id> part_of <epic-id>               # ✅ Adds relationship
 pebbles show <bug-id>                                 # ✅ Shows relationships
-ls .beads/issues/                                     # ✅ Meaningful filenames
+ls .pebbles/issues/                                     # ✅ Meaningful filenames
 jj log                                                # ✅ Descriptive commit messages
 ```
 

@@ -56,7 +56,7 @@
 │                      Jujutsu Repository                          │
 │  ┌───────────────────────────────────────────────────────────┐  │
 │  │  .jj/                 (version control metadata)           │  │
-│  │  .beads/                                                   │  │
+│  │  .pebbles/                                                   │  │
 │  │  ├── index.json      (issue metadata: id → filename)      │  │
 │  │  └── issues/                                               │  │
 │  │      ├── bug-a1b2c3d4-login-broken.json                   │  │

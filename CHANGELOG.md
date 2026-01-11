@@ -67,7 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Short ID support (8 characters)
 - Status filtering
 - Colored terminal output
-- JSON-based storage in `.beads/` directory
+- JSON-based storage in `.pebbles/` directory
 - Simple CLI with clap
 - Tag support
 - Dependency tracking (simple UUID list)

@@ -12,7 +12,7 @@ Pebbles is designed to be:
 
 Unlike traditional issue trackers that mix sqlite, jsonl, and git in fragile ways, Pebbles keeps it simple:
 - Issues are stored as individual JSON files with meaningful names: `bug-a1b2c3d4-login-broken.json`
-- An index tracks metadata in `.beads/index.json`
+- An index tracks metadata in `.pebbles/index.json`
 - Everything is versioned naturally by jj
 - No database drama, no complex migrations, no data corruption
 
@@ -65,7 +65,7 @@ pebbles init
 
 This will:
 - Initialize a jj repository (if not already present)
-- Create the `.beads/` directory structure
+- Create the `.pebbles/` directory structure
 - Set up the issue index
 
 ### Create a new issue
@@ -215,7 +215,7 @@ pebbles/
 │   └── display.rs       # Pretty-printing for terminal output
 └── Cargo.toml
 
-.beads/
+.pebbles/
 ├── index.json                                      # Issue metadata (id → filename)
 └── issues/
     ├── bug-a1b2c3d4-login-button-broken.json       # Bugs with 'bug-' prefix

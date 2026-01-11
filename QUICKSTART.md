@@ -140,8 +140,8 @@ pebbles status a1b2 done
 Issues are just JSON files:
 
 ```bash
-ls .beads/issues/
-cat .beads/issues/bug-a1b2c3d4-login-broken.json
+ls .pebbles/issues/
+cat .pebbles/issues/bug-a1b2c3d4-login-broken.json
 ```
 
 ### Check jj History
@@ -156,9 +156,9 @@ jj show
 ### Grep for Issues
 
 ```bash
-grep -r "authentication" .beads/issues/
-ls .beads/issues/bug-*     # All bugs
-ls .beads/issues/epic-*    # All epics
+grep -r "authentication" .pebbles/issues/
+ls .pebbles/issues/bug-*     # All bugs
+ls .pebbles/issues/epic-*    # All epics
 ```
 
 ## Example Workflow
@@ -297,7 +297,7 @@ pebbles link <bug-id> part_of <epic-id>
 ```
 your-project/
 ├── .jj/                  # Jujutsu repository
-└── .beads/
+└── .pebbles/
     ├── index.json        # Issue metadata
     └── issues/
         ├── bug-a1b2c3d4-login-broken.json
