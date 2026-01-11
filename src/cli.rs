@@ -99,4 +99,13 @@ pub enum Commands {
 
     #[command(about = "Show actionable TODO issues with no blockers")]
     Next,
+
+    #[command(about = "Convert an issue to a different type")]
+    Convert {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(help = "New issue type (bug, ux_problem, usecase, design, validation, epic, milestone)")]
+        new_type: String,
+    },
 }

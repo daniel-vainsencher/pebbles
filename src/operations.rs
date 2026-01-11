@@ -258,6 +258,51 @@ impl Operations {
         Ok(unblocked_issues)
     }
 
+    pub fn convert(&self, id: &str, new_type: IssueType) -> Result<()> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let uuid = self.resolve_id(id)?;
+        let mut issue = self.storage.load_issue(&uuid)?;
+
+        let old_type = issue.issue_type.clone();
+
+        // Validate conversion
+        if old_type == IssueType::Epic && new_type != IssueType::Epic {
+            // Check if this epic has children
+            let all_issues = self.storage.load_all_issues()?;
+            let has_children = all_issues.iter().any(|i| {
+                i.relationships.iter().any(|rel| {
+                    rel.relation_type == RelationType::PartOf && rel.target_id == uuid
+                })
+            });
+
+            if has_children {
+                bail!("Cannot convert epic with child issues to a different type. Remove child relationships first.");
+            }
+        }
+
+        if new_type == IssueType::Epic && old_type != IssueType::Epic {
+            // Check if this issue is part of an epic
+            if issue.relationships.iter().any(|rel| rel.relation_type == RelationType::PartOf) {
+                bail!("Cannot convert an issue that is part of an epic into an epic itself. Remove part_of relationships first.");
+            }
+        }
+
+        issue.issue_type = new_type;
+        issue.update();
+
+        let mut index = self.storage.load_index()?;
+        self.storage.save_issue(&issue, &mut index)?;
+        self.storage.save_index(&index)?;
+
+        self.jj.describe(&format!("Convert {}: {} → {}",
+            issue.title, old_type, issue.issue_type))?;
+
+        Ok(())
+    }
+
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
         let mut titles = HashMap::new();
         for rel in &issue.relationships {

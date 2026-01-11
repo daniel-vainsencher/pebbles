@@ -94,6 +94,15 @@ fn main() -> Result<()> {
             let issues = ops.next()?;
             print_issue_list(&issues);
         }
+
+        Commands::Convert { id, new_type } => {
+            let new_type_parsed = new_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            ops.convert(&id, new_type_parsed)?;
+            let issue = ops.show(&id)?;
+            let related_titles = ops.get_related_titles(&issue);
+            println!("✓ Converted issue type");
+            print_issue_detail(&issue, &related_titles);
+        }
     }
 
     Ok(())
