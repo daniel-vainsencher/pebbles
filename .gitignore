@@ -17,3 +17,7 @@ Thumbs.db
 
 # Test data
 test-repos/
+
+# vtcode (Claude Code internal files)
+.vtcode/
+vtcode.toml
