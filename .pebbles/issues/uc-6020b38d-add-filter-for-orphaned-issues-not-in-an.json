@@ -2,7 +2,7 @@
   "id": "6020b38d-624a-4865-a81e-95af0d80ad34",
   "title": "Add filter for orphaned issues (not in any epic)",
   "description": "Add filter flag to find issues that could be part of an epic but aren't:\n\nUsage:\n  pebbles list --orphaned\n\nShows issues where:\n- Issue type can_be_part_of_epic() returns true\n- No part_of relationship exists\n- At least one epic exists in the project\n\nBenefits:\n- Find issues that should be organized\n- Clean up project structure\n- Ensure all work is tracked in epics\n\nCould combine with --issue-type to find specific orphans:\n  pebbles list --orphaned --issue-type bug",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:07:51.891219336Z",
-  "updated_at": "2026-01-11T03:09:56.911065449Z"
+  "updated_at": "2026-01-11T12:30:01.876503539Z"
 }
