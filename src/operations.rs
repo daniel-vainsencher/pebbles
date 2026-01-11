@@ -7,6 +7,14 @@ use crate::models::{Issue, IssueType, RelationType, Status};
 use crate::storage::Storage;
 use crate::jj::JJ;
 
+pub struct ProjectSummary {
+    pub total_issues: usize,
+    pub by_status: HashMap<Status, usize>,
+    pub by_type: HashMap<IssueType, usize>,
+    pub epics: Vec<(Issue, usize, usize)>, // (epic, total_children, done_children)
+    pub actionable_count: usize,
+}
+
 pub struct Operations {
     storage: Storage,
     jj: JJ,
@@ -301,6 +309,63 @@ impl Operations {
             issue.title, old_type, issue.issue_type))?;
 
         Ok(())
+    }
+
+    pub fn summary(&self) -> Result<ProjectSummary> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let all_issues = self.storage.load_all_issues()?;
+        let total_issues = all_issues.len();
+
+        // Count by status
+        let mut by_status: HashMap<Status, usize> = HashMap::new();
+        for issue in &all_issues {
+            *by_status.entry(issue.status.clone()).or_insert(0) += 1;
+        }
+
+        // Count by type
+        let mut by_type: HashMap<IssueType, usize> = HashMap::new();
+        for issue in &all_issues {
+            *by_type.entry(issue.issue_type.clone()).or_insert(0) += 1;
+        }
+
+        // Gather epic info
+        let epics: Vec<Issue> = all_issues
+            .iter()
+            .filter(|i| i.issue_type == IssueType::Epic)
+            .cloned()
+            .collect();
+
+        let mut epic_info = Vec::new();
+        for epic in epics {
+            let children: Vec<&Issue> = all_issues
+                .iter()
+                .filter(|issue| {
+                    issue.relationships.iter().any(|rel| {
+                        rel.relation_type == RelationType::PartOf && rel.target_id == epic.id
+                    })
+                })
+                .collect();
+
+            let total_children = children.len();
+            let done_children = children.iter().filter(|i| i.status == Status::Done).count();
+
+            epic_info.push((epic, total_children, done_children));
+        }
+
+        // Count actionable issues
+        let actionable = self.next()?;
+        let actionable_count = actionable.len();
+
+        Ok(ProjectSummary {
+            total_issues,
+            by_status,
+            by_type,
+            epics: epic_info,
+            actionable_count,
+        })
     }
 
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {

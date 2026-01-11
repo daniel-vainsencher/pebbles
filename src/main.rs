@@ -8,7 +8,7 @@ mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use display::{print_epic_view, print_issue_detail, print_issue_list, print_issue_tree};
+use display::{print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary};
 use operations::Operations;
 use std::env;
 
@@ -116,6 +116,11 @@ fn main() -> Result<()> {
             let related_titles = ops.get_related_titles(&issue);
             println!("✓ Converted issue type");
             print_issue_detail(&issue, &related_titles);
+        }
+
+        Commands::Summary => {
+            let summary = ops.summary()?;
+            print_summary(&summary);
         }
     }
 

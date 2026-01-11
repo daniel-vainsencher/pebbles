@@ -114,4 +114,7 @@ pub enum Commands {
         #[arg(help = "New issue type (bug, ux_problem, usecase, design, validation, epic, milestone)")]
         new_type: String,
     },
+
+    #[command(about = "Show project summary and statistics")]
+    Summary,
 }

@@ -1,5 +1,6 @@
 use colored::*;
 use crate::models::{Issue, IssueType, RelationType, Status};
+use crate::operations::ProjectSummary;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -318,5 +319,98 @@ pub fn print_issue_tree(issues: &[Issue]) {
                 issue.title.bold()
             );
         }
+    }
+}
+
+pub fn print_summary(summary: &ProjectSummary) {
+    println!("{}", "═".repeat(60).bold());
+    println!("{}", "Project Overview".bold());
+    println!("{}", "═".repeat(60).bold());
+    println!();
+
+    println!("{}: {}", "Total issues".bold(), summary.total_issues);
+    println!();
+
+    // By Status
+    println!("{}:", "By Status".bold());
+    let statuses = [Status::Todo, Status::InProgress, Status::Blocked, Status::Done];
+    for status in &statuses {
+        let count = summary.by_status.get(status).unwrap_or(&0);
+        let percentage = if summary.total_issues > 0 {
+            (*count as f32 / summary.total_issues as f32 * 100.0) as usize
+        } else {
+            0
+        };
+
+        let status_str = match status {
+            Status::Todo => "TODO".yellow(),
+            Status::InProgress => "IN PROGRESS".blue(),
+            Status::Done => "DONE".green(),
+            Status::Blocked => "BLOCKED".red(),
+        };
+
+        println!("  {}: {} ({}%)", status_str, count, percentage);
+    }
+    println!();
+
+    // By Type
+    println!("{}:", "By Type".bold());
+    let types = [
+        IssueType::Bug,
+        IssueType::UxProblem,
+        IssueType::Usecase,
+        IssueType::Design,
+        IssueType::Validation,
+        IssueType::Epic,
+        IssueType::Milestone,
+    ];
+    for issue_type in &types {
+        if let Some(count) = summary.by_type.get(issue_type) {
+            if *count > 0 {
+                let type_str = match issue_type {
+                    IssueType::Bug => "Bugs".red(),
+                    IssueType::UxProblem => "UX Problems".magenta(),
+                    IssueType::Usecase => "Usecases".cyan(),
+                    IssueType::Design => "Design".blue(),
+                    IssueType::Validation => "Validation".green(),
+                    IssueType::Epic => "Epics".yellow().bold(),
+                    IssueType::Milestone => "Milestones".yellow().bold(),
+                };
+                println!("  {}: {}", type_str, count);
+            }
+        }
+    }
+    println!();
+
+    // Epics
+    if !summary.epics.is_empty() {
+        println!("{}: {} total", "Epics".bold(), summary.epics.len());
+        for (epic, total, done) in &summary.epics {
+            let progress = if *total > 0 {
+                (*done as f32 / *total as f32 * 100.0) as usize
+            } else {
+                100
+            };
+
+            let progress_str = if *done == *total && *total > 0 {
+                format!("✓ {}/{} ({}%)", done, total, progress).green()
+            } else {
+                format!("{}/{} ({}%)", done, total, progress).dimmed()
+            };
+
+            println!("  {} {}", epic.title.bold(), progress_str);
+        }
+        println!();
+    }
+
+    // Actionable
+    if summary.actionable_count > 0 {
+        println!(
+            "{}: {} (use 'pebbles next' to see)",
+            "Ready to work on".bold().green(),
+            summary.actionable_count
+        );
+    } else {
+        println!("{}", "No actionable issues (all are blocked or done)".dimmed());
     }
 }
