@@ -83,6 +83,26 @@
     {
       "id": "b9713e50-ca71-42b3-89b4-aec4901411f2",
       "file_name": "uc-b9713e50-add-command-to-change-issue-type.json"
+    },
+    {
+      "id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e",
+      "file_name": "epic-1ac3f79e-testability-and-testing-epic.json"
+    },
+    {
+      "id": "93448301-6702-42fc-8283-2ac6ee6e0465",
+      "file_name": "des-93448301-review-system-design-for-testability.json"
+    },
+    {
+      "id": "fddb76e9-f7f0-4074-9c41-e192fc1d0f71",
+      "file_name": "uc-fddb76e9-implement-test-mode-with-fake-database.json"
+    },
+    {
+      "id": "82bb6db4-d9c2-4c2d-bfae-ebd96f8a9e72",
+      "file_name": "des-82bb6db4-design-e2e-testing-strategy-that-documen.json"
+    },
+    {
+      "id": "1469ef6e-3b29-421e-a2e1-0cddef7d0a26",
+      "file_name": "des-1469ef6e-spike-validate-trycmd-for-cli-testing.json"
     }
   ]
 }

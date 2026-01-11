@@ -1,0 +1,17 @@
+{
+  "id": "fddb76e9-f7f0-4074-9c41-e192fc1d0f71",
+  "title": "Implement test mode with fake database",
+  "description": "Add a test/fake mode that redirects pebbles to use an in-memory or temporary database instead of .pebbles directory, enabling safe testing of editing commands.\n\nUser story: As a developer, I want to test pebbles commands and scripts without affecting my real issue database, so I can validate behavior and write automated tests safely.\n\nRequirements:\n- Environment variable or CLI flag to enable test mode (e.g., PEBBLES_TEST_MODE or --test-db)\n- Test mode uses temporary directory or in-memory storage\n- Test mode clearly indicates it's active (prefix output, different prompt color, etc.)\n- Can populate test database with fixture data\n- Clean isolation between test and production data\n- Works with all commands (new, update, delete, link, etc.)\n\nBenefits:\n- Safe experimentation with commands\n- Automated test suites for pebbles itself\n- Testing of scripts that use pebbles\n- Training and demos without polluting real data\n\nImplementation ideas:\n- Storage trait with FileStorage and InMemoryStorage implementations\n- Test fixture helpers for common scenarios\n- Clear visual indicators when in test mode",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-11T14:55:00.812598709Z",
+  "updated_at": "2026-01-11T14:55:19.621194301Z"
+}

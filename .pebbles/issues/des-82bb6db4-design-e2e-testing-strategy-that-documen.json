@@ -1,0 +1,17 @@
+{
+  "id": "82bb6db4-d9c2-4c2d-bfae-ebd96f8a9e72",
+  "title": "Design E2E testing strategy that documents behavior",
+  "description": "Create a plan for end-to-end testing that serves as living documentation without duplicating code or docs.\n\nChallenge: We want comprehensive E2E tests that:\n1. Verify complete workflows (init, create, update, link, etc.)\n2. Document expected behavior for users and contributors\n3. Don't duplicate information already in README or code\n4. Are maintainable and not brittle\n5. Run fast enough to run on every commit\n\nApproaches to evaluate:\n- Integration tests using cargo test with test fixtures\n- Snapshot testing (e.g., insta crate) for output verification\n- Example-based tests that show typical workflows\n- Property-based testing (proptest) for edge cases\n- Testing against real jj repository or mocked jj\n- Testing CLI directly vs testing Operations/Storage layers\n\nDocumentation strategy:\n- Can tests generate examples for README?\n- Can test names serve as behavior documentation?\n- Should we use BDD-style naming (given/when/then)?\n- How to keep tests and docs in sync?\n\nDeliverable: Testing strategy document that covers:\n- Test structure and organization\n- Tools and libraries to use\n- How tests serve as documentation\n- Patterns and conventions\n- Example test implementations\n- Trade-offs and decisions made",
+  "status": "todo",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-11T14:55:13.362930075Z",
+  "updated_at": "2026-01-11T14:55:19.737492213Z"
+}
