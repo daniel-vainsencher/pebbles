@@ -1,0 +1,12 @@
+{
+  "id": "33333333-3333-3333-3333-333333333333",
+  "title": "JWT token authentication system",
+  "description": "Design and implement JWT-based authentication",
+  "status": "inprogress",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-10T12:02:00Z",
+  "updated_at": "2026-01-12T06:04:52.289427672Z"
+}
