@@ -192,15 +192,23 @@ Implementation: [`Issue::update()`](src/models.rs#L170-L172)
 
 ### Jujutsu Integration
 
-Every mutating operation creates a jj change with a descriptive message:
+Every mutating operation commits the changed file to jj with a descriptive message:
 - Create: "Create {type}: {title}"
-- Update status: "Update issue {title}: {old_status} → {new_status}"
+- Update status: "Update {type} {title}: {old_status} → {new_status}"
 - Update fields: "Update {type}: {title}"
 - Delete: "Delete {type}: {title}"
 - Link: "Add relationship: {source} {relation} {target}"
 - Unlink: "Remove relationship: {source} {relation} {target}"
+- Convert type: "Convert {title}: {old_type} → {new_type}"
 
-Implementation: [`JJ::describe()`](src/jj.rs)
+Each operation runs `jj commit -m "<message>" <file>` which:
+- Commits only the specific file that changed
+- Creates a new working copy for subsequent operations
+- Preserves a clear history of individual changes
+
+Implementation: [`JJ::commit()`](src/jj.rs)
+
+**Test mode:** If a `.no_jj` marker file exists in the pebbles directory, all jj operations are skipped. This enables safe testing without requiring a jj repository.
 
 ## Extension Points
 
