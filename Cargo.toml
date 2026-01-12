@@ -18,3 +18,6 @@ slug = "0.1"
 fuzzy-matcher = "0.3"
 ratatui = "0.29"
 crossterm = "0.29"
+
+[dev-dependencies]
+trycmd = "0.15"

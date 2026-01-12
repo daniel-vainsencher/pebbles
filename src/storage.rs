@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -13,7 +14,12 @@ pub struct Storage {
 
 impl Storage {
     pub fn new(repo_path: &Path) -> Result<Self> {
-        let pebbles_dir = repo_path.join(".pebbles");
+        // Allow overriding pebbles directory via environment variable (for testing)
+        let pebbles_dir = if let Ok(custom_path) = env::var("PEBBLES_DB_PATH") {
+            PathBuf::from(custom_path)
+        } else {
+            repo_path.join(".pebbles")
+        };
         let issues_dir = pebbles_dir.join("issues");
         let index_path = pebbles_dir.join("index.json");
 
@@ -40,8 +46,12 @@ impl Storage {
         self.pebbles_dir.exists() && self.index_path.exists()
     }
 
-    fn issue_path(&self, file_name: &str) -> PathBuf {
+    pub fn issue_path(&self, file_name: &str) -> PathBuf {
         self.issues_dir.join(file_name)
+    }
+
+    pub fn index_path(&self) -> &PathBuf {
+        &self.index_path
     }
 
     pub fn load_index(&self) -> Result<Index> {

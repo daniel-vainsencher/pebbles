@@ -38,7 +38,7 @@ impl Operations {
         }
 
         self.storage.init().context("Failed to initialize pebbles storage")?;
-        self.jj.describe("Initialize pebbles")?;
+        self.jj.commit("Initialize pebbles", self.storage.index_path())?;
 
         println!("✓ Pebbles initialized successfully");
         Ok(())
@@ -50,12 +50,13 @@ impl Operations {
         }
 
         let issue = Issue::new(title, description, issue_type);
-        
+
         let mut index = self.storage.load_index()?;
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
-        
-        self.jj.describe(&format!("Create {}: {}", issue.issue_type, issue.title))?;
+
+        let issue_path = self.storage.issue_path(&issue.file_name());
+        self.jj.commit(&format!("Create {}: {}", issue.issue_type, issue.title), &issue_path)?;
 
         Ok(issue)
     }
@@ -104,9 +105,10 @@ impl Operations {
         let mut index = self.storage.load_index()?;
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
-        
-        self.jj.describe(&format!("Update {} {}: {} -> {}", 
-            issue.issue_type, issue.title, old_status, issue.status))?;
+
+        let issue_path = self.storage.issue_path(&issue.file_name());
+        self.jj.commit(&format!("Update {} {}: {} -> {}",
+            issue.issue_type, issue.title, old_status, issue.status), &issue_path)?;
 
         Ok(())
     }
@@ -132,8 +134,9 @@ impl Operations {
         let mut index = self.storage.load_index()?;
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
-        
-        self.jj.describe(&format!("Update {}: {}", issue.issue_type, issue.title))?;
+
+        let issue_path = self.storage.issue_path(&issue.file_name());
+        self.jj.commit(&format!("Update {}: {}", issue.issue_type, issue.title), &issue_path)?;
 
         Ok(())
     }
@@ -145,13 +148,14 @@ impl Operations {
 
         let uuid = self.resolve_id(id)?;
         let issue = self.storage.load_issue(&uuid)?;
-        
+        let issue_path = self.storage.issue_path(&issue.file_name());
+
         let mut index = self.storage.load_index()?;
         self.storage.delete_issue(&uuid, &index)?;
         index.remove(&uuid);
         self.storage.save_index(&index)?;
-        
-        self.jj.describe(&format!("Delete {}: {}", issue.issue_type, issue.title))?;
+
+        self.jj.commit(&format!("Delete {}: {}", issue.issue_type, issue.title), &issue_path)?;
 
         Ok(())
     }
@@ -175,8 +179,9 @@ impl Operations {
         self.storage.save_issue(&source_issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        self.jj.describe(&format!("Add relationship: {} {} {}",
-            source_issue.title, relation_type, target_issue.title))?;
+        let issue_path = self.storage.issue_path(&source_issue.file_name());
+        self.jj.commit(&format!("Add relationship: {} {} {}",
+            source_issue.title, relation_type, target_issue.title), &issue_path)?;
 
         Ok(())
     }
@@ -199,8 +204,9 @@ impl Operations {
         self.storage.save_issue(&source_issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        self.jj.describe(&format!("Remove relationship: {} {} <target>",
-            source_issue.title, relation_type))?;
+        let issue_path = self.storage.issue_path(&source_issue.file_name());
+        self.jj.commit(&format!("Remove relationship: {} {} <target>",
+            source_issue.title, relation_type), &issue_path)?;
 
         Ok(())
     }
@@ -305,8 +311,9 @@ impl Operations {
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        self.jj.describe(&format!("Convert {}: {} → {}",
-            issue.title, old_type, issue.issue_type))?;
+        let issue_path = self.storage.issue_path(&issue.file_name());
+        self.jj.commit(&format!("Convert {}: {} → {}",
+            issue.title, old_type, issue.issue_type), &issue_path)?;
 
         Ok(())
     }

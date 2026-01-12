@@ -1,16 +1,42 @@
 use anyhow::{Context, Result, bail};
-use std::path::Path;
+use std::env;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub struct JJ {
-    repo_path: std::path::PathBuf,
+    repo_path: PathBuf,
+    pebbles_path: PathBuf,
 }
 
 impl JJ {
     pub fn new(repo_path: &Path) -> Result<Self> {
+        // If PEBBLES_DB_PATH is set, use it as the pebbles directory
+        // and its parent as the repo path
+        let (pebbles_path, effective_repo_path) = if let Ok(custom_path) = env::var("PEBBLES_DB_PATH") {
+            let pebbles = PathBuf::from(&custom_path);
+            let repo = if pebbles.is_relative() {
+                repo_path.join(&pebbles).parent()
+                    .unwrap_or(repo_path)
+                    .to_path_buf()
+            } else {
+                pebbles.parent()
+                    .unwrap_or(&pebbles)
+                    .to_path_buf()
+            };
+            (pebbles, repo)
+        } else {
+            (repo_path.join(".pebbles"), repo_path.to_path_buf())
+        };
+
         Ok(Self {
-            repo_path: repo_path.to_path_buf(),
+            repo_path: effective_repo_path,
+            pebbles_path,
         })
+    }
+
+    fn should_skip_jj(&self) -> bool {
+        // Skip jj operations if .no_jj marker file exists
+        self.pebbles_path.join(".no_jj").exists()
     }
 
     pub fn is_repo(&self) -> bool {
@@ -38,18 +64,24 @@ impl JJ {
         Ok(())
     }
 
-    pub fn describe(&self, message: &str) -> Result<()> {
+    pub fn commit(&self, message: &str, file_path: &Path) -> Result<()> {
+        // Skip jj operations if .no_jj marker exists
+        if self.should_skip_jj() {
+            return Ok(());
+        }
+
         let output = Command::new("jj")
-            .arg("describe")
+            .arg("commit")
             .arg("-m")
             .arg(message)
+            .arg(file_path)
             .current_dir(&self.repo_path)
             .output()
-            .context("Failed to execute jj describe")?;
+            .context("Failed to execute jj commit")?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
-            bail!("Failed to describe changes: {}", stderr);
+            bail!("Failed to commit changes: {}", stderr);
         }
 
         Ok(())
