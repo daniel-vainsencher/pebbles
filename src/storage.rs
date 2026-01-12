@@ -67,8 +67,9 @@ impl Storage {
     }
 
     pub fn save_index(&self, index: &Index) -> Result<()> {
-        let content = serde_json::to_string_pretty(index)
+        let mut content = serde_json::to_string_pretty(index)
             .context("Failed to serialize index")?;
+        content.push('\n');
         fs::write(&self.index_path, content)
             .context("Failed to write index file")?;
         Ok(())
@@ -106,8 +107,9 @@ impl Storage {
         }
 
         let path = self.issue_path(&new_file_name);
-        let content = serde_json::to_string_pretty(issue)
+        let mut content = serde_json::to_string_pretty(issue)
             .context("Failed to serialize issue")?;
+        content.push('\n');
         fs::write(&path, content)
             .with_context(|| format!("Failed to write issue file: {}", new_file_name))?;
         
