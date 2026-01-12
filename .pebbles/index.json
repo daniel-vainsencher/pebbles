@@ -103,6 +103,14 @@
     {
       "id": "1469ef6e-3b29-421e-a2e1-0cddef7d0a26",
       "file_name": "des-1469ef6e-spike-validate-trycmd-for-cli-testing.json"
+    },
+    {
+      "id": "46c27882-8b4f-43ab-a933-bc8e7260eb6e",
+      "file_name": "uc-46c27882-create-readme-workflow-examples-as-tests.json"
+    },
+    {
+      "id": "9a5550ae-c727-4de6-b4a5-2b09316a2726",
+      "file_name": "uc-9a5550ae-update-spec-to-reference-readme-and-test.json"
     }
   ]
 }
