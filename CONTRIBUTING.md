@@ -225,10 +225,67 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 
 ### Testing
 
+Pebbles uses [trycmd](https://docs.rs/trycmd/) for CLI testing. Tests are written in markdown files that serve dual purposes: verification and documentation.
+
+**Running tests:**
+```bash
+# Run all tests
+cargo test
+
+# Run only CLI tests
+cargo test --test cli_tests
+
+# Generate snapshots for new tests
+TRYCMD=dump cargo test --test cli_tests
+
+# Update snapshots after intentional changes
+TRYCMD=overwrite cargo test --test cli_tests
+```
+
+**Test organization:**
+```
+tests/
+├── cli_tests.rs          # Test runner
+├── workflows/            # End-to-end scenarios
+├── commands/             # Per-command verification
+└── cmd/                  # Test fixtures
+    └── test-name.in/     # Initial state
+    └── test-name.out/    # Expected final state
+    └── test-name.trycmd  # Test commands
+```
+
+**Writing tests:**
+
+Tests use console code blocks with command/output pairs:
+
+```markdown
+\`\`\`console
+$ pebbles new "Issue title" --issue-type bug
+✓ Created issue [..]
+...
+\`\`\`
+```
+
+- `[..]` - Matches any text on that line (for dynamic content like IDs, timestamps)
+- `...` - Matches any number of lines (for eliding verbose output)
+- Commands run in isolated temp directories copied from `.in/` fixtures
+- `.out/` directories verify final filesystem state
+
+**Test fixtures:**
+
+Test databases need a `.no_jj` marker file to skip jj operations:
+```bash
+tests/cmd/my-test.in/.pebbles/.no_jj
+```
+
+Set `PEBBLES_DB_PATH=.pebbles` in test commands to use the fixture database.
+
+**Guidelines:**
 - Add tests for new functionality
 - Test edge cases and error conditions
-- Use descriptive test names
 - Keep tests focused on one behavior
+- Use descriptive test file names
+- Elide non-critical output with `...` for readability
 
 ### Adding New Features
 
@@ -336,10 +393,35 @@ Implementation: [`Issue::file_name()`](src/models.rs#L178-L186)
 
 ### 4. Documentation Structure
 
-- **README.md** - What is it, why use it, how to get started, basic usage
-- **ARCHITECTURE.md** - Design philosophy, system architecture, key decisions
-- **SPEC.md** - Data model, file formats, behavior specifications
-- **CONTRIBUTING.md** - Development guide, workflow, documentation rules (this file)
+Pebbles uses a layered approach where documentation and tests reinforce each other:
+
+**README.md** - Getting started guide with working examples
+- What pebbles is and why use it
+- Installation and quick start
+- Core workflow examples (init, create, list, link, etc.)
+- Examples are tested via trycmd but heavily elided for readability
+- Use `...` to skip verbose output, show only what's relevant
+
+**SPEC.md** - Precise technical reference
+- Data model, file formats, validation rules
+- Command specifications and behavior
+- References tests for examples: "See [test](tests/workflows/example.trycmd)"
+- Does not duplicate test output, just links to it
+
+**ARCHITECTURE.md** - Design philosophy and system architecture
+- Why decisions were made, not what they are (that's in SPEC)
+- System architecture, module responsibilities
+- Extension points and design trade-offs
+
+**CONTRIBUTING.md** - Development guide (this file)
+- How to build, test, and contribute
+- Code style, testing approach, documentation rules
+- Workflow for adding features
+
+**tests/** - Comprehensive verification
+- Complete command output for verification (not optimized for reading)
+- Tests double as executable documentation
+- Organized by purpose: workflows/, commands/, edge-cases/
 
 ### 5. Updating Documentation
 
