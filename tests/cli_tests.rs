@@ -2,5 +2,6 @@
 fn cli_tests() {
     trycmd::TestCases::new()
         .case("tests/cmd/*.trycmd")
-        .case("tests/cmd/*.toml");
+        .case("tests/cmd/*.toml")
+        .case("tests/workflows/*.trycmd");
 }
