@@ -2,7 +2,7 @@
   "id": "9a5550ae-c727-4de6-b4a5-2b09316a2726",
   "title": "Update SPEC to reference README and test examples",
   "description": "Update SPEC.md to follow the layered documentation approach: reference examples rather than duplicate them.\n\n## Changes Needed\n\n### CLI Interface Section\n\nCurrently says \"The complete CLI specification is defined in src/cli.rs\" but doesn't link to examples.\n\nUpdate to:\n- Brief description of each command\n- Link to README example: \"Example: [Quick Start](README.md#quick-start)\"\n- Link to comprehensive test: \"See [test](tests/workflows/readme-example.trycmd)\"\n- Don't duplicate command output\n\n### Jujutsu Integration Section\n\nAlready updated with correct behavior, but should reference examples showing it in action.\n\n### Other Sections\n\nReview each section for opportunities to link rather than duplicate:\n- File renaming behavior → link to test showing it\n- Relationship validation → link to test showing constraint errors\n- ID resolution → link to test showing prefix matching\n\n## Format\n\n**Before (duplicative):**\n```markdown\n### new Command\n\nCreates a new issue with title and optional description.\nOutput shows full issue details including ID, title, type...\n[full output shown]\n```\n\n**After (referential):**\n```markdown\n### new Command\n\nSyntax: `pebbles new <title> [options]`\n\nCreates issue and commits to jj. Returns created issue.\n\nExample: [Quick Start](README.md#quick-start)\nTest coverage: [workflows/readme-example.trycmd](tests/workflows/readme-example.trycmd)\n```\n\n## Success Criteria\n\n- SPEC references examples, doesn't duplicate them\n- All major commands have example links\n- No duplicate console output in SPEC\n- SPEC remains accurate technical reference",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-12T05:10:13.691404575Z",
-  "updated_at": "2026-01-12T05:10:18.549593244Z"
+  "updated_at": "2026-01-13T05:55:10.795101785Z"
 }
