@@ -1,8 +1,8 @@
 {
   "id": "fddb76e9-f7f0-4074-9c41-e192fc1d0f71",
   "title": "Implement test mode with fake database",
-  "description": "Add a test/fake mode that redirects pebbles to use an in-memory or temporary database instead of .pebbles directory, enabling safe testing of editing commands.\n\nUser story: As a developer, I want to test pebbles commands and scripts without affecting my real issue database, so I can validate behavior and write automated tests safely.\n\nRequirements:\n- Environment variable or CLI flag to enable test mode (e.g., PEBBLES_TEST_MODE or --test-db)\n- Test mode uses temporary directory or in-memory storage\n- Test mode clearly indicates it's active (prefix output, different prompt color, etc.)\n- Can populate test database with fixture data\n- Clean isolation between test and production data\n- Works with all commands (new, update, delete, link, etc.)\n\nBenefits:\n- Safe experimentation with commands\n- Automated test suites for pebbles itself\n- Testing of scripts that use pebbles\n- Training and demos without polluting real data\n\nImplementation ideas:\n- Storage trait with FileStorage and InMemoryStorage implementations\n- Test fixture helpers for common scenarios\n- Clear visual indicators when in test mode",
-  "status": "todo",
+  "description": "Test mode implemented via existing features.\n\n## Implementation\n\nTwo mechanisms provide safe testing without affecting real pebbles data:\n\n1. **PEBBLES_DB_PATH environment variable**\n   - Redirects pebbles to use custom database location\n   - Usage: `PEBBLES_DB_PATH=/tmp/test-db pebbles <command>`\n   - Implemented in Storage::new() (src/storage.rs:18) and JJ::new() (src/jj.rs:15)\n\n2. **.no_jj marker file**\n   - Place .no_jj file in .pebbles/ directory to skip all jj operations\n   - Prevents commits, branches, and version control operations\n   - Implemented in JJ::should_skip_jj() (src/jj.rs:37-40)\n   - Used in JJ::commit() (src/jj.rs:68) to skip when marker present\n\n## Usage Examples\n\n**Temporary test database:**\n```bash\nmkdir -p /tmp/test-pebbles/.pebbles\ntouch /tmp/test-pebbles/.pebbles/.no_jj\nPEBBLES_DB_PATH=/tmp/test-pebbles/.pebbles pebbles init\nPEBBLES_DB_PATH=/tmp/test-pebbles/.pebbles pebbles new \"Test issue\"\n```\n\n**In automated tests (trycmd):**\n- trycmd copies .in/ directory to temp directory\n- Sets CWD to temp directory\n- .no_jj marker in fixtures prevents jj operations\n- Tests run in complete isolation\n\n## Benefits Achieved\n\n✅ Safe experimentation with commands\n✅ Automated test suites for pebbles itself (tests/workflows/)\n✅ Testing of scripts that use pebbles\n✅ Training and demos without polluting real data\n✅ Clean isolation between test and production data\n✅ Works with all commands (new, update, delete, link, etc.)\n\n## Note\n\nNo visual indicator implemented for test mode (not needed for automated tests, optional for manual testing).",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T14:55:00.812598709Z",
-  "updated_at": "2026-01-11T14:55:19.621194301Z"
+  "updated_at": "2026-01-12T14:07:03.499821949Z"
 }

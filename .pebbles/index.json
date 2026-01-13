@@ -111,6 +111,10 @@
     {
       "id": "9a5550ae-c727-4de6-b4a5-2b09316a2726",
       "file_name": "uc-9a5550ae-update-spec-to-reference-readme-and-test.json"
+    },
+    {
+      "id": "a12e9fd6-5adb-4991-ba3b-358879681d71",
+      "file_name": "uc-a12e9fd6-extract-pure-logic-from-operations-for-u.json"
     }
   ]
 }
