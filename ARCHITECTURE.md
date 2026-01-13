@@ -257,6 +257,36 @@ Metadata is available in the data model but not yet exposed via CLI. Options:
 2. **Future CLI commands:** `pebbles metadata set <id> <key> <value>`
 3. **Scripts:** Use `jq` or similar to manipulate metadata
 
+### Testing Functional Core vs Imperative Shell
+
+**Question:** Does logic need to be extracted from methods?
+
+**Answer:** No - logic functions are allowed to be methods. The key testability criterion is: *can this be tested in isolation without calling effectful functions?*
+
+**Example of testable method:**
+```rust
+pub fn add_relationship(&mut self, relation_type: RelationType, target_id: Uuid) -> Result<()>
+```
+This is testable because `Issue` can be constructed directly with `Issue::new` (no I/O):
+```rust
+let mut issue = Issue::new("Test".to_string(), None, IssueType::Bug);
+let result = issue.add_relationship(RelationType::PartOf, epic_id);
+assert!(result.is_err());  // Cannot add Bug to Epic
+```
+
+**Example of method needing extraction:**
+```rust
+// NOT testable as-is because requires loading index
+fn resolve_id(&self, id_str: &str) -> Result<Uuid> {
+    let index = self.storage.load_index()?;  // I/O dependency
+    // ... pure matching logic
+}
+
+// Extract pure logic for testability
+pub fn match_id_prefix(id_str: &str, known_ids: &[Uuid]) -> Result<Uuid>
+```
+Now testable without storage.
+
 ## Security Considerations
 
 ### File System
@@ -280,18 +310,68 @@ Metadata is available in the data model but not yet exposed via CLI. Options:
 
 ## Testing Strategy
 
-Current testing approach:
-- Manual testing of all commands
-- Integration testing via real usage
-- Dogfooding (managing Pebbles development with Pebbles)
+Pebbles follows an "imperative shell, functional core" design for testing:
 
-Future testing improvements:
-- Unit tests for model validation logic
-- Integration tests for full workflows
-- Property-based testing for edge cases
-- Performance benchmarks for large repositories
+**Imperative Shell** (CLI → Operations → Storage/JJ):
+- Tested via end-to-end trycmd integration tests
+- Validates actual behavior with real file I/O
+- Tests shell orchestration (loading, saving, committing)
+- Example: Tests workflows in `tests/workflows/*.trycmd`
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for testing commands.
+**Functional Core** (pure business logic):
+- Effects are explicit in function signatures (moves, mutable borrows)
+- Tested via unit tests with simple inputs/outputs
+- Validates algorithms independent of I/O
+- Examples: ID matching, dependency checking, statistics
+
+### Testing Layers
+
+```
+┌─────────────────────────────────┐
+│   Layer 3: CLI Tests            │  trycmd - end-to-end workflows
+│   covers: shell orchestration   │
+└─────────────────────────────────┘
+         ↓
+┌─────────────────────────────────┐
+│   Layer 2: Logic Tests          │  unit tests for pure functions
+│   covers: algorithms,           │
+│            validation,          │
+│            aggregation          │
+└─────────────────────────────────┘
+         ↓
+┌─────────────────────────────────┐
+│   Layer 1: Model Tests          │  unit tests for Issue methods
+│   covers: business rules,       │
+│            invariants,          │
+│            constraints          │
+└─────────────────────────────────┘
+```
+
+### Test Examples
+
+**Model tests (src/models.rs):**
+- `Issue::add_relationship` - validation rules, duplicate prevention
+- `Issue::file_name` - slug generation, filename formatting
+- `Index` - ID to filename mapping
+
+**Logic tests (src/operations.rs):**
+- ID matching - exact UUIDs, prefix resolution, ambiguity detection
+- Dependency checking - blocked status, unblocked issues
+- Statistics aggregation - counts by status/type, epic progress
+
+**CLI tests (tests/workflows/*.trycmd):**
+- Core workflows: create, update, link, delete
+- Edge cases: validation errors, missing data
+- Integration: multiple operations together
+
+### Test Mode
+
+For integration testing without affecting real data:
+- Set `PEBBLES_DB_PATH` to custom directory
+- Create `.no_jj` marker file to skip jj operations
+- Enables safe testing of editing commands
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) and [TESTABILITY_ANALYSIS.md](TESTABILITY_ANALYSIS.md) for detailed testing guidance.
 
 ## Comparison with Alternatives
 
