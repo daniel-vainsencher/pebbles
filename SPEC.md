@@ -135,6 +135,8 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 **`part_of` relationships:**
 - Only `bug`, `ux_problem`, `usecase`, `design`, and `validation` types can be part of an epic
 - `epic` and `milestone` types cannot be part of another epic
+- Example: [Quick Start](README.md#link-issues) demonstrates `part_of` relationships
+- Test: [core-workflow](tests/workflows/core-workflow.trycmd#link-issues-to-epic) shows epic linking
 - Implementation: [`IssueType::can_be_part_of_epic()`](src/models.rs#L84-L86)
 
 **Duplicate prevention:**
@@ -147,6 +149,8 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 - Minimum 1 character, recommended 4+ characters
 - Must match exactly one issue's UUID prefix
 - Case-insensitive
+- Example: [Quick Start](README.md#view-details) shows short ID usage
+- Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details) demonstrates 8-character IDs
 - Implementation: [`Operations::resolve_id()`](src/operations.rs)
 
 ## CLI Interface
@@ -155,16 +159,35 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 
 ### Commands
 
-- `init` - Initialize pebbles repository
-- `new <title>` - Create new issue
-- `list` - List all issues with optional filters
-- `show <id>` - Show issue details
-- `status <id> <status>` - Update issue status
-- `update <id>` - Update issue title or description
-- `delete <id>` - Delete issue
-- `link <source> <relation> <target>` - Create relationship
-- `unlink <source> <relation> <target>` - Remove relationship
-- `epic <id>` - Show epic with all child issues
+- `init` - Initialize pebbles repository  
+  Example: [Quick Start](README.md#initialize)
+
+- `new <title>` - Create new issue with optional `--issue-type` and `-d` for description  
+  Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue)
+
+- `list` - List all issues with optional `--status` and `--issue-type` filters  
+  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues)
+
+- `show <id>` - Show issue details  
+  Example: [Quick Start](README.md#view-details) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details)
+
+- `status <id> <status>` - Update issue status  
+  Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-status)
+
+- `update <id>` - Update issue title with `--title` or description with `--description`  
+  Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title)
+
+- `delete <id>` - Delete issue  
+  Example: [Quick Start](README.md#delete-issues)
+
+- `link <source> <relation> <target>` - Create relationship (`part_of`, `required_for`, `scheduled_before`)  
+  Example: [Quick Start](README.md#link-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#link-issues-to-epic)
+
+- `unlink <source> <relation> <target>` - Remove relationship  
+  Example: [Quick Start](README.md#link-issues)
+
+- `epic <id>` - Show epic with all child issues  
+  Test: [core-workflow](tests/workflows/core-workflow.trycmd#view-epic-with-all-child-issues)
 
 See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
@@ -179,6 +202,7 @@ When an issue's title is updated:
 4. Index is updated with new filename
 5. Jj tracks this as a delete + add (not a rename)
 
+Example: Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title) shows title update triggering filename change
 Implementation: [`Storage::save_issue()`](src/storage.rs)
 
 ### Timestamp Updates
