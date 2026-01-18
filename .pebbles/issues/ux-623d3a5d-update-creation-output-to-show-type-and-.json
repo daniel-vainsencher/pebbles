@@ -1,12 +1,12 @@
 {
   "id": "623d3a5d-a85f-4112-a239-e6f18cfec21b",
   "title": "Update creation output to show type and shortest unambiguous ID",
-  "description": "Change creation output format from '✓ Created issue {short_id}' to 'Created {type} {shortest_unambiguous_id}'. Implement shortest_unambiguous_id(min_length: 3) function to find the minimum unique prefix for any issue ID. Update README to clarify ID notation and document minimum 3-character length. Update tests to verify new format.",
+  "description": "Change creation output format from '✓ Created issue {short_id}' to 'Created {full_type} {appropriate_length_id}'.\n\nImplement 'appropriate length ID' as a global concept:\n- Minimum-length prefix of UUID that is both unambiguous AND ≥3 characters\n- Always lowercase\n- Define once in SPEC.md (authoritative reference)\n- Implement once as function (e.g., Operations::appropriate_length_id())\n\nChanges needed:\n1. Add appropriate_length_id() function in operations.rs\n2. Define concept in SPEC.md\n3. Update main.rs creation output to use full type and appropriate length ID\n4. Update README to clarify shorthand notation (ux is shorthand for ux_problem) and document ≥3 character ID requirement\n5. Ensure all ID acceptance is lowercase only\n6. Update tests to verify new format",
   "status": "todo",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-18T17:44:19.254617024Z",
-  "updated_at": "2026-01-18T17:44:19.254617024Z"
+  "updated_at": "2026-01-18T19:16:31.494541121Z"
 }
