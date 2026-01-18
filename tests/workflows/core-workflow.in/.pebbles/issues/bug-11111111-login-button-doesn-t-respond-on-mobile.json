@@ -1,0 +1,12 @@
+{
+  "id": "11111111-1111-1111-1111-111111111111",
+  "title": "Login button doesn't respond on mobile",
+  "description": "The login button doesn't respond to clicks on mobile devices",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-10T12:00:00Z",
+  "updated_at": "2026-01-10T12:00:00Z"
+}

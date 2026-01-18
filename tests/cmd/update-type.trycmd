@@ -1,0 +1,46 @@
+# Test updating issue type
+
+This test verifies that the `convert` command correctly updates an issue's type and renames the file.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles show 12345678
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Bug
+Status: TODO
+Description: A test issue for trycmd validation
+
+Created: [..]
+Updated: [..]
+File: bug-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ PEBBLES_DB_PATH=.pebbles pebbles convert 12345678 usecase
+✓ Converted issue type
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Usecase
+Status: TODO
+Description: A test issue for trycmd validation
+
+Created: [..]
+Updated: [..]
+File: uc-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ PEBBLES_DB_PATH=.pebbles pebbles show 12345678
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Usecase
+Status: TODO
+Description: A test issue for trycmd validation
+
+Created: [..]
+Updated: [..]
+File: uc-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```

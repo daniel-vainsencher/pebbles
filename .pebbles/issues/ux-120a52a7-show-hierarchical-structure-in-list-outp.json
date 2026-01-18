@@ -1,0 +1,17 @@
+{
+  "id": "120a52a7-eec9-4b46-a1f4-09e5e8727214",
+  "title": "Show hierarchical structure in list output",
+  "description": "Display issues with visual hierarchy when listing, showing epic relationships through indentation or tree structure:\n\nExample:\n  epic-a1b2 [epic] [TODO] Feature Development (3 issues)\n    uc-c3d4   [uc] [TODO] ├─ User can do X\n    bug-e5f6  [bug] [TODO] ├─ Fix related issue\n    des-g7h8  [des] [DONE] └─ Design component\n\nBenefits:\n- Immediately see project structure\n- Understand which issues are grouped\n- Navigate from epic to children without separate commands\n- More useful than flat list for projects with epics\n\nImplementation: Add --tree or --hierarchical flag to 'pebbles list', or make default when epics exist.",
+  "status": "done",
+  "issue_type": "ux_problem",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "ad694828-0e78-48ce-aa78-950c531d990d"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-11T03:07:20.638668248Z",
+  "updated_at": "2026-01-11T12:27:19.766026941Z"
+}

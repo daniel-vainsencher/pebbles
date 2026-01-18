@@ -1,0 +1,12 @@
+{
+  "id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e",
+  "title": "Testability and Testing Epic",
+  "description": "Establish comprehensive testing infrastructure and improve system testability to ensure reliability and maintainability.\n\nCore insight: Pebbles currently has no automated tests (no unit tests, integration tests, or doctests). This creates risk for refactoring and feature additions, and makes it difficult for contributors to verify their changes don't break existing functionality.\n\nGoals:\n- Add doctests to document and test core functionality\n- Review and improve system design for testability\n- Enable safe testing of editing commands without affecting real pebble data\n- Establish E2E testing infrastructure that serves as living documentation\n- Create patterns that make testing easy for future contributions\n\nSuccess: Comprehensive test coverage that enables confident refactoring, clear examples through doctests, and E2E tests that document expected behavior without duplicating code or docs.",
+  "status": "todo",
+  "issue_type": "epic",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T14:54:40.320941714Z",
+  "updated_at": "2026-01-11T14:54:40.320941714Z"
+}

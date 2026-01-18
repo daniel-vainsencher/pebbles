@@ -1,0 +1,12 @@
+{
+  "id": "9af4ad05-6521-4ea9-965a-da1ccc73ca66",
+  "title": "Implement TUI (Terminal User Interface)",
+  "description": "Comprehensive TUI with ratatui providing:\n- Interactive list browser with arrow keys, filtering, selection\n- Full CRUD operations (create, edit, delete) without CLI\n- Relationship visualization (graphs, epic hierarchies)\n- Replace most CLI usage for interactive workflows",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T01:56:06.221274729Z",
+  "updated_at": "2026-01-11T02:38:17.583850993Z"
+}

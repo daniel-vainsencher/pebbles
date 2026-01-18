@@ -1,0 +1,12 @@
+{
+  "id": "ad694828-0e78-48ce-aa78-950c531d990d",
+  "title": "Navigation and Project Visibility Epic",
+  "description": "Improve navigation and project visibility by making relationships, hierarchies, and dependencies visible in the primary interface. \n\nCore insight: Pebbles has rich relationship data (part_of, required_for, scheduled_before) but displays issues as flat lists. This epic addresses the gap between structured data and flat display.\n\nGoals:\n- Show hierarchical structure (epics and their children)\n- Display dependency status (blocked, ready, blocking)\n- Provide context without extra commands (show titles in relationships)\n- Enable quick project overview (summary command)\n- Help users discover and organize issues (filters, counts, indicators)\n\nSuccess: Users can navigate projects by understanding relationships visually, not just through data queries.",
+  "status": "todo",
+  "issue_type": "epic",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T03:08:16.753374019Z",
+  "updated_at": "2026-01-11T03:08:16.753374019Z"
+}

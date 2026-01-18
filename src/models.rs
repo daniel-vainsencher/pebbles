@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Todo,
@@ -37,7 +37,7 @@ impl std::str::FromStr for Status {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum IssueType {
     Bug,
@@ -98,7 +98,7 @@ impl IssueType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationType {
     PartOf,
@@ -122,8 +122,12 @@ impl std::str::FromStr for RelationType {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "part_of" | "partof" | "part-of" => Ok(RelationType::PartOf),
-            "required_for" | "requiredfor" | "required-for" | "requires" => Ok(RelationType::RequiredFor),
-            "scheduled_before" | "scheduledbefore" | "scheduled-before" | "before" => Ok(RelationType::ScheduledBefore),
+            "required_for" | "requiredfor" | "required-for" | "requires" => {
+                Ok(RelationType::RequiredFor)
+            }
+            "scheduled_before" | "scheduledbefore" | "scheduled-before" | "before" => {
+                Ok(RelationType::ScheduledBefore)
+            }
             _ => Err(format!("Invalid relation type: {}", s)),
         }
     }
@@ -177,24 +181,31 @@ impl Issue {
 
     pub fn file_name(&self) -> String {
         let slug = slug::slugify(&self.title);
-        let short_slug = if slug.len() > 40 {
-            &slug[..40]
-        } else {
-            &slug
-        };
-        format!("{}-{}-{}.json", self.issue_type.short_code(), self.short_id(), short_slug)
+        let short_slug = if slug.len() > 40 { &slug[..40] } else { &slug };
+        format!(
+            "{}-{}-{}.json",
+            self.issue_type.short_code(),
+            self.short_id(),
+            short_slug
+        )
     }
 
-    pub fn add_relationship(&mut self, relation_type: RelationType, target_id: Uuid) -> Result<(), String> {
+    pub fn add_relationship(
+        &mut self,
+        relation_type: RelationType,
+        target_id: Uuid,
+    ) -> Result<(), String> {
         // Validate relationship based on issue types
-        if relation_type == RelationType::PartOf {
-            if !self.issue_type.can_be_part_of_epic() {
-                return Err(format!("{} cannot be part of an epic", self.issue_type));
-            }
+        if relation_type == RelationType::PartOf && !self.issue_type.can_be_part_of_epic() {
+            return Err(format!("{} cannot be part of an epic", self.issue_type));
         }
 
         // Check for duplicates
-        if self.relationships.iter().any(|r| r.relation_type == relation_type && r.target_id == target_id) {
+        if self
+            .relationships
+            .iter()
+            .any(|r| r.relation_type == relation_type && r.target_id == target_id)
+        {
             return Err("Relationship already exists".to_string());
         }
 
@@ -208,20 +219,13 @@ impl Issue {
 
     pub fn remove_relationship(&mut self, relation_type: RelationType, target_id: Uuid) -> bool {
         let original_len = self.relationships.len();
-        self.relationships.retain(|r| !(r.relation_type == relation_type && r.target_id == target_id));
+        self.relationships
+            .retain(|r| !(r.relation_type == relation_type && r.target_id == target_id));
         let removed = self.relationships.len() < original_len;
         if removed {
             self.update();
         }
         removed
-    }
-
-    pub fn get_relationships(&self, relation_type: RelationType) -> Vec<Uuid> {
-        self.relationships
-            .iter()
-            .filter(|r| r.relation_type == relation_type)
-            .map(|r| r.target_id)
-            .collect()
     }
 }
 
@@ -238,9 +242,7 @@ pub struct Index {
 
 impl Index {
     pub fn new() -> Self {
-        Self {
-            issues: Vec::new(),
-        }
+        Self { issues: Vec::new() }
     }
 
     pub fn add(&mut self, id: Uuid, file_name: String) {
@@ -256,7 +258,8 @@ impl Index {
     }
 
     pub fn get_file_name(&self, id: &Uuid) -> Option<&str> {
-        self.issues.iter()
+        self.issues
+            .iter()
             .find(|m| &m.id == id)
             .map(|m| m.file_name.as_str())
     }

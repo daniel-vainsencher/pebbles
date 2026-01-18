@@ -1,0 +1,17 @@
+{
+  "id": "1469ef6e-3b29-421e-a2e1-0cddef7d0a26",
+  "title": "Spike: Validate trycmd for CLI testing",
+  "description": "Reduce uncertainty around using trycmd/snapbox for pebbles CLI testing by implementing a minimal proof-of-concept.\n\n## Context\n\ntrycmd is a Rust test harness that runs CLI tests from markdown files, serving dual purpose as executable tests and documentation. Key features:\n- Tests live in ```console blocks in .md/.trycmd files\n- Pattern matching for dynamic content ([..], ..., [CWD])\n- File system testing with .in/ (initial state) and .out/ (expected final state) directories\n- Environment variable support per test\n- TRYCMD=dump generates snapshots, TRYCMD=overwrite updates them\n\nResources:\n- snapbox repo: ../snapbox\n- trycmd lib docs: ../snapbox/crates/trycmd/src/lib.rs\n- Example usage: ../snapbox/examples/demo_trycmd/README.md\n- trycmd docs: https://docs.rs/trycmd/\n\n## Implementation\n\n1. **PEBBLES_DB_PATH env var**: Redirects Storage and JJ to use custom database location\n2. **`.no_jj` marker file**: When present in pebbles directory, skips all jj operations (cleaner than env var)\n3. **Fixed jj integration**: Changed from `jj describe` to `jj commit -m \"<msg>\" <file>` which:\n   - Commits only the specific file that changed\n   - Creates descriptive commit for each operation\n   - Automatically creates new working copy for next operation\n4. **Test structure**:\n   - `tests/cmd/update-type.in/.pebbles/` - fixture with test issue and `.no_jj` marker\n   - `tests/cmd/update-type.trycmd` - test commands in markdown\n   - `tests/cmd/update-type.out/.pebbles/` - expected DB state after test\n   - `tests/cli_tests.rs` - test runner\n\n## Results\n\n✅ All success criteria met:\n- PEBBLES_DB_PATH successfully redirects to test database\n- Tests run and pass with expected output\n- TRYCMD=dump generates correct snapshots\n- TRYCMD=overwrite updates snapshots\n- .out/ directory comparison validates DB changes\n- jj integration fixed: now uses `jj commit` per file instead of `jj describe`\n\n## Recommendation\n\n**Proceed with trycmd for CLI testing.** The spike validates:\n- Isolated test execution with temp databases\n- Both stdout and filesystem state verification\n- Tests serve as living documentation\n- Pattern matching handles dynamic content elegantly\n- `.no_jj` marker provides clean way to disable jj in tests\n\n## Additional Benefits\n\nFixed architectural issue: pebbles now correctly uses `jj commit -m \"<msg>\" <file>` which creates separate commits for each operation, rather than `jj describe` which just overwrote the working copy description.",
+  "status": "done",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-12T01:15:14.687915876Z",
+  "updated_at": "2026-01-12T03:17:10.483420975Z"
+}

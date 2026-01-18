@@ -21,17 +21,35 @@ pub enum Commands {
         #[arg(short, long, help = "Issue description")]
         description: Option<String>,
 
-        #[arg(short = 't', long, default_value = "bug", help = "Issue type (bug, ux_problem, usecase, design, validation, epic, milestone)")]
+        #[arg(
+            short = 't',
+            long,
+            default_value = "bug",
+            help = "Issue type (bug, ux_problem, usecase, design, validation, epic, milestone)"
+        )]
         issue_type: String,
     },
 
     #[command(about = "List all issues")]
     List {
-        #[arg(short, long, help = "Filter by status (todo, in_progress, done, blocked)")]
+        #[arg(
+            short,
+            long,
+            help = "Filter by status (todo, in_progress, done, blocked)"
+        )]
         status: Option<String>,
 
         #[arg(short = 't', long, help = "Filter by type (bug, ux_problem, etc.)")]
         issue_type: Option<String>,
+
+        #[arg(
+            long,
+            help = "Show hierarchical tree structure with epic relationships"
+        )]
+        tree: bool,
+
+        #[arg(long, help = "Show only orphaned issues (not part of any epic)")]
+        orphaned: bool,
     },
 
     #[command(about = "Show details of an issue")]
@@ -90,4 +108,27 @@ pub enum Commands {
         #[arg(help = "Target issue ID")]
         target: String,
     },
+
+    #[command(about = "Show an epic with all its child issues")]
+    Epic {
+        #[arg(help = "Epic ID (full UUID or prefix)")]
+        id: String,
+    },
+
+    #[command(about = "Show actionable TODO issues with no blockers")]
+    Next,
+
+    #[command(about = "Convert an issue to a different type")]
+    Convert {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(
+            help = "New issue type (bug, ux_problem, usecase, design, validation, epic, milestone)"
+        )]
+        new_type: String,
+    },
+
+    #[command(about = "Show project summary and statistics")]
+    Summary,
 }

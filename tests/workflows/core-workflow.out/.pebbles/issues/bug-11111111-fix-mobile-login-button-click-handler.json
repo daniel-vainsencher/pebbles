@@ -1,0 +1,17 @@
+{
+  "id": "11111111-1111-1111-1111-111111111111",
+  "title": "Fix mobile login button click handler",
+  "description": "The login button doesn't respond to clicks on mobile devices",
+  "status": "done",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "44444444-4444-4444-4444-444444444444"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-10T12:00:00Z",
+  "updated_at": "[..]"
+}

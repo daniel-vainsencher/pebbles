@@ -1,0 +1,12 @@
+{
+  "id": "d5c4b02b-6903-418c-ab6d-e1a00a95dd66",
+  "title": "Implement fuzzy search for issue titles",
+  "description": "Add --search flag to 'pebbles list' command for fuzzy matching on issue titles using fuzzy-matcher crate. Should integrate naturally with existing --status and --issue-type filters.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-11T01:56:13.685245404Z",
+  "updated_at": "2026-01-11T02:38:22.481913485Z"
+}

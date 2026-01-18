@@ -1,0 +1,17 @@
+{
+  "id": "93448301-6702-42fc-8283-2ac6ee6e0465",
+  "title": "Review system design for testability",
+  "description": "Analyze current architecture and identify testability challenges and opportunities for improvement.\n\nCurrent state:\n- Operations has some pure algorithms hiding behind I/O dependencies\n- Models are fully testable (Issues can be constructed directly)\n- Storage and JJ are I/O layers (should be effectful by design)\n- Shell orchestration tested via trycmd\n\nAreas investigated:\n- Can we separate pure business logic from I/O effects? YES\n- Should we introduce traits for Storage and JJ? NO (imperative shell, functional core)\n- Can logic be tested as methods? YES, if struct initialization does not require I/O\n- Are resolve_id, next, and summary testable? NOT CURRENTLY (need extraction)\n- Can Issue be constructed without effects? YES (Issue::new is pure)\n\nDeliverable: TESTABILITY_ANALYSIS.md documents analysis of testability, recommendations for extracting pure logic (not traits), and explains the testing approach.",
+  "status": "done",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-11T14:54:49.462883829Z",
+  "updated_at": "2026-01-13T06:01:06.102934021Z"
+}

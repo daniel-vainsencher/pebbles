@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -6,19 +7,24 @@ use uuid::Uuid;
 use crate::models::{Index, Issue};
 
 pub struct Storage {
-    beads_dir: PathBuf,
+    pebbles_dir: PathBuf,
     issues_dir: PathBuf,
     index_path: PathBuf,
 }
 
 impl Storage {
     pub fn new(repo_path: &Path) -> Result<Self> {
-        let beads_dir = repo_path.join(".beads");
-        let issues_dir = beads_dir.join("issues");
-        let index_path = beads_dir.join("index.json");
+        // Allow overriding pebbles directory via environment variable (for testing)
+        let pebbles_dir = if let Ok(custom_path) = env::var("PEBBLES_DB_PATH") {
+            PathBuf::from(custom_path)
+        } else {
+            repo_path.join(".pebbles")
+        };
+        let issues_dir = pebbles_dir.join("issues");
+        let index_path = pebbles_dir.join("index.json");
 
         Ok(Self {
-            beads_dir,
+            pebbles_dir,
             issues_dir,
             index_path,
         })
@@ -26,7 +32,7 @@ impl Storage {
 
     pub fn init(&self) -> Result<()> {
         fs::create_dir_all(&self.issues_dir)
-            .context("Failed to create .beads/issues directory")?;
+            .context("Failed to create .pebbles/issues directory")?;
 
         if !self.index_path.exists() {
             let index = Index::new();
@@ -37,11 +43,15 @@ impl Storage {
     }
 
     pub fn exists(&self) -> bool {
-        self.beads_dir.exists() && self.index_path.exists()
+        self.pebbles_dir.exists() && self.index_path.exists()
     }
 
-    fn issue_path(&self, file_name: &str) -> PathBuf {
+    pub fn issue_path(&self, file_name: &str) -> PathBuf {
         self.issues_dir.join(file_name)
+    }
+
+    pub fn index_path(&self) -> &PathBuf {
+        &self.index_path
     }
 
     pub fn load_index(&self) -> Result<Index> {
@@ -49,24 +59,23 @@ impl Storage {
             return Ok(Index::new());
         }
 
-        let content = fs::read_to_string(&self.index_path)
-            .context("Failed to read index file")?;
-        let index: Index = serde_json::from_str(&content)
-            .context("Failed to parse index file")?;
+        let content = fs::read_to_string(&self.index_path).context("Failed to read index file")?;
+        let index: Index = serde_json::from_str(&content).context("Failed to parse index file")?;
         Ok(index)
     }
 
     pub fn save_index(&self, index: &Index) -> Result<()> {
-        let content = serde_json::to_string_pretty(index)
-            .context("Failed to serialize index")?;
-        fs::write(&self.index_path, content)
-            .context("Failed to write index file")?;
+        let mut content =
+            serde_json::to_string_pretty(index).context("Failed to serialize index")?;
+        content.push('\n');
+        fs::write(&self.index_path, content).context("Failed to write index file")?;
         Ok(())
     }
 
     pub fn load_issue(&self, id: &Uuid) -> Result<Issue> {
         let index = self.load_index()?;
-        let file_name = index.get_file_name(id)
+        let file_name = index
+            .get_file_name(id)
             .ok_or_else(|| anyhow::anyhow!("Issue not found in index: {}", id))?;
         let path = self.issue_path(file_name);
         let content = fs::read_to_string(&path)
@@ -85,8 +94,7 @@ impl Storage {
             if old_name != new_file_name {
                 let old_path = self.issue_path(old_name);
                 if old_path.exists() {
-                    fs::remove_file(&old_path)
-                        .context("Failed to remove old issue file")?;
+                    fs::remove_file(&old_path).context("Failed to remove old issue file")?;
                 }
                 index.update_file_name(&issue.id, new_file_name.clone());
             }
@@ -96,11 +104,12 @@ impl Storage {
         }
 
         let path = self.issue_path(&new_file_name);
-        let content = serde_json::to_string_pretty(issue)
-            .context("Failed to serialize issue")?;
+        let mut content =
+            serde_json::to_string_pretty(issue).context("Failed to serialize issue")?;
+        content.push('\n');
         fs::write(&path, content)
             .with_context(|| format!("Failed to write issue file: {}", new_file_name))?;
-        
+
         Ok(())
     }
 
@@ -122,13 +131,17 @@ impl Storage {
         for metadata in &index.issues {
             let path = self.issue_path(&metadata.file_name);
             match fs::read_to_string(&path) {
-                Ok(content) => {
-                    match serde_json::from_str::<Issue>(&content) {
-                        Ok(issue) => issues.push(issue),
-                        Err(e) => eprintln!("Warning: Failed to parse issue {}: {}", metadata.file_name, e),
-                    }
-                }
-                Err(e) => eprintln!("Warning: Failed to load issue {}: {}", metadata.file_name, e),
+                Ok(content) => match serde_json::from_str::<Issue>(&content) {
+                    Ok(issue) => issues.push(issue),
+                    Err(e) => eprintln!(
+                        "Warning: Failed to parse issue {}: {}",
+                        metadata.file_name, e
+                    ),
+                },
+                Err(e) => eprintln!(
+                    "Warning: Failed to load issue {}: {}",
+                    metadata.file_name, e
+                ),
             }
         }
 

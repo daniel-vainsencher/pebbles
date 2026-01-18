@@ -1,0 +1,21 @@
+{
+  "id": "46c27882-8b4f-43ab-a933-bc8e7260eb6e",
+  "title": "Create README workflow examples as tests",
+  "description": "Created comprehensive workflow test that demonstrates core pebbles functionality.\n\n## What Was Implemented\n\nCreated tests/workflows/core-workflow.trycmd covering:\n1. List all issues\n2. Filter by status and type\n3. Show issue details\n4. Update issue status\n5. Link issues to epic (part_of relationship)\n6. Add dependency relationships (required_for)\n7. View epic with child issues\n8. Update issue title (with file renaming)\n9. Complete issues (status to done)\n10. Create new issues dynamically\n\n## Test Infrastructure\n\n- .in/ directory with clean initial state (4 issues: bug, usecase, design, epic)\n- .out/ directory with expected final state after workflow\n- Pattern matching for dynamic content ([..] for UUIDs, timestamps)\n- File system verification (trycmd compares .out/ to actual result)\n- No jj operations (.no_jj marker for safe testing)\n- Trailing newlines added to JSON output (POSIX compliance)\n\n## Key Learnings\n\n- PEBBLES_DB_PATH env var not needed (trycmd sets CWD automatically)\n- Pattern matching [..] works in both stdout and file content\n- trycmd automatically creates temp directories from .in/ fixtures\n- TRYCMD=overwrite regenerates expectations after code changes\n\n## Success Criteria Met\n\n✅ Core workflow tested and passing\n✅ Tests serve as living documentation\n✅ Both stdout and filesystem state verified\n✅ Pattern matching handles dynamic content\n✅ cargo test passes",
+  "status": "done",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e"
+    },
+    {
+      "relation_type": "required_for",
+      "target_id": "9a5550ae-c727-4de6-b4a5-2b09316a2726"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-12T05:09:59.311236554Z",
+  "updated_at": "2026-01-12T14:02:55.921095875Z"
+}

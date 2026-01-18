@@ -1,0 +1,132 @@
+{
+  "issues": [
+    {
+      "id": "9af4ad05-6521-4ea9-965a-da1ccc73ca66",
+      "file_name": "uc-9af4ad05-implement-tui-terminal-user-interface.json"
+    },
+    {
+      "id": "d5c4b02b-6903-418c-ab6d-e1a00a95dd66",
+      "file_name": "uc-d5c4b02b-implement-fuzzy-search-for-issue-titles.json"
+    },
+    {
+      "id": "0c580f95-df85-4fd6-af4e-ded0963e6588",
+      "file_name": "uc-0c580f95-implement-bulk-operations.json"
+    },
+    {
+      "id": "722b8512-e2d0-4af4-8236-864ad379008f",
+      "file_name": "uc-722b8512-add-view-commands-graph-route-next-epic.json"
+    },
+    {
+      "id": "d0138d18-7abc-4a9f-b1db-29b5e45612d2",
+      "file_name": "uc-d0138d18-add-tag-management-cli-commands.json"
+    },
+    {
+      "id": "30e47d2e-a425-4137-907b-bf227054fb8b",
+      "file_name": "uc-30e47d2e-add-metadata-management-cli-commands.json"
+    },
+    {
+      "id": "7c6e8e5e-b2d3-4f6d-8fe8-c019a0630407",
+      "file_name": "uc-7c6e8e5e-implement-full-text-search.json"
+    },
+    {
+      "id": "dac9c3d4-b6d5-474a-a864-d95832ebfed5",
+      "file_name": "uc-dac9c3d4-add-export-import-functionality.json"
+    },
+    {
+      "id": "f255e73a-f2a6-422f-a4e0-8bc9b7512e87",
+      "file_name": "uc-f255e73a-implement-type-specific-templates.json"
+    },
+    {
+      "id": "4622175c-ae30-42aa-9495-21bbe0156646",
+      "file_name": "uc-4622175c-add-docstrings-and-doctests-to-non-obvio.json"
+    },
+    {
+      "id": "e271f050-1448-4cc0-ad3b-99b46440abcf",
+      "file_name": "des-e271f050-use-minimal-distinguishing-id-prefix-len.json"
+    },
+    {
+      "id": "66456e56-36c1-48af-9ca6-eedc6d80fff5",
+      "file_name": "ux-66456e56-enhance-output-with-contextual-guidance-.json"
+    },
+    {
+      "id": "120a52a7-eec9-4b46-a1f4-09e5e8727214",
+      "file_name": "ux-120a52a7-show-hierarchical-structure-in-list-outp.json"
+    },
+    {
+      "id": "68f8bb64-0f56-46f7-9abf-5fea88cc2943",
+      "file_name": "ux-68f8bb64-show-dependency-blocker-status-in-list-o.json"
+    },
+    {
+      "id": "5482d41d-dfa3-4435-8b8c-83fbb1f130ba",
+      "file_name": "ux-5482d41d-show-related-issue-titles-in-show-comman.json"
+    },
+    {
+      "id": "5caeee91-23a5-40a7-8b12-8f3b9f086016",
+      "file_name": "uc-5caeee91-add-project-summary-overview-command.json"
+    },
+    {
+      "id": "6020b38d-624a-4865-a81e-95af0d80ad34",
+      "file_name": "uc-6020b38d-add-filter-for-orphaned-issues-not-in-an.json"
+    },
+    {
+      "id": "e6d0c4a0-6785-4e78-8eda-b7de1f217cff",
+      "file_name": "ux-e6d0c4a0-show-issue-count-for-epics-in-list-view.json"
+    },
+    {
+      "id": "7584b92b-0e04-4396-995c-e41e5e19fc2d",
+      "file_name": "ux-7584b92b-add-colored-indicators-for-relationship-.json"
+    },
+    {
+      "id": "ad694828-0e78-48ce-aa78-950c531d990d",
+      "file_name": "epic-ad694828-navigation-and-project-visibility-epic.json"
+    },
+    {
+      "id": "b9713e50-ca71-42b3-89b4-aec4901411f2",
+      "file_name": "uc-b9713e50-add-command-to-change-issue-type.json"
+    },
+    {
+      "id": "1ac3f79e-5d7f-4127-b1a2-4f2bbbdfac7e",
+      "file_name": "epic-1ac3f79e-testability-and-testing-epic.json"
+    },
+    {
+      "id": "93448301-6702-42fc-8283-2ac6ee6e0465",
+      "file_name": "des-93448301-review-system-design-for-testability.json"
+    },
+    {
+      "id": "fddb76e9-f7f0-4074-9c41-e192fc1d0f71",
+      "file_name": "uc-fddb76e9-implement-test-mode-with-fake-database.json"
+    },
+    {
+      "id": "82bb6db4-d9c2-4c2d-bfae-ebd96f8a9e72",
+      "file_name": "des-82bb6db4-design-e2e-testing-strategy-that-documen.json"
+    },
+    {
+      "id": "1469ef6e-3b29-421e-a2e1-0cddef7d0a26",
+      "file_name": "des-1469ef6e-spike-validate-trycmd-for-cli-testing.json"
+    },
+    {
+      "id": "46c27882-8b4f-43ab-a933-bc8e7260eb6e",
+      "file_name": "uc-46c27882-create-readme-workflow-examples-as-tests.json"
+    },
+    {
+      "id": "9a5550ae-c727-4de6-b4a5-2b09316a2726",
+      "file_name": "uc-9a5550ae-update-spec-to-reference-readme-and-test.json"
+    },
+    {
+      "id": "a12e9fd6-5adb-4991-ba3b-358879681d71",
+      "file_name": "uc-a12e9fd6-extract-pure-logic-from-operations-for-u.json"
+    },
+    {
+      "id": "623d3a5d-a85f-4112-a239-e6f18cfec21b",
+      "file_name": "ux-623d3a5d-update-creation-output-to-show-type-and-.json"
+    },
+    {
+      "id": "48e1d52e-ecf5-472f-8dfc-18d90f0c813d",
+      "file_name": "ux-48e1d52e-display-all-relationships-when-showing-a.json"
+    },
+    {
+      "id": "43caa49f-d935-4252-99c7-00ed576f5e04",
+      "file_name": "des-43caa49f-store-bidirectional-relationships-in-iss.json"
+    }
+  ]
+}
