@@ -8,7 +8,9 @@ mod storage;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
-use display::{print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary};
+use display::{
+    print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary,
+};
 use operations::Operations;
 use std::env;
 
@@ -22,7 +24,11 @@ fn main() -> Result<()> {
             ops.init()?;
         }
 
-        Commands::New { title, description, issue_type } => {
+        Commands::New {
+            title,
+            description,
+            issue_type,
+        } => {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             let issue = ops.create(title, description, issue_type)?;
             println!("✓ Created issue {}", issue.short_id());
@@ -30,7 +36,12 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles);
         }
 
-        Commands::List { status, issue_type, tree, orphaned } => {
+        Commands::List {
+            status,
+            issue_type,
+            tree,
+            orphaned,
+        } => {
             let status_filter = if let Some(s) = status {
                 Some(s.parse().map_err(|e: String| anyhow::anyhow!(e))?)
             } else {
@@ -46,9 +57,10 @@ fn main() -> Result<()> {
             if orphaned {
                 issues.retain(|issue| {
                     issue.issue_type.can_be_part_of_epic()
-                        && !issue.relationships.iter().any(|rel| {
-                            rel.relation_type == crate::models::RelationType::PartOf
-                        })
+                        && !issue
+                            .relationships
+                            .iter()
+                            .any(|rel| rel.relation_type == crate::models::RelationType::PartOf)
                 });
             }
 
@@ -74,7 +86,11 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles);
         }
 
-        Commands::Update { id, title, description } => {
+        Commands::Update {
+            id,
+            title,
+            description,
+        } => {
             ops.update(&id, title, description)?;
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
@@ -87,13 +103,21 @@ fn main() -> Result<()> {
             println!("✓ Deleted issue {}", id);
         }
 
-        Commands::Link { source, relation, target } => {
+        Commands::Link {
+            source,
+            relation,
+            target,
+        } => {
             let relation_type = relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             ops.add_relationship(&source, relation_type, &target)?;
             println!("✓ Added relationship");
         }
 
-        Commands::Unlink { source, relation, target } => {
+        Commands::Unlink {
+            source,
+            relation,
+            target,
+        } => {
             let relation_type = relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             ops.remove_relationship(&source, relation_type, &target)?;
             println!("✓ Removed relationship");

@@ -59,25 +59,23 @@ impl Storage {
             return Ok(Index::new());
         }
 
-        let content = fs::read_to_string(&self.index_path)
-            .context("Failed to read index file")?;
-        let index: Index = serde_json::from_str(&content)
-            .context("Failed to parse index file")?;
+        let content = fs::read_to_string(&self.index_path).context("Failed to read index file")?;
+        let index: Index = serde_json::from_str(&content).context("Failed to parse index file")?;
         Ok(index)
     }
 
     pub fn save_index(&self, index: &Index) -> Result<()> {
-        let mut content = serde_json::to_string_pretty(index)
-            .context("Failed to serialize index")?;
+        let mut content =
+            serde_json::to_string_pretty(index).context("Failed to serialize index")?;
         content.push('\n');
-        fs::write(&self.index_path, content)
-            .context("Failed to write index file")?;
+        fs::write(&self.index_path, content).context("Failed to write index file")?;
         Ok(())
     }
 
     pub fn load_issue(&self, id: &Uuid) -> Result<Issue> {
         let index = self.load_index()?;
-        let file_name = index.get_file_name(id)
+        let file_name = index
+            .get_file_name(id)
             .ok_or_else(|| anyhow::anyhow!("Issue not found in index: {}", id))?;
         let path = self.issue_path(file_name);
         let content = fs::read_to_string(&path)
@@ -96,8 +94,7 @@ impl Storage {
             if old_name != new_file_name {
                 let old_path = self.issue_path(old_name);
                 if old_path.exists() {
-                    fs::remove_file(&old_path)
-                        .context("Failed to remove old issue file")?;
+                    fs::remove_file(&old_path).context("Failed to remove old issue file")?;
                 }
                 index.update_file_name(&issue.id, new_file_name.clone());
             }
@@ -107,12 +104,12 @@ impl Storage {
         }
 
         let path = self.issue_path(&new_file_name);
-        let mut content = serde_json::to_string_pretty(issue)
-            .context("Failed to serialize issue")?;
+        let mut content =
+            serde_json::to_string_pretty(issue).context("Failed to serialize issue")?;
         content.push('\n');
         fs::write(&path, content)
             .with_context(|| format!("Failed to write issue file: {}", new_file_name))?;
-        
+
         Ok(())
     }
 
@@ -134,13 +131,17 @@ impl Storage {
         for metadata in &index.issues {
             let path = self.issue_path(&metadata.file_name);
             match fs::read_to_string(&path) {
-                Ok(content) => {
-                    match serde_json::from_str::<Issue>(&content) {
-                        Ok(issue) => issues.push(issue),
-                        Err(e) => eprintln!("Warning: Failed to parse issue {}: {}", metadata.file_name, e),
-                    }
-                }
-                Err(e) => eprintln!("Warning: Failed to load issue {}: {}", metadata.file_name, e),
+                Ok(content) => match serde_json::from_str::<Issue>(&content) {
+                    Ok(issue) => issues.push(issue),
+                    Err(e) => eprintln!(
+                        "Warning: Failed to parse issue {}: {}",
+                        metadata.file_name, e
+                    ),
+                },
+                Err(e) => eprintln!(
+                    "Warning: Failed to load issue {}: {}",
+                    metadata.file_name, e
+                ),
             }
         }
 

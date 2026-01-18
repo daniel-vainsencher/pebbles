@@ -1,6 +1,6 @@
-use colored::*;
 use crate::models::{Issue, IssueType, RelationType, Status};
 use crate::operations::ProjectSummary;
+use colored::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -55,11 +55,13 @@ pub fn print_issue_list(issues: &[Issue]) {
             String::new()
         };
 
+        let type_badge = format!("[{}]", type_str);
+        let status_badge = format!("[{}]", status_str);
         println!(
             "{} {} {} {}{}",
             id_short.dimmed(),
-            format!("[{}]", type_str),
-            format!("[{}]", status_str),
+            type_badge,
+            status_badge,
             issue.title.bold(),
             count_str
         );
@@ -114,9 +116,17 @@ pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>)
             println!("  {}: {}", key.dimmed(), value);
         }
     }
-    
-    println!("\n{}: {}", "Created".bold(), issue.created_at.format("%Y-%m-%d %H:%M:%S"));
-    println!("{}: {}", "Updated".bold(), issue.updated_at.format("%Y-%m-%d %H:%M:%S"));
+
+    println!(
+        "\n{}: {}",
+        "Created".bold(),
+        issue.created_at.format("%Y-%m-%d %H:%M:%S")
+    );
+    println!(
+        "{}: {}",
+        "Updated".bold(),
+        issue.updated_at.format("%Y-%m-%d %H:%M:%S")
+    );
     println!("{}: {}", "File".bold(), issue.file_name().dimmed());
     println!("{}", "━".repeat(60).dimmed());
 }
@@ -138,7 +148,10 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
         println!("\n{}", desc);
     }
 
-    let done_count = child_issues.iter().filter(|i| i.status == Status::Done).count();
+    let done_count = child_issues
+        .iter()
+        .filter(|i| i.status == Status::Done)
+        .count();
     let total_count = child_issues.len();
     println!("\n{}: {}/{}", "Progress".bold(), done_count, total_count);
 
@@ -166,11 +179,13 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
                 IssueType::Milestone => "mile".yellow().bold(),
             };
 
+            let type_badge = format!("[{}]", type_str);
+            let status_badge = format!("[{}]", status_str);
             println!(
                 "  {} {} {} {}",
                 issue.short_id().dimmed(),
-                format!("[{}]", type_str),
-                format!("[{}]", status_str),
+                type_badge,
+                status_badge,
                 issue.title
             );
         }
@@ -186,8 +201,14 @@ pub fn print_issue_tree(issues: &[Issue]) {
     }
 
     // Separate epics and non-epics
-    let epics: Vec<&Issue> = issues.iter().filter(|i| i.issue_type == IssueType::Epic).collect();
-    let non_epics: Vec<&Issue> = issues.iter().filter(|i| i.issue_type != IssueType::Epic).collect();
+    let epics: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| i.issue_type == IssueType::Epic)
+        .collect();
+    let non_epics: Vec<&Issue> = issues
+        .iter()
+        .filter(|i| i.issue_type != IssueType::Epic)
+        .collect();
 
     // Build epic counts
     let mut epic_counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
@@ -218,11 +239,12 @@ pub fn print_issue_tree(issues: &[Issue]) {
             " (0)".dimmed().to_string()
         };
 
+        let status_badge = format!("[{}]", status_str);
         println!(
             "{} {} {} {}{}",
             epic.short_id().dimmed(),
             "[epic]".yellow().bold(),
-            format!("[{}]", status_str),
+            status_badge,
             epic.title.bold(),
             count_str
         );
@@ -262,12 +284,14 @@ pub fn print_issue_tree(issues: &[Issue]) {
                 IssueType::Milestone => "mile".yellow().bold(),
             };
 
+            let type_badge = format!("[{}]", type_str);
+            let status_badge = format!("[{}]", status_str);
             println!(
                 "  {} {} {} {} {}",
                 prefix.dimmed(),
                 child.short_id().dimmed(),
-                format!("[{}]", type_str),
-                format!("[{}]", status_str),
+                type_badge,
+                status_badge,
                 child.title
             );
         }
@@ -281,9 +305,10 @@ pub fn print_issue_tree(issues: &[Issue]) {
     let orphans: Vec<&Issue> = non_epics
         .iter()
         .filter(|issue| {
-            !issue.relationships.iter().any(|rel| {
-                rel.relation_type == crate::models::RelationType::PartOf
-            })
+            !issue
+                .relationships
+                .iter()
+                .any(|rel| rel.relation_type == crate::models::RelationType::PartOf)
         })
         .copied()
         .collect();
@@ -311,11 +336,13 @@ pub fn print_issue_tree(issues: &[Issue]) {
                 IssueType::Milestone => "mile".yellow().bold(),
             };
 
+            let type_badge = format!("[{}]", type_str);
+            let status_badge = format!("[{}]", status_str);
             println!(
                 "{} {} {} {}",
                 issue.short_id().dimmed(),
-                format!("[{}]", type_str),
-                format!("[{}]", status_str),
+                type_badge,
+                status_badge,
                 issue.title.bold()
             );
         }
@@ -333,7 +360,12 @@ pub fn print_summary(summary: &ProjectSummary) {
 
     // By Status
     println!("{}:", "By Status".bold());
-    let statuses = [Status::Todo, Status::InProgress, Status::Blocked, Status::Done];
+    let statuses = [
+        Status::Todo,
+        Status::InProgress,
+        Status::Blocked,
+        Status::Done,
+    ];
     for status in &statuses {
         let count = summary.by_status.get(status).unwrap_or(&0);
         let percentage = if summary.total_issues > 0 {
@@ -411,6 +443,9 @@ pub fn print_summary(summary: &ProjectSummary) {
             summary.actionable_count
         );
     } else {
-        println!("{}", "No actionable issues (all are blocked or done)".dimmed());
+        println!(
+            "{}",
+            "No actionable issues (all are blocked or done)".dimmed()
+        );
     }
 }

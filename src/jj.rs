@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, bail};
+use anyhow::{bail, Context, Result};
 use std::env;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -12,21 +12,22 @@ impl JJ {
     pub fn new(repo_path: &Path) -> Result<Self> {
         // If PEBBLES_DB_PATH is set, use it as the pebbles directory
         // and its parent as the repo path
-        let (pebbles_path, effective_repo_path) = if let Ok(custom_path) = env::var("PEBBLES_DB_PATH") {
-            let pebbles = PathBuf::from(&custom_path);
-            let repo = if pebbles.is_relative() {
-                repo_path.join(&pebbles).parent()
-                    .unwrap_or(repo_path)
-                    .to_path_buf()
+        let (pebbles_path, effective_repo_path) =
+            if let Ok(custom_path) = env::var("PEBBLES_DB_PATH") {
+                let pebbles = PathBuf::from(&custom_path);
+                let repo = if pebbles.is_relative() {
+                    repo_path
+                        .join(&pebbles)
+                        .parent()
+                        .unwrap_or(repo_path)
+                        .to_path_buf()
+                } else {
+                    pebbles.parent().unwrap_or(&pebbles).to_path_buf()
+                };
+                (pebbles, repo)
             } else {
-                pebbles.parent()
-                    .unwrap_or(&pebbles)
-                    .to_path_buf()
+                (repo_path.join(".pebbles"), repo_path.to_path_buf())
             };
-            (pebbles, repo)
-        } else {
-            (repo_path.join(".pebbles"), repo_path.to_path_buf())
-        };
 
         Ok(Self {
             repo_path: effective_repo_path,

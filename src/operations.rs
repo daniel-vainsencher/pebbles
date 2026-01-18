@@ -1,11 +1,11 @@
-use anyhow::{Context, Result, bail};
-use std::path::Path;
+use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
+use std::path::Path;
 use uuid::Uuid;
 
+use crate::jj::JJ;
 use crate::models::{Issue, IssueType, RelationType, Status};
 use crate::storage::Storage;
-use crate::jj::JJ;
 
 pub struct ProjectSummary {
     pub total_issues: usize,
@@ -34,17 +34,27 @@ impl Operations {
         }
 
         if !self.jj.is_repo() {
-            self.jj.init().context("Failed to initialize jj repository")?;
+            self.jj
+                .init()
+                .context("Failed to initialize jj repository")?;
         }
 
-        self.storage.init().context("Failed to initialize pebbles storage")?;
-        self.jj.commit("Initialize pebbles", self.storage.index_path())?;
+        self.storage
+            .init()
+            .context("Failed to initialize pebbles storage")?;
+        self.jj
+            .commit("Initialize pebbles", self.storage.index_path())?;
 
         println!("✓ Pebbles initialized successfully");
         Ok(())
     }
 
-    pub fn create(&self, title: String, description: Option<String>, issue_type: IssueType) -> Result<Issue> {
+    pub fn create(
+        &self,
+        title: String,
+        description: Option<String>,
+        issue_type: IssueType,
+    ) -> Result<Issue> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -56,18 +66,25 @@ impl Operations {
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&issue.file_name());
-        self.jj.commit(&format!("Create {}: {}", issue.issue_type, issue.title), &issue_path)?;
+        self.jj.commit(
+            &format!("Create {}: {}", issue.issue_type, issue.title),
+            &issue_path,
+        )?;
 
         Ok(issue)
     }
 
-    pub fn list(&self, status_filter: Option<Status>, type_filter: Option<IssueType>) -> Result<Vec<Issue>> {
+    pub fn list(
+        &self,
+        status_filter: Option<Status>,
+        type_filter: Option<IssueType>,
+    ) -> Result<Vec<Issue>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
         let mut issues = self.storage.load_all_issues()?;
-        
+
         if let Some(status) = status_filter {
             issues.retain(|issue| issue.status == status);
         }
@@ -97,46 +114,59 @@ impl Operations {
 
         let uuid = self.resolve_id(id)?;
         let mut issue = self.storage.load_issue(&uuid)?;
-        
+
         let old_status = issue.status.clone();
         issue.status = new_status;
         issue.update();
-        
+
         let mut index = self.storage.load_index()?;
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&issue.file_name());
-        self.jj.commit(&format!("Update {} {}: {} -> {}",
-            issue.issue_type, issue.title, old_status, issue.status), &issue_path)?;
+        self.jj.commit(
+            &format!(
+                "Update {} {}: {} -> {}",
+                issue.issue_type, issue.title, old_status, issue.status
+            ),
+            &issue_path,
+        )?;
 
         Ok(())
     }
 
-    pub fn update(&self, id: &str, title: Option<String>, description: Option<String>) -> Result<()> {
+    pub fn update(
+        &self,
+        id: &str,
+        title: Option<String>,
+        description: Option<String>,
+    ) -> Result<()> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
         let uuid = self.resolve_id(id)?;
         let mut issue = self.storage.load_issue(&uuid)?;
-        
+
         if let Some(new_title) = title {
             issue.title = new_title;
         }
-        
+
         if let Some(new_desc) = description {
             issue.description = Some(new_desc);
         }
-        
+
         issue.update();
-        
+
         let mut index = self.storage.load_index()?;
         self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&issue.file_name());
-        self.jj.commit(&format!("Update {}: {}", issue.issue_type, issue.title), &issue_path)?;
+        self.jj.commit(
+            &format!("Update {}: {}", issue.issue_type, issue.title),
+            &issue_path,
+        )?;
 
         Ok(())
     }
@@ -155,12 +185,20 @@ impl Operations {
         index.remove(&uuid);
         self.storage.save_index(&index)?;
 
-        self.jj.commit(&format!("Delete {}: {}", issue.issue_type, issue.title), &issue_path)?;
+        self.jj.commit(
+            &format!("Delete {}: {}", issue.issue_type, issue.title),
+            &issue_path,
+        )?;
 
         Ok(())
     }
 
-    pub fn add_relationship(&self, source_id: &str, relation_type: RelationType, target_id: &str) -> Result<()> {
+    pub fn add_relationship(
+        &self,
+        source_id: &str,
+        relation_type: RelationType,
+        target_id: &str,
+    ) -> Result<()> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -172,7 +210,8 @@ impl Operations {
         let target_issue = self.storage.load_issue(&target_uuid)?;
 
         // Validate relationship
-        source_issue.add_relationship(relation_type.clone(), target_uuid)
+        source_issue
+            .add_relationship(relation_type.clone(), target_uuid)
             .map_err(|e| anyhow::anyhow!(e))?;
 
         let mut index = self.storage.load_index()?;
@@ -180,13 +219,23 @@ impl Operations {
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&source_issue.file_name());
-        self.jj.commit(&format!("Add relationship: {} {} {}",
-            source_issue.title, relation_type, target_issue.title), &issue_path)?;
+        self.jj.commit(
+            &format!(
+                "Add relationship: {} {} {}",
+                source_issue.title, relation_type, target_issue.title
+            ),
+            &issue_path,
+        )?;
 
         Ok(())
     }
 
-    pub fn remove_relationship(&self, source_id: &str, relation_type: RelationType, target_id: &str) -> Result<()> {
+    pub fn remove_relationship(
+        &self,
+        source_id: &str,
+        relation_type: RelationType,
+        target_id: &str,
+    ) -> Result<()> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -195,7 +244,7 @@ impl Operations {
         let target_uuid = self.resolve_id(target_id)?;
 
         let mut source_issue = self.storage.load_issue(&source_uuid)?;
-        
+
         if !source_issue.remove_relationship(relation_type.clone(), target_uuid) {
             bail!("Relationship not found");
         }
@@ -205,8 +254,13 @@ impl Operations {
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&source_issue.file_name());
-        self.jj.commit(&format!("Remove relationship: {} {} <target>",
-            source_issue.title, relation_type), &issue_path)?;
+        self.jj.commit(
+            &format!(
+                "Remove relationship: {} {} <target>",
+                source_issue.title, relation_type
+            ),
+            &issue_path,
+        )?;
 
         Ok(())
     }
@@ -227,9 +281,10 @@ impl Operations {
         let mut child_issues: Vec<Issue> = all_issues
             .into_iter()
             .filter(|issue| {
-                issue.relationships.iter().any(|rel| {
-                    rel.relation_type == RelationType::PartOf && rel.target_id == uuid
-                })
+                issue
+                    .relationships
+                    .iter()
+                    .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == uuid)
             })
             .collect();
 
@@ -287,9 +342,9 @@ impl Operations {
             // Check if this epic has children
             let all_issues = self.storage.load_all_issues()?;
             let has_children = all_issues.iter().any(|i| {
-                i.relationships.iter().any(|rel| {
-                    rel.relation_type == RelationType::PartOf && rel.target_id == uuid
-                })
+                i.relationships
+                    .iter()
+                    .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == uuid)
             });
 
             if has_children {
@@ -299,7 +354,11 @@ impl Operations {
 
         if new_type == IssueType::Epic && old_type != IssueType::Epic {
             // Check if this issue is part of an epic
-            if issue.relationships.iter().any(|rel| rel.relation_type == RelationType::PartOf) {
+            if issue
+                .relationships
+                .iter()
+                .any(|rel| rel.relation_type == RelationType::PartOf)
+            {
                 bail!("Cannot convert an issue that is part of an epic into an epic itself. Remove part_of relationships first.");
             }
         }
@@ -312,8 +371,13 @@ impl Operations {
         self.storage.save_index(&index)?;
 
         let issue_path = self.storage.issue_path(&issue.file_name());
-        self.jj.commit(&format!("Convert {}: {} → {}",
-            issue.title, old_type, issue.issue_type), &issue_path)?;
+        self.jj.commit(
+            &format!(
+                "Convert {}: {} → {}",
+                issue.title, old_type, issue.issue_type
+            ),
+            &issue_path,
+        )?;
 
         Ok(())
     }
