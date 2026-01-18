@@ -1,0 +1,12 @@
+{
+  "id": "623d3a5d-a85f-4112-a239-e6f18cfec21b",
+  "title": "Update creation output to show type and shortest unambiguous ID",
+  "description": "Change creation output format from '✓ Created issue {short_id}' to 'Created {type} {shortest_unambiguous_id}'. Implement shortest_unambiguous_id(min_length: 3) function to find the minimum unique prefix for any issue ID. Update README to clarify ID notation and document minimum 3-character length. Update tests to verify new format.",
+  "status": "todo",
+  "issue_type": "ux_problem",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-18T17:44:19.254617024Z",
+  "updated_at": "2026-01-18T17:44:19.254617024Z"
+}
