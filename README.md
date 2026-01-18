@@ -68,7 +68,7 @@ pebbles new "User can export data" --issue-type usecase
 pebbles new "Authentication Epic" --issue-type epic
 ```
 
-**Issue types:** `bug`, `ux` (ux_problem), `usecase`, `design`, `validation`, `epic`, `milestone`
+**Issue types:** `bug`, `ux` (shorthand for `ux_problem`), `usecase`, `design`, `validation`, `epic`, `milestone`
 
 ### List and Filter
 
@@ -94,9 +94,11 @@ pebbles list --status in_progress --issue-type epic
 ```bash
 pebbles show <id>
 
-# Short IDs work
-pebbles show a1b2
+# Short IDs work (minimum 3 characters)[^1]
+pebbles show a1b
 ```
+
+[^1]: ID length is at least 3 characters. As your project grows, you may need longer prefixes if short IDs become ambiguous.
 
 ### Update Issues
 
@@ -141,21 +143,21 @@ pebbles delete <id>
 ```bash
 # Create an epic
 pebbles new "User Authentication" --issue-type epic
-# Created: epic-a1b2c3d4
+# Created epic a1b
 
 # Break it down
 pebbles new "Login form design" --issue-type ux
-# Created: ux-e5f6g7h8
+# Created ux_problem e5f
 
 pebbles new "JWT implementation" --issue-type design
-# Created: des-i9j0k1l2
+# Created design i9j
 
 # Link to epic
-pebbles link e5f6 part_of a1b2
-pebbles link i9j0 part_of a1b2
+pebbles link e5f part_of a1b
+pebbles link i9j part_of a1b
 
 # Add dependencies
-pebbles link e5f6 required_for i9j0  # Design before implementation
+pebbles link e5f required_for i9j  # Design before implementation
 ```
 
 ### Daily Workflow
@@ -201,10 +203,10 @@ pebbles show a1b2
 ### Using Short IDs
 
 ```bash
-# Full UUID not required
-pebbles show 53ed9aa8        # 8 chars
-pebbles status 53ed done     # Even shorter if unique
-pebbles update 53e --title "New title"
+# Full UUID not required - use shortest unambiguous prefix (min 3 chars)
+pebbles show 53ed9aa8        # 8 chars always works
+pebbles status 53ed done     # Shorter if unambiguous
+pebbles update 53e --title "New title"  # Minimum 3 characters
 ```
 
 ### Shell Integration

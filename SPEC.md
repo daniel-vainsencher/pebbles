@@ -145,13 +145,27 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 
 ### ID Resolution
 
-**Short IDs:**
-- Minimum 1 character, recommended 4+ characters
+**Appropriate Length ID:**
+
+The "appropriate length ID" is the canonical way to display issue IDs in pebbles output. It is defined as:
+
+- The **minimum-length prefix** of the UUID that is both:
+  1. **Unambiguous** - matches exactly one issue in the database
+  2. **At least 3 characters** - to be clearly recognizable as an ID
+- Always **lowercase**
+- Used in creation messages (e.g., `Created bug 763`) and recommended for user display
+
+Implementation: [`Operations::appropriate_length_id()`](src/operations.rs)
+
+**Short ID Input:**
+- Minimum 3 characters when entering IDs[^1]
 - Must match exactly one issue's UUID prefix
-- Case-insensitive
+- Case-insensitive on input, normalized to lowercase
 - Example: [Quick Start](README.md#view-details) shows short ID usage
-- Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details) demonstrates 8-character IDs
+- Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details) demonstrates short IDs
 - Implementation: [`Operations::resolve_id()`](src/operations.rs)
+
+[^1]: The minimum ID length may need to increase as more issues are created and ID collisions become more likely.
 
 ## CLI Interface
 

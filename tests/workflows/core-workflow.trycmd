@@ -197,7 +197,7 @@ $ pebbles list --status in_progress
 
 ```console
 $ pebbles new "Temporary test issue" --issue-type bug
-✓ Created issue [..]
+Created bug [..]
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ID: [..]
 Title: Temporary test issue

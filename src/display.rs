@@ -68,7 +68,11 @@ pub fn print_issue_list(issues: &[Issue]) {
     }
 }
 
-pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>) {
+pub fn print_issue_detail(
+    issue: &Issue,
+    related_titles: &HashMap<Uuid, String>,
+    incoming_relationships: &[(Uuid, String, RelationType)],
+) {
     let status_str = match issue.status {
         Status::Todo => "TODO".yellow(),
         Status::InProgress => "IN PROGRESS".blue(),
@@ -92,6 +96,7 @@ pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>)
         println!("{}: {}", "Tags".bold(), issue.tags.join(", "));
     }
 
+    // Show outgoing relationships (this issue -> other)
     if !issue.relationships.is_empty() {
         println!("\n{}", "Relationships:".bold());
         for rel in &issue.relationships {
@@ -107,6 +112,25 @@ pub fn print_issue_detail(issue: &Issue, related_titles: &HashMap<Uuid, String>)
             } else {
                 println!("  {} {}", rel_str.dimmed(), id_display);
             }
+        }
+    }
+
+    // Show incoming relationships (other -> this issue)
+    if !incoming_relationships.is_empty() {
+        println!("\n{}", "Referenced by:".bold());
+        for (source_id, source_title, rel_type) in incoming_relationships {
+            let rel_str = match rel_type {
+                RelationType::PartOf => "has part",
+                RelationType::RequiredFor => "requires",
+                RelationType::ScheduledBefore => "scheduled after",
+            };
+            let id_display = source_id.to_string()[..8].to_string().cyan();
+            println!(
+                "  {} {} ({})",
+                rel_str.dimmed(),
+                id_display,
+                source_title.bold()
+            );
         }
     }
 
@@ -431,6 +455,30 @@ pub fn print_summary(summary: &ProjectSummary) {
             };
 
             println!("  {} {}", epic.title.bold(), progress_str);
+        }
+        println!();
+    }
+
+    // Relationships
+    if summary.total_relationships > 0 {
+        println!("{}:", "Relationships".bold());
+        println!("  {}: {}", "Total".dimmed(), summary.total_relationships);
+        let rel_types = [
+            RelationType::PartOf,
+            RelationType::RequiredFor,
+            RelationType::ScheduledBefore,
+        ];
+        for rel_type in &rel_types {
+            if let Some(count) = summary.by_relationship_type.get(rel_type) {
+                if *count > 0 {
+                    let rel_str = match rel_type {
+                        RelationType::PartOf => "part_of",
+                        RelationType::RequiredFor => "required_for",
+                        RelationType::ScheduledBefore => "scheduled_before",
+                    };
+                    println!("  {}: {}", rel_str.dimmed(), count);
+                }
+            }
         }
         println!();
     }

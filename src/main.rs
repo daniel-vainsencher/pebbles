@@ -31,9 +31,11 @@ fn main() -> Result<()> {
         } => {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
             let issue = ops.create(title, description, issue_type)?;
-            println!("✓ Created issue {}", issue.short_id());
+            let short_id = ops.appropriate_length_id(&issue.id)?;
+            println!("Created {} {}", issue.issue_type, short_id);
             let related_titles = ops.get_related_titles(&issue);
-            print_issue_detail(&issue, &related_titles);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            print_issue_detail(&issue, &related_titles, &incoming);
         }
 
         Commands::List {
@@ -74,7 +76,8 @@ fn main() -> Result<()> {
         Commands::Show { id } => {
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
-            print_issue_detail(&issue, &related_titles);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            print_issue_detail(&issue, &related_titles, &incoming);
         }
 
         Commands::Status { id, status } => {
@@ -82,8 +85,9 @@ fn main() -> Result<()> {
             ops.update_status(&id, new_status)?;
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
             println!("✓ Updated issue status");
-            print_issue_detail(&issue, &related_titles);
+            print_issue_detail(&issue, &related_titles, &incoming);
         }
 
         Commands::Update {
@@ -94,8 +98,9 @@ fn main() -> Result<()> {
             ops.update(&id, title, description)?;
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
             println!("✓ Updated issue");
-            print_issue_detail(&issue, &related_titles);
+            print_issue_detail(&issue, &related_titles, &incoming);
         }
 
         Commands::Delete { id } => {
@@ -138,8 +143,9 @@ fn main() -> Result<()> {
             ops.convert(&id, new_type_parsed)?;
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
             println!("✓ Converted issue type");
-            print_issue_detail(&issue, &related_titles);
+            print_issue_detail(&issue, &related_titles, &incoming);
         }
 
         Commands::Summary => {

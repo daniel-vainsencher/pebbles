@@ -115,6 +115,18 @@
     {
       "id": "a12e9fd6-5adb-4991-ba3b-358879681d71",
       "file_name": "uc-a12e9fd6-extract-pure-logic-from-operations-for-u.json"
+    },
+    {
+      "id": "623d3a5d-a85f-4112-a239-e6f18cfec21b",
+      "file_name": "ux-623d3a5d-update-creation-output-to-show-type-and-.json"
+    },
+    {
+      "id": "48e1d52e-ecf5-472f-8dfc-18d90f0c813d",
+      "file_name": "ux-48e1d52e-display-all-relationships-when-showing-a.json"
+    },
+    {
+      "id": "43caa49f-d935-4252-99c7-00ed576f5e04",
+      "file_name": "des-43caa49f-store-bidirectional-relationships-in-iss.json"
     }
   ]
 }

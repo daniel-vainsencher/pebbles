@@ -13,6 +13,8 @@ pub struct ProjectSummary {
     pub by_type: HashMap<IssueType, usize>,
     pub epics: Vec<(Issue, usize, usize)>, // (epic, total_children, done_children)
     pub actionable_count: usize,
+    pub total_relationships: usize,
+    pub by_relationship_type: HashMap<RelationType, usize>,
 }
 
 pub struct Operations {
@@ -430,12 +432,26 @@ impl Operations {
         let actionable = self.next()?;
         let actionable_count = actionable.len();
 
+        // Count relationships
+        let mut total_relationships = 0;
+        let mut by_relationship_type: HashMap<RelationType, usize> = HashMap::new();
+        for issue in &all_issues {
+            for rel in &issue.relationships {
+                total_relationships += 1;
+                *by_relationship_type
+                    .entry(rel.relation_type.clone())
+                    .or_insert(0) += 1;
+            }
+        }
+
         Ok(ProjectSummary {
             total_issues,
             by_status,
             by_type,
             epics: epic_info,
             actionable_count,
+            total_relationships,
+            by_relationship_type,
         })
     }
 
@@ -447,6 +463,57 @@ impl Operations {
             }
         }
         titles
+    }
+
+    /// Returns incoming relationships: other issues that have relationships pointing to this issue.
+    /// Returns a Vec of (source_issue_id, source_issue_title, relation_type)
+    pub fn get_incoming_relationships(
+        &self,
+        issue_id: &Uuid,
+    ) -> Result<Vec<(Uuid, String, RelationType)>> {
+        let all_issues = self.storage.load_all_issues()?;
+        let mut incoming = Vec::new();
+
+        for other_issue in all_issues {
+            if other_issue.id == *issue_id {
+                continue;
+            }
+            for rel in &other_issue.relationships {
+                if rel.target_id == *issue_id {
+                    incoming.push((
+                        other_issue.id,
+                        other_issue.title.clone(),
+                        rel.relation_type.clone(),
+                    ));
+                }
+            }
+        }
+
+        Ok(incoming)
+    }
+
+    /// Returns the shortest unambiguous ID prefix for the given UUID.
+    /// The minimum length is 3 characters. Always returns lowercase.
+    /// See SPEC.md for the definition of "appropriate length ID".
+    pub fn appropriate_length_id(&self, id: &Uuid) -> Result<String> {
+        let index = self.storage.load_index()?;
+        let all_ids = index.all_ids();
+        let id_str = id.to_string().to_lowercase();
+
+        // Find minimum prefix length (≥3) that uniquely identifies this ID
+        for len in 3..=id_str.len() {
+            let prefix = &id_str[..len];
+            let matches = all_ids
+                .iter()
+                .filter(|uuid| uuid.to_string().to_lowercase().starts_with(prefix))
+                .count();
+            if matches == 1 {
+                return Ok(prefix.to_string());
+            }
+        }
+
+        // Fallback to full ID if somehow not unique (shouldn't happen)
+        Ok(id_str)
     }
 
     fn resolve_id(&self, id_str: &str) -> Result<Uuid> {
