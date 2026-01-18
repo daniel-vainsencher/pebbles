@@ -5,8 +5,13 @@
   "status": "todo",
   "issue_type": "ux_problem",
   "tags": [],
-  "relationships": [],
+  "relationships": [
+    {
+      "relation_type": "scheduled_before",
+      "target_id": "43caa49f-d935-4252-99c7-00ed576f5e04"
+    }
+  ],
   "metadata": {},
   "created_at": "2026-01-18T17:44:20.471697761Z",
-  "updated_at": "2026-01-18T17:44:20.471697761Z"
+  "updated_at": "2026-01-18T17:44:25.625025175Z"
 }
