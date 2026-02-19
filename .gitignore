@@ -21,3 +21,4 @@ test-repos/
 # vtcode (Claude Code internal files)
 .vtcode/
 vtcode.toml
+.tmp/

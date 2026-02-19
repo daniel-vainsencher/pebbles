@@ -131,4 +131,13 @@ pub enum Commands {
 
     #[command(about = "Show project summary and statistics")]
     Summary,
+
+    #[command(about = "Visualize project flow (EXPERIMENTAL)")]
+    Flow {
+        #[arg(long, help = "Output format (text, svg)")]
+        format: Option<String>,
+
+        #[arg(short, long, help = "Output file path")]
+        output: Option<String>,
+    },
 }
