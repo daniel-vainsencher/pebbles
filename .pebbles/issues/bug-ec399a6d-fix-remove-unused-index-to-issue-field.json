@@ -1,0 +1,12 @@
+{
+  "id": "ec399a6d-7b41-4218-b10a-cf1bced2a275",
+  "title": "Fix: Remove unused index_to_issue field",
+  "description": "Clean up FlowLayout struct warning:\n\nCurrent warning:\n  field `index_to_issue` is never read\n\nOptions:\n1. Remove field if truly unused\n2. Use field for something (reverse lookup?)\n3. Mark with #[allow(dead_code)] if needed for future\n\nCheck all uses of FlowLayout to determine correct action.\nPrefer removal if not needed - YAGNI principle.\n\nQuick win - should take <10 minutes.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:13:10.577769601Z",
+  "updated_at": "2026-02-19T03:13:10.577769601Z"
+}
