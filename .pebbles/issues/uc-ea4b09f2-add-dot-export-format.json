@@ -1,0 +1,12 @@
+{
+  "id": "ea4b09f2-f01f-47fb-8519-8887383edd15",
+  "title": "Add DOT export format",
+  "description": "Implement --format dot for Graphviz rendering:\n\nGenerate DOT file with:\n- Graph direction: LR (left to right)\n- Node attributes: shape, label, color by status\n- Edge attributes: relationship type as label\n- Subgraphs for disconnected components\n- Style matching pebbles aesthetics\n\nExample output:\ndigraph pebbles_flow {\n  rankdir=LR;\n  node [shape=box];\n  \n  'uuid1' [label='Issue Title' color='green' style=filled];\n  'uuid2' [label='Other Issue' color='yellow'];\n  \n  'uuid1' -> 'uuid2' [label='required_for'];\n}\n\nAllows users to render with: dot -Tsvg flow.dot > flow.svg\nUseful for custom layouts and integration with Graphviz ecosystem.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:12:39.058841063Z",
+  "updated_at": "2026-02-19T03:12:39.058841063Z"
+}
