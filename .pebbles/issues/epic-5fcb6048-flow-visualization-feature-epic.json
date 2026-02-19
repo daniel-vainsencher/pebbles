@@ -1,0 +1,12 @@
+{
+  "id": "5fcb6048-5ef6-45c5-8266-f959d7c261e8",
+  "title": "Flow Visualization Feature Epic",
+  "description": "Implement comprehensive project flow visualization to show task dependencies and help users understand project structure at a glance.\n\nGoals:\n- Visualize dependency chains (left=ready, right=goals)\n- Support multiple output formats (text, SVG, JSON, DOT)\n- Enable critical path analysis with --goal flag\n- Provide both quick overview and detailed exploration modes\n- Integrate cleanly with existing pebbles commands\n\nSuccess: Users can see their project flow, identify ready tasks, understand dependencies, and find critical paths to goals without external tools.",
+  "status": "todo",
+  "issue_type": "epic",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:11:28.213317190Z",
+  "updated_at": "2026-02-19T03:11:28.213317190Z"
+}
