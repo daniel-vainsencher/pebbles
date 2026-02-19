@@ -9,9 +9,13 @@
     {
       "relation_type": "part_of",
       "target_id": "5fcb6048-5ef6-45c5-8266-f959d7c261e8"
+    },
+    {
+      "relation_type": "required_for",
+      "target_id": "7ca62d2a-950a-4494-aa41-b667d1ba2688"
     }
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:08.030569557Z",
-  "updated_at": "2026-02-19T03:13:18.445468901Z"
+  "updated_at": "2026-02-19T03:19:32.807634352Z"
 }
