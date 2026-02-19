@@ -1,0 +1,12 @@
+{
+  "id": "e99e93c5-7411-4286-8ded-6cfaf0da1569",
+  "title": "Review and tune SVG output",
+  "description": "Review current SVG output from spike and identify tuning needs:\n\nCurrent state (from spike):\n- Basic boxes with issue IDs and titles\n- Arrows showing dependencies\n- Color coding by status (done=green, blocked=red, etc.)\n- Works but needs polish\n\nReview and tune:\n- Box sizing and spacing (too cramped?)\n- Arrow positioning (currently center, should be edge?)\n- Font sizes and readability\n- Title truncation handling\n- Color palette consistency with pebbles style\n- Layout dimensions (currently very wide?)\n\nDocument findings for follow-up enhancement task.",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:12:00.670844759Z",
+  "updated_at": "2026-02-19T03:12:00.670844759Z"
+}
