@@ -1,0 +1,12 @@
+{
+  "id": "5a240075-1fa7-4b6d-87fd-0f5b116ef819",
+  "title": "Create complex test fixtures for flow visualization",
+  "description": "Create comprehensive test issue fixtures in tests/workflows/ to validate flow visualization with various graph patterns:\n\nPatterns needed:\n- Diamond: A→B, A→C, B→D, C→D (converging paths)\n- Tree (fan-out): A→B, A→C, A→D (multiple dependents)\n- Tree (fan-in): A→D, B→D, C→D (multiple dependencies)\n- Chain: A→B→C→D→E (linear)\n- Disconnected components: multiple separate chains\n- Mixed: combination of above patterns\n\nCreate in: tests/workflows/flow-patterns.in/.pebbles/issues/\n\nThis will enable thorough testing of layout algorithm correctness.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:11:42.901040344Z",
+  "updated_at": "2026-02-19T03:11:42.901040344Z"
+}
