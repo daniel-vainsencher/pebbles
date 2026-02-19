@@ -1,0 +1,12 @@
+{
+  "id": "6e194be2-1060-4dc4-85ca-ce5566b39b2f",
+  "title": "Improve text output formatting",
+  "description": "Enhance text output for better readability and usability:\n\nRequirements:\n- Show columns as actual columns (align layer headers, issue text)\n- Empty horizontal line between disconnected components\n- Better handle long titles (truncate with ... at consistent width)\n- Add visual indicators: ✓ (ready), ⚠ (blocked), → (blocking others)\n- Consider: show dependency count per issue\n\nReview from spike:\n- Current 50px bucket layering works correctly\n- Component separation in Y-axis is good\n- Layer numbering is clear\n\nOutput example:\nLayer 0:                     Layer 1:                     Layer 2:\n✓ 500a0ebd Design            ⚠ bffdb48d Implement         → 99590607 Test\n  48e1d52e Display            ✓ 43caa49f Store             \n---\nLayer 0:                     Layer 1:\n✓ a12e9fd6 Extract            4622175c Doctests\n",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:11:53.612170259Z",
+  "updated_at": "2026-02-19T03:11:53.612170259Z"
+}
