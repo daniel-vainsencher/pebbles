@@ -1,0 +1,12 @@
+{
+  "id": "33a55c30-f943-4e2f-8908-6bc572b53d46",
+  "title": "Create trycmd tests for flow command",
+  "description": "Add comprehensive integration tests for flow visualization using trycmd:\n\nTest scenarios:\n- Basic text output with simple chain\n- SVG generation (verify file created, basic structure)\n- JSON export structure validation\n- DOT export format\n- Empty repository (no dependencies)\n- Various graph patterns (from test fixtures)\n- --show-done flag behavior\n- --goal flag with critical path highlighting\n- Error cases: invalid goal ID, circular dependencies\n\nPattern: tests/workflows/flow-*.trycmd\n\nEnsure tests are:\n- Fast (use small test fixtures)\n- Stable (pattern match dynamic content like UUIDs)\n- Comprehensive (cover main use cases and edge cases)",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:12:15.935687239Z",
+  "updated_at": "2026-02-19T03:12:15.935687239Z"
+}
