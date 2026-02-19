@@ -1,0 +1,12 @@
+{
+  "id": "b7bfe193-367a-4a95-80b8-f7a0c27b9e85",
+  "title": "Enhance SVG output with interactivity",
+  "description": "Follow-up to SVG review: implement enhancements:\n\nImprovements:\n- Better styling (improved colors, fonts, spacing)\n- Hover tooltips showing full issue details (title, description, status)\n- Visual highlighting of critical paths\n- Proper edge routing (avoid overlaps)\n- Responsive sizing based on graph complexity\n- Export option: standalone HTML with embedded JavaScript for interactivity\n\nConsider:\n- Click to jump to issue in terminal (if possible)\n- Zoom/pan for large graphs\n- Filter toggle buttons in HTML export\n\nThis creates production-quality SVG suitable for documentation and sharing.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-19T03:12:08.030569557Z",
+  "updated_at": "2026-02-19T03:12:08.030569557Z"
+}
