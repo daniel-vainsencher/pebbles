@@ -1,0 +1,12 @@
+{
+  "id": "eb63eb8b-4f63-4450-bde7-2bf7b239e625",
+  "title": "next should hide an epic when any of its children are unblocked",
+  "description": "'pebbles next' currently surfaces epics alongside actionable bugs/usecases (e.g. '[epic] [TODO] Decommission galago (0/4)'). When an epic has unblocked children, those children already represent the actionable work; including the epic itself is noise.\n\nProposed behavior:\n- An epic appears in 'pebbles next' iff none of its children are themselves unblocked (i.e. none of them would appear in next on their own).\n- Rationale: an epic with unblocked children is 'represented' by those children; an epic with no unblocked children may still be worth surfacing as a placeholder reminder (e.g. all children are blocked or the epic has no children yet).\n\nImplementation note:\n- This filter naturally pairs with the dependency-aware filtering in the related 'next ignores dependency relations' bug. Once next can decide whether a non-epic issue is unblocked, the epic rule is: epic is visible iff no child issue is unblocked.\n\nOpen questions (to explore when implementing):\n1. What about an epic with zero children? Surface it (since there's nothing else to represent the work) or hide it (since it's not actionable until broken down)? Likely surface.\n2. What about nested epics (epic A part_of epic B)? Apply the rule recursively: an epic is visible iff no descendant non-epic issue is unblocked. Confirm this matches user intuition.\n3. Status interaction: should a 'blocked' epic ever appear? Probably not, mirroring how 'blocked' non-epic issues behave today.",
+  "status": "todo",
+  "issue_type": "ux_problem",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-04-25T14:11:23.011442282Z",
+  "updated_at": "2026-04-25T14:11:23.011442282Z"
+}
