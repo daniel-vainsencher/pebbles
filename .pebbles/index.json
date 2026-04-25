@@ -183,6 +183,18 @@
     {
       "id": "ec399a6d-7b41-4218-b10a-cf1bced2a275",
       "file_name": "bug-ec399a6d-fix-remove-unused-index-to-issue-field.json"
+    },
+    {
+      "id": "a6aba620-9c64-47fd-83c6-0316ace3a408",
+      "file_name": "bug-a6aba620-next-ignores-dependency-relations-when-f.json"
+    },
+    {
+      "id": "eb63eb8b-4f63-4450-bde7-2bf7b239e625",
+      "file_name": "ux-eb63eb8b-next-should-hide-an-epic-when-any-of-its.json"
+    },
+    {
+      "id": "7ed9bd69-aa6a-42cf-ad14-ea20f3ede9b5",
+      "file_name": "uc-7ed9bd69-add-jj-integration-test-suite-and-fix-pa.json"
     }
   ]
 }
