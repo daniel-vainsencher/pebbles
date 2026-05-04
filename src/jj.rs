@@ -65,17 +65,34 @@ impl JJ {
         Ok(())
     }
 
-    pub fn commit(&self, message: &str, file_path: &Path) -> Result<()> {
+    /// Run `jj commit -m <message> <paths...>`.
+    ///
+    /// All `paths` are passed to jj so the resulting commit contains exactly
+    /// the changes touching those paths. If any change pebbles made is
+    /// omitted from `paths`, that change will remain in the working copy
+    /// instead of being committed — so callers must pass the *complete* set
+    /// of paths affected by the operation, including any deleted files,
+    /// renamed files (both old and new), and `.pebbles/index.json` when the
+    /// index has changed.
+    ///
+    /// `paths` must be non-empty.
+    pub fn commit(&self, message: &str, paths: &[&Path]) -> Result<()> {
         // Skip jj operations if .no_jj marker exists
         if self.should_skip_jj() {
             return Ok(());
         }
 
-        let output = Command::new("jj")
-            .arg("commit")
-            .arg("-m")
-            .arg(message)
-            .arg(file_path)
+        if paths.is_empty() {
+            bail!("JJ::commit called with no paths");
+        }
+
+        let mut cmd = Command::new("jj");
+        cmd.arg("commit").arg("-m").arg(message);
+        for path in paths {
+            cmd.arg(path);
+        }
+
+        let output = cmd
             .current_dir(&self.repo_path)
             .output()
             .context("Failed to execute jj commit")?;

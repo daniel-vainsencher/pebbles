@@ -6,6 +6,20 @@ use uuid::Uuid;
 
 use crate::models::{Index, Issue};
 
+/// Result of `Storage::save_issue`. Tells the caller which paths the operation
+/// actually touched on disk so they can be passed to `JJ::commit`.
+pub struct SaveOutcome {
+    /// File name (relative to `.pebbles/issues/`) the issue is now stored under.
+    pub new_file_name: String,
+    /// If the operation renamed the issue file (title or type changed),
+    /// the previous file name. The old file has been removed from disk;
+    /// callers must include `issues_dir/<that>` in the commit path set.
+    pub renamed_from: Option<String>,
+    /// Whether `.pebbles/index.json` was modified. True for create or rename;
+    /// false for in-place updates that don't change the filename.
+    pub index_modified: bool,
+}
+
 pub struct Storage {
     pebbles_dir: PathBuf,
     issues_dir: PathBuf,
@@ -85,22 +99,28 @@ impl Storage {
         Ok(issue)
     }
 
-    pub fn save_issue(&self, issue: &Issue, index: &mut Index) -> Result<()> {
+    pub fn save_issue(&self, issue: &Issue, index: &mut Index) -> Result<SaveOutcome> {
         let new_file_name = issue.file_name();
-        let old_file_name = index.get_file_name(&issue.id);
+        let old_file_name = index.get_file_name(&issue.id).map(|s| s.to_string());
+
+        let mut renamed_from: Option<String> = None;
+        let mut index_modified = false;
 
         // Handle file rename if title or type changed
-        if let Some(old_name) = old_file_name {
+        if let Some(old_name) = old_file_name.as_deref() {
             if old_name != new_file_name {
                 let old_path = self.issue_path(old_name);
                 if old_path.exists() {
                     fs::remove_file(&old_path).context("Failed to remove old issue file")?;
                 }
                 index.update_file_name(&issue.id, new_file_name.clone());
+                renamed_from = Some(old_name.to_string());
+                index_modified = true;
             }
         } else {
             // New issue
             index.add(issue.id, new_file_name.clone());
+            index_modified = true;
         }
 
         let path = self.issue_path(&new_file_name);
@@ -110,7 +130,11 @@ impl Storage {
         fs::write(&path, content)
             .with_context(|| format!("Failed to write issue file: {}", new_file_name))?;
 
-        Ok(())
+        Ok(SaveOutcome {
+            new_file_name,
+            renamed_from,
+            index_modified,
+        })
     }
 
     pub fn delete_issue(&self, id: &Uuid, index: &Index) -> Result<()> {

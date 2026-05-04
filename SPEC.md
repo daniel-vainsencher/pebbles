@@ -209,14 +209,15 @@ See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 ### File Renaming
 
-When an issue's title is updated:
-1. New filename is generated based on new title
+When an issue's title is updated (and analogously when its type is converted):
+1. New filename is generated based on new title (or new type)
 2. Old file is deleted
 3. New file is created with updated content
 4. Index is updated with new filename
-5. Jj tracks this as a delete + add (not a rename)
+5. Jj records all three changes (old-file deletion, new-file addition, index modification) in the same commit. Whether jj's `diff --summary` displays the file movement as `R {old => new}` or as `D old` + `A new` depends on its similarity heuristic and is not specified here.
 
 Example: Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title) shows title update triggering filename change
+Verification: [jj-integration](tests/jj_integration.rs) tests `t5_rename_via_title` and `t8_convert` confirm all three paths land in the same commit
 Implementation: [`Storage::save_issue()`](src/storage.rs)
 
 ### Timestamp Updates
@@ -230,7 +231,7 @@ Implementation: [`Issue::update()`](src/models.rs#L170-L172)
 
 ### Jujutsu Integration
 
-Every mutating operation commits the changed file to jj with a descriptive message:
+Every mutating operation commits the changed files to jj with a descriptive message:
 - Create: "Create {type}: {title}"
 - Update status: "Update {type} {title}: {old_status} → {new_status}"
 - Update fields: "Update {type}: {title}"
@@ -239,14 +240,17 @@ Every mutating operation commits the changed file to jj with a descriptive messa
 - Unlink: "Remove relationship: {source} {relation} {target}"
 - Convert type: "Convert {title}: {old_type} → {new_type}"
 
-Each operation runs `jj commit -m "<message>" <file>` which:
-- Commits only the specific file that changed
-- Creates a new working copy for subsequent operations
-- Preserves a clear history of individual changes
+Each operation runs `jj commit -m "<message>" <paths...>`, passing the **complete** set of paths the operation affected. This is the contract: every path pebbles modified, deleted, or created in service of the operation must be in the commit, so the working copy is clean afterward and nothing pebbles changed outlives the commit. Concretely, the path set always includes the affected issue file(s), and additionally:
 
-Implementation: [`JJ::commit()`](src/jj.rs)
+- `.pebbles/index.json` whenever the index was modified — i.e., on `create`, `delete`, and any operation that renames a file (title update, type conversion).
+- The old issue file path (now a deletion on disk) on any rename.
 
-**Test mode:** If a `.no_jj` marker file exists in the pebbles directory, all jj operations are skipped. This enables safe testing without requiring a jj repository.
+The path set does *not* include unrelated working-copy changes; jj's path-restricted commit confines each pebbles operation to its own changes only.
+
+Implementation: [`JJ::commit()`](src/jj.rs), [`Operations::paths_for_save()`](src/operations.rs)
+Verification: [jj-integration](tests/jj_integration.rs) — every mutating operation has a test asserting (a) clean working copy afterward, (b) no paths committed outside `.pebbles/`, and (c) the most recent commit's affected-path set matches the expected set exactly.
+
+**Test mode:** If a `.no_jj` marker file exists in the pebbles directory, all jj operations are skipped. This enables safe testing without requiring a jj repository, but bypasses the integration entirely; the [jj-integration](tests/jj_integration.rs) suite deliberately runs *without* this marker against a temporary repo.
 
 ## Extension Points
 

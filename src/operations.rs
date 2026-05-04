@@ -1,11 +1,11 @@
 use anyhow::{bail, Context, Result};
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::jj::JJ;
 use crate::models::{Issue, IssueType, RelationType, Status};
-use crate::storage::Storage;
+use crate::storage::{SaveOutcome, Storage};
 
 pub struct ProjectSummary {
     pub total_issues: usize,
@@ -20,6 +20,26 @@ pub struct ProjectSummary {
 pub struct Operations {
     storage: Storage,
     jj: JJ,
+}
+
+/// Build the list of paths to pass to `JJ::commit` based on what
+/// `Storage::save_issue` did. Always includes the new issue file;
+/// also includes the old issue file (deletion) on rename, and
+/// `.pebbles/index.json` when the index was modified.
+fn paths_for_save(storage: &Storage, outcome: &SaveOutcome) -> Vec<PathBuf> {
+    let mut paths = vec![storage.issue_path(&outcome.new_file_name)];
+    if let Some(old) = &outcome.renamed_from {
+        paths.push(storage.issue_path(old));
+    }
+    if outcome.index_modified {
+        paths.push(storage.index_path().clone());
+    }
+    paths
+}
+
+/// Convert a `Vec<PathBuf>` to a `Vec<&Path>` for passing to `JJ::commit`.
+fn as_path_refs(paths: &[PathBuf]) -> Vec<&Path> {
+    paths.iter().map(|p| p.as_path()).collect()
 }
 
 impl Operations {
@@ -45,7 +65,7 @@ impl Operations {
             .init()
             .context("Failed to initialize pebbles storage")?;
         self.jj
-            .commit("Initialize pebbles", self.storage.index_path())?;
+            .commit("Initialize pebbles", &[self.storage.index_path().as_path()])?;
 
         println!("✓ Pebbles initialized successfully");
         Ok(())
@@ -64,13 +84,13 @@ impl Operations {
         let issue = Issue::new(title, description, issue_type);
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&issue, &mut index)?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!("Create {}: {}", issue.issue_type, issue.title),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(issue)
@@ -122,16 +142,16 @@ impl Operations {
         issue.update();
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&issue, &mut index)?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!(
                 "Update {} {}: {} -> {}",
                 issue.issue_type, issue.title, old_status, issue.status
             ),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(())
@@ -161,13 +181,13 @@ impl Operations {
         issue.update();
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&issue, &mut index)?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!("Update {}: {}", issue.issue_type, issue.title),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(())
@@ -187,9 +207,12 @@ impl Operations {
         index.remove(&uuid);
         self.storage.save_index(&index)?;
 
+        // Delete commits the (now-removed) issue file *and* index.json,
+        // which had its entry removed.
+        let index_path = self.storage.index_path().clone();
         self.jj.commit(
             &format!("Delete {}: {}", issue.issue_type, issue.title),
-            &issue_path,
+            &[issue_path.as_path(), index_path.as_path()],
         )?;
 
         Ok(())
@@ -217,16 +240,16 @@ impl Operations {
             .map_err(|e| anyhow::anyhow!(e))?;
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&source_issue, &mut index)?;
+        let outcome = self.storage.save_issue(&source_issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&source_issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!(
                 "Add relationship: {} {} {}",
                 source_issue.title, relation_type, target_issue.title
             ),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(())
@@ -252,16 +275,16 @@ impl Operations {
         }
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&source_issue, &mut index)?;
+        let outcome = self.storage.save_issue(&source_issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&source_issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!(
                 "Remove relationship: {} {} <target>",
                 source_issue.title, relation_type
             ),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(())
@@ -369,16 +392,16 @@ impl Operations {
         issue.update();
 
         let mut index = self.storage.load_index()?;
-        self.storage.save_issue(&issue, &mut index)?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
         self.storage.save_index(&index)?;
 
-        let issue_path = self.storage.issue_path(&issue.file_name());
+        let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!(
                 "Convert {}: {} → {}",
                 issue.title, old_type, issue.issue_type
             ),
-            &issue_path,
+            &as_path_refs(&paths),
         )?;
 
         Ok(())

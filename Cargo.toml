@@ -1,6 +1,6 @@
 [package]
 name = "pebbles"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["OpenHands <openhands@all-hands.dev>"]
 description = "A rock-solid issue management tool built on top of Jujutsu (jj)"
@@ -22,3 +22,4 @@ rust-sugiyama = "0.4"
 
 [dev-dependencies]
 trycmd = "0.15"
+tempfile = "3"
