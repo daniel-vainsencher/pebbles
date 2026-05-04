@@ -81,6 +81,7 @@ impl std::str::FromStr for IssueType {
 }
 
 impl IssueType {
+    // r[impl part-of-epic-types]
     pub fn can_be_part_of_epic(&self) -> bool {
         !matches!(self, IssueType::Epic | IssueType::Milestone)
     }
@@ -179,6 +180,7 @@ impl Issue {
         self.id.to_string()[..8].to_string()
     }
 
+    // r[impl issue-filename-format]
     pub fn file_name(&self) -> String {
         let slug = slug::slugify(&self.title);
         let short_slug = if slug.len() > 40 { &slug[..40] } else { &slug };
@@ -190,6 +192,8 @@ impl Issue {
         )
     }
 
+    // r[impl part-of-epic-types]
+    // r[impl no-duplicate-relationships]
     pub fn add_relationship(
         &mut self,
         relation_type: RelationType,

@@ -99,6 +99,7 @@ impl Storage {
         Ok(issue)
     }
 
+    // r[impl rename-commits-all-paths]
     pub fn save_issue(&self, issue: &Issue, index: &mut Index) -> Result<SaveOutcome> {
         let new_file_name = issue.file_name();
         let old_file_name = index.get_file_name(&issue.id).map(|s| s.to_string());

@@ -1,0 +1,14 @@
+specs (
+    {
+        name pebbles
+        include (SPEC.md)
+        impls (
+            {
+                name rust
+                include (src/**/*.rs)
+                exclude (target/**)
+                test_include (tests/**/*.trycmd tests/**/*.rs)
+            }
+        )
+    }
+)

@@ -26,6 +26,7 @@ pub struct Operations {
 /// `Storage::save_issue` did. Always includes the new issue file;
 /// also includes the old issue file (deletion) on rename, and
 /// `.pebbles/index.json` when the index was modified.
+// r[impl jj-commit-complete-path-set]
 fn paths_for_save(storage: &Storage, outcome: &SaveOutcome) -> Vec<PathBuf> {
     let mut paths = vec![storage.issue_path(&outcome.new_file_name)];
     if let Some(old) = &outcome.renamed_from {
@@ -96,6 +97,7 @@ impl Operations {
         Ok(issue)
     }
 
+    // r[impl list-filter]
     pub fn list(
         &self,
         status_filter: Option<Status>,
@@ -516,6 +518,7 @@ impl Operations {
     /// Returns the shortest unambiguous ID prefix for the given UUID.
     /// The minimum length is 3 characters. Always returns lowercase.
     /// See SPEC.md for the definition of "appropriate length ID".
+    // r[impl appropriate-length-id]
     pub fn appropriate_length_id(&self, id: &Uuid) -> Result<String> {
         let index = self.storage.load_index()?;
         let all_ids = index.all_ids();
@@ -537,6 +540,7 @@ impl Operations {
         Ok(id_str)
     }
 
+    // r[impl short-id-input]
     fn resolve_id(&self, id_str: &str) -> Result<Uuid> {
         let index = self.storage.load_index()?;
         let all_ids = index.all_ids();

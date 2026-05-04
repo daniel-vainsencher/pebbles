@@ -35,6 +35,7 @@ impl JJ {
         })
     }
 
+    // r[impl no-jj-skip]
     fn should_skip_jj(&self) -> bool {
         // Skip jj operations if .no_jj marker file exists
         self.pebbles_path.join(".no_jj").exists()
@@ -76,6 +77,7 @@ impl JJ {
     /// index has changed.
     ///
     /// `paths` must be non-empty.
+    // r[impl jj-commit-complete-path-set]
     pub fn commit(&self, message: &str, paths: &[&Path]) -> Result<()> {
         // Skip jj operations if .no_jj marker exists
         if self.should_skip_jj() {

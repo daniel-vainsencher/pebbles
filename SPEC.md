@@ -104,6 +104,7 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 
 ### Issue Files
 
+r[issue-filename-format]
 **Path:** `.pebbles/issues/{type}-{short_id}-{slug}.json`
 
 **Naming:**
@@ -138,6 +139,7 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 
 ### Relationship Validation
 
+r[part-of-epic-types]
 **`part_of` relationships:**
 - Only `bug`, `ux_problem`, `usecase`, `design`, and `validation` types can be part of an epic
 - `epic` and `milestone` types cannot be part of another epic
@@ -145,12 +147,14 @@ The index maintains the mapping between UUIDs and current filenames. When an iss
 - Test: [core-workflow](tests/workflows/core-workflow.trycmd#link-issues-to-epic) shows epic linking
 - Implementation: [`IssueType::can_be_part_of_epic()`](src/models.rs#L84-L86)
 
+r[no-duplicate-relationships]
 **Duplicate prevention:**
 - Cannot add the same relationship (same type and target) twice
 - Implementation: [`Issue::add_relationship()`](src/models.rs#L188-L207)
 
 ### ID Resolution
 
+r[appropriate-length-id]
 **Appropriate Length ID:**
 
 The "appropriate length ID" is the canonical way to display issue IDs in pebbles output. It is defined as:
@@ -163,6 +167,7 @@ The "appropriate length ID" is the canonical way to display issue IDs in pebbles
 
 Implementation: [`Operations::appropriate_length_id()`](src/operations.rs)
 
+r[short-id-input]
 **Short ID Input:**
 - Minimum 3 characters when entering IDs[^1]
 - Must match exactly one issue's UUID prefix
@@ -185,6 +190,7 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 - `new <title>` - Create new issue with optional `--issue-type` and `-d` for description  
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue)
 
+r[list-filter]
 - `list` - List all issues with optional `--status` and `--issue-type` filters  
   Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues)
 
@@ -222,6 +228,7 @@ See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 ### File Renaming
 
+r[rename-commits-all-paths]
 When an issue's title is updated (and analogously when its type is converted):
 1. New filename is generated based on new title (or new type)
 2. Old file is deleted
@@ -253,6 +260,7 @@ Every mutating operation commits the changed files to jj with a descriptive mess
 - Unlink: "Remove relationship: {source} {relation} {target}"
 - Convert type: "Convert {title}: {old_type} → {new_type}"
 
+r[jj-commit-complete-path-set]
 Each operation runs `jj commit -m "<message>" <paths...>`, passing the **complete** set of paths the operation affected. This is the contract: every path pebbles modified, deleted, or created in service of the operation must be in the commit, so the working copy is clean afterward and nothing pebbles changed outlives the commit. Concretely, the path set always includes the affected issue file(s), and additionally:
 
 - `.pebbles/index.json` whenever the index was modified — i.e., on `create`, `delete`, and any operation that renames a file (title update, type conversion).
@@ -263,6 +271,7 @@ The path set does *not* include unrelated working-copy changes; jj's path-restri
 Implementation: [`JJ::commit()`](src/jj.rs), [`Operations::paths_for_save()`](src/operations.rs)
 Verification: [jj-integration](tests/jj_integration.rs) — every mutating operation has a test asserting (a) clean working copy afterward, (b) no paths committed outside `.pebbles/`, and (c) the most recent commit's affected-path set matches the expected set exactly.
 
+r[no-jj-skip]
 **Test mode:** If a `.no_jj` marker file exists in the pebbles directory, all jj operations are skipped. This enables safe testing without requiring a jj repository, but bypasses the integration entirely; the [jj-integration](tests/jj_integration.rs) suite deliberately runs *without* this marker against a temporary repo.
 
 ## Extension Points

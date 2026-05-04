@@ -15,6 +15,7 @@ $ pebbles list
 
 ## Filter by status
 
+r[verify list-filter]
 ```console
 $ pebbles list --status todo
 44444444 [epic] [TODO] User Authentication Epic (0)

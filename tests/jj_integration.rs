@@ -132,6 +132,7 @@ impl TestRepo {
     }
 
     /// Invariant 3: the most recent commit (@-) touches exactly `expected`.
+    // r[verify jj-commit-complete-path-set]
     fn assert_last_commit_paths(&self, context: &str, expected: &BTreeSet<String>) {
         let out = self.jj(&["diff", "--from", "@--", "--to", "@-", "--summary"]);
         let actual = parse_summary_paths(&out);
@@ -327,6 +328,7 @@ fn t4_update_description() {
 
 /// T5: `pebbles update --title` (rename) should commit new file, old file
 /// (deletion), and `index.json`.
+// r[verify rename-commits-all-paths]
 #[test]
 fn t5_rename_via_title() {
     let repo = TestRepo::new();
@@ -387,6 +389,7 @@ fn t7_unlink() {
 
 /// T8: `pebbles convert` (type rename) should commit new file, old file
 /// (deletion), and `index.json`.
+// r[verify rename-commits-all-paths]
 #[test]
 fn t8_convert() {
     let repo = TestRepo::new();
