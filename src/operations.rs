@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::jj::JJ;
-use crate::models::{Issue, IssueType, RelationType, Status};
+use crate::models::{build_incoming_relationships_map, Issue, IssueType, RelationType, Status};
 use crate::storage::{SaveOutcome, Storage};
 
 pub struct ProjectSummary {
@@ -324,6 +324,7 @@ impl Operations {
         }
 
         let all_issues = self.storage.load_all_issues()?;
+        let incoming_map = build_incoming_relationships_map(&all_issues);
 
         let todo_issues: Vec<Issue> = all_issues
             .iter()
@@ -331,15 +332,18 @@ impl Operations {
             .cloned()
             .collect();
 
+        // An issue is blocked if it has an incoming RequiredFor or ScheduledBefore
+        // from an issue that is not Done.
         let mut unblocked_issues: Vec<Issue> = todo_issues
             .into_iter()
             .filter(|issue| {
-                for rel in &issue.relationships {
-                    if rel.relation_type == RelationType::RequiredFor {
-                        if let Ok(required_issue) = self.storage.load_issue(&rel.target_id) {
-                            if required_issue.status != Status::Done {
-                                return false;
-                            }
+                if let Some(incoming) = incoming_map.get(&issue.id) {
+                    for rel in incoming {
+                        if (rel.relation_type == RelationType::RequiredFor
+                            || rel.relation_type == RelationType::ScheduledBefore)
+                            && rel.source_status != Status::Done
+                        {
+                            return false;
                         }
                     }
                 }
@@ -495,22 +499,16 @@ impl Operations {
         issue_id: &Uuid,
     ) -> Result<Vec<(Uuid, String, RelationType)>> {
         let all_issues = self.storage.load_all_issues()?;
-        let mut incoming = Vec::new();
+        let incoming_map = build_incoming_relationships_map(&all_issues);
 
-        for other_issue in all_issues {
-            if other_issue.id == *issue_id {
-                continue;
-            }
-            for rel in &other_issue.relationships {
-                if rel.target_id == *issue_id {
-                    incoming.push((
-                        other_issue.id,
-                        other_issue.title.clone(),
-                        rel.relation_type.clone(),
-                    ));
-                }
-            }
-        }
+        let incoming = incoming_map
+            .get(issue_id)
+            .map(|rels| {
+                rels.iter()
+                    .map(|r| (r.source_id, r.source_title.clone(), r.relation_type.clone()))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         Ok(incoming)
     }

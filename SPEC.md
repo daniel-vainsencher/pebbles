@@ -57,8 +57,14 @@ Issues can be linked via relationships. See [`Relationship` struct](src/models.r
 
 **Relationship types:**
 - `part_of` - Source issue is part of target (typically an epic)
-- `required_for` - Source must be completed before target
-- `scheduled_before` - Source should be completed before target
+- `required_for` - Source must be completed before target (hard blocker)
+- `scheduled_before` - Source should be completed before target (hard blocker)
+
+**Relationship storage:**
+Relationships are stored only on the source issue. For example, `pebbles link A required_for B` adds a `required_for` entry to A's file pointing to B; B's file has no corresponding entry.
+
+**Incoming relationships:**
+To determine what blocks an issue, use the incoming relationship map which inverts this storage model. The pure function [`build_incoming_relationships_map()`](src/models.rs) builds a map from target ID to all relationships pointing at it, enabling efficient lookup of predecessors. This is used by `next` to filter blocked issues and by `show` to display incoming relationships.
 
 ### Index
 
@@ -203,6 +209,13 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 - `epic <id>` - Show epic with all child issues  
   Test: [core-workflow](tests/workflows/core-workflow.trycmd#view-epic-with-all-child-issues)
 
+- `next` - Show actionable TODO issues with no blockers  
+  Returns issues where `status == todo` and no incomplete predecessors exist.
+  An issue is blocked if it has an incoming `required_for` or `scheduled_before` relationship from a non-Done issue.
+  Implementation: [`Operations::next()`](src/operations.rs), [`build_incoming_relationships_map()`](src/models.rs)
+
+- `summary` - Show project summary and statistics
+
 See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 ## Behavior
@@ -275,7 +288,7 @@ Features mentioned in historical documentation but not yet implemented:
 - TUI (Terminal User Interface)
 - Fuzzy search
 - Bulk operations
-- View commands (graph, route, next)
+- View commands (graph, route)
 - Full-text search
 - Export/import functionality
 - Templates per issue type

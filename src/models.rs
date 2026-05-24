@@ -283,3 +283,111 @@ impl Default for Index {
         Self::new()
     }
 }
+
+/// Information about an incoming relationship: source issue details and relation type.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IncomingRelationship {
+    pub source_id: Uuid,
+    pub source_title: String,
+    pub source_status: Status,
+    pub relation_type: RelationType,
+}
+
+/// Builds a map of incoming relationships from a list of issues.
+/// Key: target issue ID, Value: list of incoming relationships pointing to that issue.
+/// This is a pure function that can be tested without I/O.
+pub fn build_incoming_relationships_map(issues: &[Issue]) -> HashMap<Uuid, Vec<IncomingRelationship>> {
+    let mut map: HashMap<Uuid, Vec<IncomingRelationship>> = HashMap::new();
+    for issue in issues {
+        for rel in &issue.relationships {
+            map.entry(rel.target_id).or_default().push(IncomingRelationship {
+                source_id: issue.id,
+                source_title: issue.title.clone(),
+                source_status: issue.status.clone(),
+                relation_type: rel.relation_type.clone(),
+            });
+        }
+    }
+    map
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_issue(title: &str, status: Status) -> Issue {
+        let mut issue = Issue::new(title.to_string(), None, IssueType::Bug);
+        issue.status = status;
+        issue
+    }
+
+    #[test]
+    fn test_build_incoming_relationships_map_empty() {
+        let issues: Vec<Issue> = vec![];
+        let map = build_incoming_relationships_map(&issues);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_build_incoming_relationships_map_no_relationships() {
+        let issues = vec![make_issue("A", Status::Todo), make_issue("B", Status::Todo)];
+        let map = build_incoming_relationships_map(&issues);
+        assert!(map.is_empty());
+    }
+
+    #[test]
+    fn test_build_incoming_relationships_map_single_relationship() {
+        let mut a = make_issue("A", Status::Todo);
+        let b = make_issue("B", Status::Todo);
+        a.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
+
+        let map = build_incoming_relationships_map(&[a.clone(), b.clone()]);
+
+        // A has no incoming relationships
+        assert!(map.get(&a.id).is_none());
+
+        // B has one incoming relationship from A
+        let b_incoming = map.get(&b.id).unwrap();
+        assert_eq!(b_incoming.len(), 1);
+        assert_eq!(b_incoming[0].source_id, a.id);
+        assert_eq!(b_incoming[0].source_title, "A");
+        assert_eq!(b_incoming[0].source_status, Status::Todo);
+        assert_eq!(b_incoming[0].relation_type, RelationType::RequiredFor);
+    }
+
+    #[test]
+    fn test_build_incoming_relationships_map_multiple_relationships() {
+        let mut a = make_issue("A", Status::Done);
+        let mut b = make_issue("B", Status::Todo);
+        let c = make_issue("C", Status::Todo);
+
+        // A required_for C
+        a.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: c.id,
+        });
+        // B scheduled_before C
+        b.relationships.push(Relationship {
+            relation_type: RelationType::ScheduledBefore,
+            target_id: c.id,
+        });
+
+        let map = build_incoming_relationships_map(&[a.clone(), b.clone(), c.clone()]);
+
+        // C has two incoming relationships
+        let c_incoming = map.get(&c.id).unwrap();
+        assert_eq!(c_incoming.len(), 2);
+
+        // Verify both relationships are present (order may vary)
+        let from_a = c_incoming.iter().find(|r| r.source_id == a.id).unwrap();
+        assert_eq!(from_a.source_status, Status::Done);
+        assert_eq!(from_a.relation_type, RelationType::RequiredFor);
+
+        let from_b = c_incoming.iter().find(|r| r.source_id == b.id).unwrap();
+        assert_eq!(from_b.source_status, Status::Todo);
+        assert_eq!(from_b.relation_type, RelationType::ScheduledBefore);
+    }
+}
