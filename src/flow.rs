@@ -12,7 +12,7 @@ pub struct FlowLayout {
     /// Height of the layout
     pub height: f64,
     /// Mapping from layout index back to issue
-    pub index_to_issue: HashMap<usize, usize>,
+    pub _index_to_issue: HashMap<usize, usize>,
 }
 
 /// Build dependency graph from issues
@@ -53,7 +53,7 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
             coordinates: Vec::new(),
             width: 0.0,
             height: 0.0,
-            index_to_issue: HashMap::new(),
+            _index_to_issue: HashMap::new(),
         });
     }
 
@@ -101,7 +101,7 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
         max_width = max_width.max(comp_height); // height becomes width (max layers)
     }
 
-    let index_to_issue: HashMap<usize, usize> = all_coordinates
+    let _index_to_issue: HashMap<usize, usize> = all_coordinates
         .iter()
         .map(|&(idx, _)| (idx, idx))
         .collect();
@@ -110,7 +110,7 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
         coordinates: all_coordinates,
         width: max_width,
         height: total_height,
-        index_to_issue,
+        _index_to_issue,
     })
 }
 
@@ -138,7 +138,7 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
         if has_edges.contains(&idx) {
             // Use 50px buckets to match rust-sugiyama's layer spacing
             let layer = (x / 50.0).round() as i32;
-            layers.entry(layer).or_insert_with(Vec::new).push((idx, y));
+            layers.entry(layer).or_default().push((idx, y));
         } else {
             standalone.push((idx, y));
         }
