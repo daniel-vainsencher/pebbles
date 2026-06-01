@@ -117,6 +117,7 @@ impl Operations {
             issues.retain(|issue| issue.issue_type == issue_type);
         }
 
+        // r[impl issue-ordering]
         issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
         Ok(issues)
@@ -315,6 +316,7 @@ impl Operations {
             })
             .collect();
 
+        // r[impl issue-ordering]
         child_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
         Ok((epic, child_issues))
@@ -353,6 +355,7 @@ impl Operations {
             })
             .collect();
 
+        // r[impl issue-ordering]
         unblocked_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
 
         Ok(unblocked_issues)

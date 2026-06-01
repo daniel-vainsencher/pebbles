@@ -226,6 +226,16 @@ See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 ## Behavior
 
+### Issue Ordering
+
+r[issue-ordering]
+When displaying multiple issues (`list`, `epic`, `next`), issues are sorted by `updated_at` timestamp in descending order (most recently updated first). This means:
+- Recently modified issues appear at the top
+- Marking an issue done moves it to the top (since that updates the timestamp)
+- The order reflects recent activity, not status or priority
+
+Implementation: [`Operations::list()`](src/operations.rs), [`Operations::epic()`](src/operations.rs), [`Operations::next()`](src/operations.rs)
+
 ### File Renaming
 
 r[rename-commits-all-paths]

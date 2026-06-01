@@ -35,6 +35,8 @@ $ pebbles list --issue-type bug
 
 ## Show issue details
 
+r[verify short-id-input]
+r[verify issue-filename-format]
 ```console
 $ pebbles show 11111111
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -72,6 +74,7 @@ File: des-33333333-jwt-token-authentication-system.json
 
 ## Link issues to epic
 
+r[verify part-of-epic-types]
 ```console
 $ pebbles link 11111111 part_of 44444444
 ✓ Added relationship
@@ -196,6 +199,7 @@ $ pebbles list --status in_progress
 
 ## Create a new issue
 
+r[verify appropriate-length-id]
 ```console
 $ pebbles new "Temporary test issue" --issue-type bug
 Created bug [..]
