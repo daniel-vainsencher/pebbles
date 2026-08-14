@@ -9,7 +9,7 @@ Pebbles is a command-line issue tracker designed for developers who want:
 - **Version-controlled issues** - Issues are stored as JSON files tracked by jj
 - **Offline-first** - Work without a server or internet connection
 - **Simple and reliable** - No database, no complex state, no corruption
-- **Developer-friendly** - Grep, sed, and diff your issues like code
+- **Developer-friendly** - Grep and diff your issues like code
 - **AI agent compatible** - Structured data, clear semantics, predictable behavior
 
 ## Why Use Pebbles?

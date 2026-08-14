@@ -14,7 +14,7 @@ No complex database schemas, no fragile state machines. Issues are plain JSON fi
 - Easy to understand and debug
 - No database corruption
 - No migration scripts
-- Works with standard Unix tools (grep, sed, awk)
+- Works with standard Unix tools (grep, awk)
 
 ### 2. Reliability
 
@@ -251,11 +251,15 @@ For typical usage (< 1000 issues), current performance is negligible (< 100ms fo
 
 ### Using Custom Metadata
 
-Metadata is available in the data model but not yet exposed via CLI. Options:
+Metadata is available in the data model but not yet exposed via CLI. For updating issues, always prefer the CLI (`pebbles update --title`, `pebbles update --description`, `pebbles status`, `pebbles link`, `pebbles unlink`), which validates changes, renames files, updates the index, and commits to jj with a descriptive message.
 
-1. **Direct JSON manipulation:** Edit issue files directly
+For metadata, which the CLI does not yet manage:
+
+1. **Scripts:** Use `jq` or similar to manipulate metadata
 2. **Future CLI commands:** `pebbles metadata set <id> <key> <value>`
-3. **Scripts:** Use `jq` or similar to manipulate metadata
+3. **Direct JSON editing:** Edit issue files directly
+
+Direct JSON editing is a last resort. It bypasses pebbles' validation rules and jj integration: changes land as uncommitted working-copy modifications with no descriptive commit, and mistakes can violate relationship rules or leave the index out of sync.
 
 ### Testing Functional Core vs Imperative Shell
 
