@@ -1,0 +1,109 @@
+# Review Workflow Test
+
+This test demonstrates the proposed status lifecycle: new issues start as proposed, `review` lists what is waiting for approval, approving moves an issue to `todo`, and `--approved` creates issues as `todo` directly.
+
+## Review lists only proposed issues
+
+r[verify review-command]
+```console
+$ pebbles review
+aaaaaaaa [bug] [PROPOSED] Proposed bug
+
+```
+
+## List can filter by proposed status
+
+```console
+$ pebbles list --status proposed
+aaaaaaaa [bug] [PROPOSED] Proposed bug
+
+```
+
+## Approved issues are not in the review queue
+
+```console
+$ pebbles list --status todo
+bbbbbbbb [uc] [TODO] Approved usecase
+
+```
+
+## Approve a proposed issue
+
+```console
+$ pebbles status aaaaaaaa todo
+✓ Updated issue status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: aaaaaaaa-1111-1111-1111-111111111111
+Title: Proposed bug
+Type: Bug
+Status: TODO
+
+Created: 2026-01-03 12:00:00
+Updated: [..]
+File: bug-aaaaaaaa-proposed-bug.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Review is empty once nothing is proposed
+
+```console
+$ pebbles review
+No issues found.
+
+```
+
+## New issues start as proposed
+
+r[verify new-issues-default-proposed]
+```console
+$ pebbles new "Fresh idea" --issue-type bug
+Created bug [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Fresh idea
+Type: Bug
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: bug-[..]-fresh-idea.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## --approved creates issues as todo
+
+```console
+$ pebbles new "Approved now" --issue-type usecase --approved
+Created usecase [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Approved now
+Type: Usecase
+Status: TODO
+
+Created: [..]
+Updated: [..]
+File: uc-[..]-approved-now.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Review lists only the still-proposed issue
+
+```console
+$ pebbles review
+[..] [bug] [PROPOSED] Fresh idea
+
+```
+
+## Todo list includes approved issues newest first
+
+```console
+$ pebbles list --status todo
+[..] [uc] [TODO] Approved now
+aaaaaaaa [bug] [TODO] Proposed bug
+bbbbbbbb [uc] [TODO] Approved usecase
+
+```

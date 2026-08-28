@@ -23,9 +23,10 @@ An issue represents a unit of work tracked by Pebbles. See [`Issue` struct](src/
 
 ### Status
 
-Four statuses represent the lifecycle of an issue. See [`Status` enum](src/models.rs#L6-L13).
+Five statuses represent the lifecycle of an issue. See [`Status` enum](src/models.rs#L6-L14).
 
-- `todo` - Not started
+- `proposed` - Created and awaiting approval before work starts
+- `todo` - Approved and not started
 - `in_progress` - Currently being worked on
 - `blocked` - Cannot proceed due to external dependency
 - `done` - Completed
@@ -187,8 +188,10 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 - `init` - Initialize pebbles repository  
   Example: [Quick Start](README.md#initialize)
 
+r[new-issues-default-proposed]
 - `new <title>` - Create new issue with optional `--issue-type` and `-d` for description  
-  Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue)
+  New issues start with status `proposed`. Passing `--approved` creates the issue with status `todo` instead.
+  Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 r[list-filter]
 - `list` - List all issues with optional `--status` and `--issue-type` filters  
@@ -219,6 +222,12 @@ r[list-filter]
   Returns issues where `status == todo` and no incomplete predecessors exist.
   An issue is blocked if it has an incoming `required_for` or `scheduled_before` relationship from a non-Done issue.
   Implementation: [`Operations::next()`](src/operations.rs), [`build_incoming_relationships_map()`](src/models.rs)
+
+r[review-command]
+- `review` - List proposed issues awaiting review  
+  Returns only issues with status `proposed`, in the same format and ordering as `list` (sorted by `updated_at` descending).
+  Approving an issue is done with `status <id> todo`.
+  Test: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 - `summary` - Show project summary and statistics
 

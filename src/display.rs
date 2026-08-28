@@ -26,6 +26,7 @@ pub fn print_issue_list(issues: &[Issue]) {
 
     for issue in issues {
         let status_str = match issue.status {
+            Status::Proposed => "PROPOSED".white(),
             Status::Todo => "TODO".yellow(),
             Status::InProgress => "IN PROGRESS".blue(),
             Status::Done => "DONE".green(),
@@ -74,6 +75,7 @@ pub fn print_issue_detail(
     incoming_relationships: &[(Uuid, String, RelationType)],
 ) {
     let status_str = match issue.status {
+        Status::Proposed => "PROPOSED".white(),
         Status::Todo => "TODO".yellow(),
         Status::InProgress => "IN PROGRESS".blue(),
         Status::Done => "DONE".green(),
@@ -157,6 +159,7 @@ pub fn print_issue_detail(
 
 pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
     let status_str = match epic.status {
+        Status::Proposed => "PROPOSED".white(),
         Status::Todo => "TODO".yellow(),
         Status::InProgress => "IN PROGRESS".blue(),
         Status::Done => "DONE".green(),
@@ -187,6 +190,7 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
         println!("\n{}:", "Child Issues".bold());
         for issue in child_issues {
             let status_str = match issue.status {
+                Status::Proposed => "PROPOSED".white(),
                 Status::Todo => "TODO".yellow(),
                 Status::InProgress => "IN PROGRESS".blue(),
                 Status::Done => "DONE".green(),
@@ -251,6 +255,7 @@ pub fn print_issue_tree(issues: &[Issue]) {
     // Display epics with their children
     for epic in &epics {
         let status_str = match epic.status {
+            Status::Proposed => "PROPOSED".white(),
             Status::Todo => "TODO".yellow(),
             Status::InProgress => "IN PROGRESS".blue(),
             Status::Done => "DONE".green(),
@@ -292,6 +297,7 @@ pub fn print_issue_tree(issues: &[Issue]) {
             let prefix = if is_last { "└─" } else { "├─" };
 
             let status_str = match child.status {
+                Status::Proposed => "PROPOSED".white(),
                 Status::Todo => "TODO".yellow(),
                 Status::InProgress => "IN PROGRESS".blue(),
                 Status::Done => "DONE".green(),
@@ -344,6 +350,7 @@ pub fn print_issue_tree(issues: &[Issue]) {
 
         for issue in orphans {
             let status_str = match issue.status {
+                Status::Proposed => "PROPOSED".white(),
                 Status::Todo => "TODO".yellow(),
                 Status::InProgress => "IN PROGRESS".blue(),
                 Status::Done => "DONE".green(),
@@ -385,6 +392,7 @@ pub fn print_summary(summary: &ProjectSummary) {
     // By Status
     println!("{}:", "By Status".bold());
     let statuses = [
+        Status::Proposed,
         Status::Todo,
         Status::InProgress,
         Status::Blocked,
@@ -399,6 +407,7 @@ pub fn print_summary(summary: &ProjectSummary) {
         };
 
         let status_str = match status {
+            Status::Proposed => "PROPOSED".white(),
             Status::Todo => "TODO".yellow(),
             Status::InProgress => "IN PROGRESS".blue(),
             Status::Done => "DONE".green(),

@@ -72,17 +72,24 @@ impl Operations {
         Ok(())
     }
 
+    // r[impl new-issues-default-proposed]
     pub fn create(
         &self,
         title: String,
         description: Option<String>,
         issue_type: IssueType,
+        approved: bool,
     ) -> Result<Issue> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let issue = Issue::new(title, description, issue_type);
+        // New issues start as proposed; `--approved` skips review and
+        // creates them directly as todo.
+        let mut issue = Issue::new(title, description, issue_type);
+        if approved {
+            issue.status = Status::Todo;
+        }
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&issue, &mut index)?;

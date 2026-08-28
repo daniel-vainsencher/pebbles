@@ -6,6 +6,7 @@ mod models;
 mod operations;
 mod storage;
 
+use crate::models::Status;
 use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -29,9 +30,10 @@ fn main() -> Result<()> {
             title,
             description,
             issue_type,
+            approved,
         } => {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            let issue = ops.create(title, description, issue_type)?;
+            let issue = ops.create(title, description, issue_type, approved)?;
             let short_id = ops.appropriate_length_id(&issue.id)?;
             println!("Created {} {}", issue.issue_type, short_id);
             let related_titles = ops.get_related_titles(&issue);
@@ -136,6 +138,12 @@ fn main() -> Result<()> {
 
         Commands::Next => {
             let issues = ops.next()?;
+            print_issue_list(&issues);
+        }
+
+        // r[impl review-command]
+        Commands::Review => {
+            let issues = ops.list(Some(Status::Proposed), None)?;
             print_issue_list(&issues);
         }
 

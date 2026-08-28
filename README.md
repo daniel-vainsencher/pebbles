@@ -59,8 +59,11 @@ This initializes a jj repository (if needed) and creates the `.pebbles/` directo
 ### Create Issues
 
 ```bash
-# Create a bug
+# Create a bug (starts as proposed, awaiting review)
 pebbles new "Login button broken" -d "Button doesn't respond on mobile"
+
+# Create an issue that skips review and starts as todo
+pebbles new "Hotfix" --approved
 
 # Create with specific type
 pebbles new "Dashboard redesign" --issue-type ux
@@ -70,6 +73,21 @@ pebbles new "Authentication Epic" --issue-type epic
 
 **Issue types:** `bug`, `ux` (shorthand for `ux_problem`), `usecase`, `design`, `validation`, `epic`, `milestone`
 
+### Review Proposed Issues
+
+New issues start in `proposed` status until they are approved. See what is waiting for review, then approve or delete:
+
+```bash
+# See all proposed issues
+pebbles review
+
+# Approve one (moves it to todo)
+pebbles status a1b2 todo
+
+# Reject one
+pebbles delete a1b2
+```
+
 ### List and Filter
 
 ```bash
@@ -77,6 +95,7 @@ pebbles new "Authentication Epic" --issue-type epic
 pebbles list
 
 # Filter by status
+pebbles list --status proposed
 pebbles list --status todo
 pebbles list --status in_progress
 
@@ -87,7 +106,7 @@ pebbles list --issue-type bug
 pebbles list --status in_progress --issue-type epic
 ```
 
-**Statuses:** `todo`, `in_progress`, `blocked`, `done`
+**Statuses:** `proposed`, `todo`, `in_progress`, `blocked`, `done`
 
 ### View Details
 
@@ -104,7 +123,7 @@ pebbles show a1b
 
 ```bash
 # Change status
-pebbles status a1b2 in_progress
+pebbles status a1b2 in_progress  # e.g., approving a proposed issue
 pebbles status a1b2 done
 
 # Update title or description

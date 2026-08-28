@@ -2,7 +2,18 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser)]
 #[command(name = "pebbles")]
-#[command(author, version, about = "A rock-solid issue management tool built on top of Jujutsu", long_about = None)]
+#[command(
+    author,
+    version,
+    about = "A rock-solid issue management tool built on top of Jujutsu",
+    long_about = "A rock-solid issue management tool built on top of Jujutsu\n\n\
+    IMPORTANT: Never manually edit files in .pebbles/. Always use the pebbles CLI \
+    to create, update, or delete issues. Manual edits can corrupt the index and \
+    cause data loss.\n\n\
+    If manual editing is absolutely necessary (e.g., fixing corruption), first get \
+    explicit permission, make the edits carefully, then run 'pebbles list' to verify \
+    the index is still valid and all issues load correctly."
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -28,6 +39,12 @@ pub enum Commands {
             help = "Issue type (bug, ux_problem, usecase, design, validation, epic, milestone)"
         )]
         issue_type: String,
+
+        #[arg(
+            long,
+            help = "Mark the issue as approved (status todo) instead of proposed"
+        )]
+        approved: bool,
     },
 
     #[command(about = "List all issues")]
@@ -35,7 +52,7 @@ pub enum Commands {
         #[arg(
             short,
             long,
-            help = "Filter by status (todo, in_progress, done, blocked)"
+            help = "Filter by status (proposed, todo, in_progress, done, blocked)"
         )]
         status: Option<String>,
 
@@ -63,7 +80,7 @@ pub enum Commands {
         #[arg(help = "Issue ID (full UUID or prefix)")]
         id: String,
 
-        #[arg(help = "New status (todo, in_progress, done, blocked)")]
+        #[arg(help = "New status (proposed, todo, in_progress, done, blocked)")]
         status: String,
     },
 
@@ -117,6 +134,9 @@ pub enum Commands {
 
     #[command(about = "Show actionable TODO issues with no blockers")]
     Next,
+
+    #[command(about = "List proposed issues awaiting review")]
+    Review,
 
     #[command(about = "Convert an issue to a different type")]
     Convert {

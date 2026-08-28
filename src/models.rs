@@ -6,6 +6,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
+    Proposed,
     Todo,
     InProgress,
     Done,
@@ -15,6 +16,7 @@ pub enum Status {
 impl std::fmt::Display for Status {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Status::Proposed => write!(f, "proposed"),
             Status::Todo => write!(f, "todo"),
             Status::InProgress => write!(f, "in_progress"),
             Status::Done => write!(f, "done"),
@@ -28,6 +30,7 @@ impl std::str::FromStr for Status {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
+            "proposed" => Ok(Status::Proposed),
             "todo" => Ok(Status::Todo),
             "in_progress" | "inprogress" | "in-progress" => Ok(Status::InProgress),
             "done" => Ok(Status::Done),
@@ -156,13 +159,14 @@ pub struct Issue {
 }
 
 impl Issue {
+    // r[impl new-issues-default-proposed]
     pub fn new(title: String, description: Option<String>, issue_type: IssueType) -> Self {
         let now = Utc::now();
         Self {
             id: Uuid::new_v4(),
             title,
             description,
-            status: Status::Todo,
+            status: Status::Proposed,
             issue_type,
             tags: Vec::new(),
             relationships: Vec::new(),
@@ -326,6 +330,23 @@ mod tests {
     }
 
     #[test]
+    fn test_status_proposed_roundtrip() {
+        // r[verify new-issues-default-proposed]
+        assert_eq!(Status::Proposed.to_string(), "proposed");
+        assert_eq!("proposed".parse::<Status>(), Ok(Status::Proposed));
+        assert_eq!("PROPOSED".parse::<Status>(), Ok(Status::Proposed));
+        assert_eq!(Status::Proposed, serde_json::from_str("\"proposed\"").unwrap());
+        assert_eq!(
+            serde_json::to_string(&Status::Proposed).unwrap(),
+            "\"proposed\""
+        );
+
+        // A newly constructed issue starts as proposed.
+        let issue = Issue::new("Fresh".to_string(), None, IssueType::Bug);
+        assert_eq!(issue.status, Status::Proposed);
+    }
+
+    #[test]
     fn test_build_incoming_relationships_map_empty() {
         let issues: Vec<Issue> = vec![];
         let map = build_incoming_relationships_map(&issues);
@@ -351,7 +372,7 @@ mod tests {
         let map = build_incoming_relationships_map(&[a.clone(), b.clone()]);
 
         // A has no incoming relationships
-        assert!(map.get(&a.id).is_none());
+        assert!(!map.contains_key(&a.id));
 
         // B has one incoming relationship from A
         let b_incoming = map.get(&b.id).unwrap();

@@ -200,6 +200,7 @@ $ pebbles list --status in_progress
 ## Create a new issue
 
 r[verify appropriate-length-id]
+r[verify new-issues-default-proposed]
 ```console
 $ pebbles new "Temporary test issue" --issue-type bug
 Created bug [..]
@@ -207,7 +208,7 @@ Created bug [..]
 ID: [..]
 Title: Temporary test issue
 Type: Bug
-Status: TODO
+Status: PROPOSED
 
 Created: [..]
 Updated: [..]
@@ -220,7 +221,7 @@ File: bug-[..]-temporary-test-issue.json
 
 ```console
 $ pebbles list --issue-type bug
-[..] [bug] [TODO] Temporary test issue
+[..] [bug] [PROPOSED] Temporary test issue
 11111111 [bug] [DONE] Fix mobile login button click handler
 
 ```
