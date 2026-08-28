@@ -84,6 +84,12 @@ pub enum Commands {
         status: String,
     },
 
+    #[command(about = "Approve a proposed issue (status proposed -> todo)")]
+    Approve {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+    },
+
     #[command(about = "Update issue details")]
     Update {
         #[arg(help = "Issue ID (full UUID or prefix)")]

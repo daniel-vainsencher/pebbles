@@ -31,6 +31,10 @@ Five statuses represent the lifecycle of an issue. See [`Status` enum](src/model
 - `blocked` - Cannot proceed due to external dependency
 - `done` - Completed
 
+r[status-serialization]
+On disk, `status` is stored with the canonical spelling shown above (`in_progress`, not `inprogress`). Older issue files containing `"inprogress"` still load — it is accepted as a legacy alias on read.
+Implementation: [`Status` enum](src/models.rs) | Verify: [models tests](src/models.rs)
+
 ### Issue Types
 
 Seven types classify issues by their nature. See [`IssueType` enum](src/models.rs#L40-L50).
@@ -202,6 +206,11 @@ r[list-filter]
 
 - `status <id> <status>` - Update issue status  
   Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-status)
+
+r[approve-command]
+- `approve <id>` - Approve a proposed issue  
+  Moves an issue from `proposed` to `todo` and is equivalent to `status <id> todo` with a proposed-only guard: approving a non-proposed issue is an error.
+  Test: [review-workflow](tests/workflows/review-workflow.trycmd#approve-a-proposed-issue) | Verification: [jj-integration](tests/jj_integration.rs) t10_approve
 
 - `update <id>` - Update issue title with `--title` or description with `--description`  
   Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title)

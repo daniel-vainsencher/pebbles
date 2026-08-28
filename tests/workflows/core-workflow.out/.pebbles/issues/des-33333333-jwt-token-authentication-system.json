@@ -2,7 +2,7 @@
   "id": "33333333-3333-3333-3333-333333333333",
   "title": "JWT token authentication system",
   "description": "Design and implement JWT-based authentication",
-  "status": "inprogress",
+  "status": "in_progress",
   "issue_type": "design",
   "tags": [],
   "relationships": [

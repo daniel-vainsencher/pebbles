@@ -167,6 +167,29 @@ impl Operations {
         Ok(())
     }
 
+    // r[impl approve-command]
+    pub fn approve(&self, id: &str) -> Result<()> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let uuid = self.resolve_id(id)?;
+        let issue = self.storage.load_issue(&uuid)?;
+
+        if issue.status != Status::Proposed {
+            bail!(
+                "Issue {} is not proposed (current status: {})",
+                uuid,
+                issue.status
+            );
+        }
+
+        // Approving is a status change proposed -> todo, reusing the regular
+        // status-update path (save + jj commit with the issue file path).
+        self.update_status(id, Status::Todo)?;
+        Ok(())
+    }
+
     pub fn update(
         &self,
         id: &str,

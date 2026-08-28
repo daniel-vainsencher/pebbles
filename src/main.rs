@@ -93,6 +93,15 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles, &incoming);
         }
 
+        Commands::Approve { id } => {
+            ops.approve(&id)?;
+            let issue = ops.show(&id)?;
+            let related_titles = ops.get_related_titles(&issue);
+            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            println!("✓ Approved issue");
+            print_issue_detail(&issue, &related_titles, &incoming);
+        }
+
         Commands::Update {
             id,
             title,

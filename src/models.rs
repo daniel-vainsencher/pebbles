@@ -3,11 +3,15 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use uuid::Uuid;
 
+// r[impl status-serialization]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Proposed,
     Todo,
+    // Canonical on-disk spelling is `in_progress` (matches Display, FromStr,
+    // and the CLI docs). Legacy files written as `inprogress` still load.
+    #[serde(rename = "in_progress", alias = "inprogress")]
     InProgress,
     Done,
     Blocked,
@@ -344,6 +348,31 @@ mod tests {
         // A newly constructed issue starts as proposed.
         let issue = Issue::new("Fresh".to_string(), None, IssueType::Bug);
         assert_eq!(issue.status, Status::Proposed);
+    }
+
+    #[test]
+    fn test_status_in_progress_serialization() {
+        // r[verify status-serialization]
+        // On disk the status is written with its canonical spelling.
+        assert_eq!(
+            serde_json::to_string(&Status::InProgress).unwrap(),
+            "\"in_progress\""
+        );
+
+        // The canonical spelling parses...
+        assert_eq!(
+            serde_json::from_str::<Status>("\"in_progress\"").unwrap(),
+            Status::InProgress
+        );
+        assert_eq!("in_progress".parse::<Status>(), Ok(Status::InProgress));
+
+        // ...and so does the legacy `inprogress` form written by older
+        // versions of pebbles, so existing data keeps loading.
+        assert_eq!(
+            serde_json::from_str::<Status>("\"inprogress\"").unwrap(),
+            Status::InProgress
+        );
+        assert_eq!("inprogress".parse::<Status>(), Ok(Status::InProgress));
     }
 
     #[test]

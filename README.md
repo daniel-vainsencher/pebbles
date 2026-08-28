@@ -82,7 +82,7 @@ New issues start in `proposed` status until they are approved. See what is waiti
 pebbles review
 
 # Approve one (moves it to todo)
-pebbles status a1b2 todo
+pebbles approve a1b2
 
 # Reject one
 pebbles delete a1b2
@@ -123,7 +123,12 @@ pebbles show a1b
 
 ```bash
 # Change status
-pebbles status a1b2 in_progress  # e.g., approving a proposed issue
+pebbles status a1b2 in_progress
+
+# Approve a proposed issue (proposed -> todo)
+pebbles approve a1b2
+
+# Complete it
 pebbles status a1b2 done
 
 # Update title or description

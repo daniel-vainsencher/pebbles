@@ -425,3 +425,20 @@ fn t9_delete() {
     repo.assert_last_commit_paths("delete", &p(&[&issue_path(&file), INDEX_PATH]));
     repo.assert_no_paths_outside_pebbles("delete");
 }
+
+/// T10: `pebbles approve` should commit just the source issue file (no index
+/// churn, no rename).
+// r[verify approve-command]
+#[test]
+fn t10_approve() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Foo bug", "-t", "bug"]);
+    let id = repo.find_id(|_| true);
+    let file = repo.find_file_name(|_| true);
+
+    repo.pebbles(&["approve", &id]);
+    repo.assert_clean_wc("after approve");
+    repo.assert_last_commit_paths("approve", &p(&[&issue_path(&file)]));
+    repo.assert_no_paths_outside_pebbles("approve");
+}
