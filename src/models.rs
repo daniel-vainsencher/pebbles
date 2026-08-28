@@ -48,6 +48,10 @@ impl std::str::FromStr for Status {
 #[serde(rename_all = "snake_case")]
 pub enum IssueType {
     Bug,
+    // Canonical on-disk spelling is `ux_problem` (matches Display, FromStr,
+    // and the CLI docs). Legacy files written with the CLI shorthand `ux`
+    // still load.
+    #[serde(alias = "ux")]
     UxProblem,
     Usecase,
     Design,
@@ -380,6 +384,30 @@ mod tests {
             Status::InProgress
         );
         assert_eq!("inprogress".parse::<Status>(), Ok(Status::InProgress));
+    }
+
+    #[test]
+    fn test_issue_type_legacy_ux_serialization() {
+        // On disk the type is written with its canonical spelling.
+        assert_eq!(
+            serde_json::to_string(&IssueType::UxProblem).unwrap(),
+            "\"ux_problem\""
+        );
+
+        // The canonical spelling parses...
+        assert_eq!(
+            serde_json::from_str::<IssueType>("\"ux_problem\"").unwrap(),
+            IssueType::UxProblem
+        );
+        assert_eq!("ux_problem".parse::<IssueType>(), Ok(IssueType::UxProblem));
+
+        // ...and so does the legacy `ux` form written by older versions of
+        // pebbles (the CLI shorthand), so existing data keeps loading.
+        assert_eq!(
+            serde_json::from_str::<IssueType>("\"ux\"").unwrap(),
+            IssueType::UxProblem
+        );
+        assert_eq!("ux".parse::<IssueType>(), Ok(IssueType::UxProblem));
     }
 
     #[test]
