@@ -95,16 +95,14 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
             // After swap: y becomes X (layer), x becomes Y (position in layer)
             all_coordinates.push((idx, (y, x + current_y_offset)));
         }
-        
+
         current_y_offset += comp_width + 20.0; // Add vertical gap between components
         total_height = current_y_offset - 20.0; // Remove last gap
         max_width = max_width.max(comp_height); // height becomes width (max layers)
     }
 
-    let _index_to_issue: HashMap<usize, usize> = all_coordinates
-        .iter()
-        .map(|&(idx, _)| (idx, idx))
-        .collect();
+    let _index_to_issue: HashMap<usize, usize> =
+        all_coordinates.iter().map(|&(idx, _)| (idx, idx)).collect();
 
     Ok(FlowLayout {
         coordinates: all_coordinates,
@@ -133,7 +131,7 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
     // rust-sugiyama uses spacing of ~50px between layers
     let mut layers: HashMap<i32, Vec<(usize, f64)>> = HashMap::new();
     let mut standalone: Vec<(usize, f64)> = Vec::new();
-    
+
     for &(idx, (x, y)) in &layout.coordinates {
         if has_edges.contains(&idx) {
             // Use 50px buckets to match rust-sugiyama's layer spacing
@@ -155,11 +153,11 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
         output.push_str("Issues with dependencies:\n\n");
         for (layer_num, layer_issues) in sorted_layers {
             output.push_str(&format!("Layer {}:\n", layer_num));
-            
+
             // Sort by y coordinate (vertical position within layer)
             let mut sorted_issues = layer_issues.clone();
             sorted_issues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-            
+
             for (idx, _y) in sorted_issues {
                 let issue = &issues[idx];
                 let short_id = &issue.id.to_string()[..8];
@@ -177,7 +175,10 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
 
     // Show standalone issues at the end
     if !standalone.is_empty() {
-        output.push_str(&format!("\nStandalone issues ({} total):\n", standalone.len()));
+        output.push_str(&format!(
+            "\nStandalone issues ({} total):\n",
+            standalone.len()
+        ));
         standalone.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         for (idx, _y) in standalone {
             let issue = &issues[idx];

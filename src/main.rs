@@ -174,17 +174,17 @@ fn main() -> Result<()> {
         Commands::Flow { format, output } => {
             // Load all issues
             let issues = ops.list(None, None)?;
-            
+
             // Compute layout
             let layout = flow::compute_flow_layout(&issues)?;
-            
+
             // Determine output format
             let fmt = format.as_deref().unwrap_or("text");
             let content = match fmt {
                 "svg" => flow::render_svg(&issues, &layout),
                 _ => flow::render_text(&issues, &layout),
             };
-            
+
             // Output to file or stdout
             if let Some(path) = output {
                 std::fs::write(&path, content)?;

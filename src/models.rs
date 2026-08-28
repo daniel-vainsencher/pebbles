@@ -308,16 +308,20 @@ pub struct IncomingRelationship {
 /// Builds a map of incoming relationships from a list of issues.
 /// Key: target issue ID, Value: list of incoming relationships pointing to that issue.
 /// This is a pure function that can be tested without I/O.
-pub fn build_incoming_relationships_map(issues: &[Issue]) -> HashMap<Uuid, Vec<IncomingRelationship>> {
+pub fn build_incoming_relationships_map(
+    issues: &[Issue],
+) -> HashMap<Uuid, Vec<IncomingRelationship>> {
     let mut map: HashMap<Uuid, Vec<IncomingRelationship>> = HashMap::new();
     for issue in issues {
         for rel in &issue.relationships {
-            map.entry(rel.target_id).or_default().push(IncomingRelationship {
-                source_id: issue.id,
-                source_title: issue.title.clone(),
-                source_status: issue.status.clone(),
-                relation_type: rel.relation_type.clone(),
-            });
+            map.entry(rel.target_id)
+                .or_default()
+                .push(IncomingRelationship {
+                    source_id: issue.id,
+                    source_title: issue.title.clone(),
+                    source_status: issue.status.clone(),
+                    relation_type: rel.relation_type.clone(),
+                });
         }
     }
     map
@@ -339,7 +343,10 @@ mod tests {
         assert_eq!(Status::Proposed.to_string(), "proposed");
         assert_eq!("proposed".parse::<Status>(), Ok(Status::Proposed));
         assert_eq!("PROPOSED".parse::<Status>(), Ok(Status::Proposed));
-        assert_eq!(Status::Proposed, serde_json::from_str("\"proposed\"").unwrap());
+        assert_eq!(
+            Status::Proposed,
+            serde_json::from_str("\"proposed\"").unwrap()
+        );
         assert_eq!(
             serde_json::to_string(&Status::Proposed).unwrap(),
             "\"proposed\""
