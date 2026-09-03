@@ -215,6 +215,10 @@
     {
       "id": "d23ad7e8-d08e-46e0-af10-732050b4e642",
       "file_name": "bug-d23ad7e8-self-referencing-relationships-are-allow.json"
+    },
+    {
+      "id": "21e6d8b5-af48-4d72-ba73-501839cb599b",
+      "file_name": "bug-21e6d8b5-short-id-input-is-case-sensitive-despite.json"
     }
   ]
 }
