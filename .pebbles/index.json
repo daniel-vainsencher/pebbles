@@ -207,6 +207,10 @@
     {
       "id": "a6a6b271-a4cc-4999-b19f-017c7cf2af82",
       "file_name": "bug-a6a6b271-unlink-commit-message-contains-literal-t.json"
+    },
+    {
+      "id": "1361d247-1def-463b-b3e6-f7611659c706",
+      "file_name": "bug-1361d247-flow-panics-on-cyclic-dependency-graphs.json"
     }
   ]
 }
