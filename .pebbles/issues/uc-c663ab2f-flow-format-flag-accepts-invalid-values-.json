@@ -2,11 +2,11 @@
   "id": "c663ab2f-b452-495a-b11b-d5ab38e43cb0",
   "title": "flow format flag accepts invalid values silently",
   "description": "pebbles flow --format jsonl silently renders text instead of rejecting the unknown format. Acceptance: only 'text' and 'svg' are valid; anything else is an error naming the valid values. Test: jj_integration asserts flow --format bogus fails with a clear message.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:46.020144182Z",
-  "updated_at": "2026-09-03T03:28:46.020144182Z"
+  "updated_at": "2026-09-03T03:37:29.615537725Z"
 }
