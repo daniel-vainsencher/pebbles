@@ -2,11 +2,11 @@
   "id": "73572293-693f-44ca-9b3a-dc610680ef4a",
   "title": "flow svg does not escape titles",
   "description": "flow.rs render_svg interpolates issue titles into SVG XML without escaping. A title like 'Fix <script> & \"quotes\"' produces raw unescaped markup. Acceptance: XML-escape &, <, >, quotes in all text content; unit test asserts no raw <script> reaches the SVG.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:14.484873709Z",
-  "updated_at": "2026-09-03T03:28:14.484873709Z"
+  "updated_at": "2026-09-03T03:37:29.400062260Z"
 }
