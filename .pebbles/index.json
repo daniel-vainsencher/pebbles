@@ -219,6 +219,10 @@
     {
       "id": "21e6d8b5-af48-4d72-ba73-501839cb599b",
       "file_name": "bug-21e6d8b5-short-id-input-is-case-sensitive-despite.json"
+    },
+    {
+      "id": "154ea2ae-e106-405d-8e10-6070804af802",
+      "file_name": "bug-154ea2ae-empty-titles-are-accepted.json"
     }
   ]
 }
