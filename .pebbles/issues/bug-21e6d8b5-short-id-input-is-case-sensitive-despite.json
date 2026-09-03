@@ -2,11 +2,11 @@
   "id": "21e6d8b5-af48-4d72-ba73-501839cb599b",
   "title": "short id input is case-sensitive despite spec",
   "description": "SPEC r[short-id-input] promises case-insensitive ID input, but Operations::resolve_id matches the raw input against lowercased UUIDs, so 'show 2CDD' fails. Acceptance: prefix matching lowercases input; uppercase prefixes resolve. Test: jj_integration t13.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:14.342626570Z",
-  "updated_at": "2026-09-03T03:28:14.342626570Z"
+  "updated_at": "2026-09-03T03:37:29.269297711Z"
 }
