@@ -2,11 +2,11 @@
   "id": "8cf8b917-f39b-4f29-9342-645879c7af05",
   "title": "trycmd tests fail under forced color env",
   "description": "Contributors with CLICOLOR_FORCE=1 or FORCE_COLOR=1 in their environment get trycmd snapshot failures because colored output leaks into the snapshots. Per decision, do not silently scrub the env inside tests; instead detect these variables and print a loud warning that they interfere with trycmd tests. Test: manual/visual; the warning lives in tests/cli_tests.rs.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:46.164643596Z",
-  "updated_at": "2026-09-03T03:28:46.164643596Z"
+  "updated_at": "2026-09-03T03:37:29.744066407Z"
 }
