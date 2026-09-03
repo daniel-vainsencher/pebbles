@@ -1,0 +1,12 @@
+{
+  "id": "a6a6b271-a4cc-4999-b19f-017c7cf2af82",
+  "title": "unlink commit message contains literal <target> placeholder",
+  "description": "operations.rs remove_relationship formats its jj commit message as 'Remove relationship: {source} {relation} <target>' - the literal placeholder instead of the target title. Repro: link A required_for B, unlink, run jj log - the newest commit reads 'Remove relationship: A required_for <target>'. Acceptance: commit message names the target issue (title, or short id if the target no longer loads). Test: jj_integration t11.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-03T03:28:14.081310669Z",
+  "updated_at": "2026-09-03T03:28:14.081310669Z"
+}
