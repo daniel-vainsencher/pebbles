@@ -2,11 +2,11 @@
   "id": "154ea2ae-e106-405d-8e10-6070804af802",
   "title": "empty titles are accepted",
   "description": "pebbles new '' and pebbles new '   ' succeed, creating blank-titled issues with degenerate filenames like bug-292d51b2-.json. Acceptance: create and update reject empty or whitespace-only titles with a clear error. Test: jj_integration t14.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:14.414619551Z",
-  "updated_at": "2026-09-03T03:28:14.414619551Z"
+  "updated_at": "2026-09-03T03:37:29.330663262Z"
 }
