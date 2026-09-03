@@ -1,0 +1,12 @@
+{
+  "id": "e74abb78-314b-4b8f-b7ed-4ffc9f8922d3",
+  "title": "no-op update and status create junk commits",
+  "description": "pebbles update <id> with no --title/--description, and pebbles status <id> to the current status, bump updated_at and create a jj commit that changes nothing meaningful. Since list ordering is updated_at-descending, no-ops also reorder output. Acceptance: operations detect no observable change and return early - no file write, no index write, no jj commit; CLI prints a no-changes message. Test: jj_integration t15 asserts no new commit and unchanged file.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-03T03:28:45.864344103Z",
+  "updated_at": "2026-09-03T03:28:45.864344103Z"
+}
