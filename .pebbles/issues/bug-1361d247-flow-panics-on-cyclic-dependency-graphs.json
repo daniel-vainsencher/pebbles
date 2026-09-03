@@ -2,11 +2,11 @@
   "id": "1361d247-1def-463b-b3e6-f7611659c706",
   "title": "flow panics on cyclic dependency graphs",
   "description": "pebbles flow panics (exit 101, rust-sugiyama cycle assertion) when required_for/scheduled_before edges form a cycle. Cycles are creatable because link does not validate them. Acceptance: compute_flow_layout returns a clear error on cyclic graphs; the CLI prints the error instead of panicking. Test: flow.rs unit test with an A->B->A edge list.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:14.192105245Z",
-  "updated_at": "2026-09-03T03:28:14.192105245Z"
+  "updated_at": "2026-09-03T03:37:29.137064029Z"
 }
