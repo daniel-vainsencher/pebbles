@@ -1,0 +1,12 @@
+{
+  "id": "d23ad7e8-d08e-46e0-af10-732050b4e642",
+  "title": "self-referencing relationships are allowed",
+  "description": "pebbles link A required_for A succeeds. The issue then blocks itself forever and disappears from pebbles next, and the self-edge trips the flow cycle panic. Acceptance: add_relationship rejects source == target with a clear error; no commit is made. Test: jj_integration t12.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-03T03:28:14.264782411Z",
+  "updated_at": "2026-09-03T03:28:14.264782411Z"
+}

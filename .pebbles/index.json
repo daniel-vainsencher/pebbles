@@ -211,6 +211,10 @@
     {
       "id": "1361d247-1def-463b-b3e6-f7611659c706",
       "file_name": "bug-1361d247-flow-panics-on-cyclic-dependency-graphs.json"
+    },
+    {
+      "id": "d23ad7e8-d08e-46e0-af10-732050b4e642",
+      "file_name": "bug-d23ad7e8-self-referencing-relationships-are-allow.json"
     }
   ]
 }
