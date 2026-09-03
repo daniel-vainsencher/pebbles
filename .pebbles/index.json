@@ -231,6 +231,10 @@
     {
       "id": "e74abb78-314b-4b8f-b7ed-4ffc9f8922d3",
       "file_name": "bug-e74abb78-no-op-update-and-status-create-junk-comm.json"
+    },
+    {
+      "id": "2b6e828b-96c7-4e5c-8ea4-44d8894e0dbe",
+      "file_name": "bug-2b6e828b-inconsistent-epic-child-count-display.json"
     }
   ]
 }
