@@ -251,6 +251,10 @@
     {
       "id": "f7de2186-a974-4b88-abcb-ff18be4fb19f",
       "file_name": "des-f7de2186-specify-epic-progress-counting-semantics.json"
+    },
+    {
+      "id": "0d04a3cc-d2c5-489c-82cb-e991ae5c7019",
+      "file_name": "des-0d04a3cc-cli-help-and-manual-editing-guidance-for.json"
     }
   ]
 }
