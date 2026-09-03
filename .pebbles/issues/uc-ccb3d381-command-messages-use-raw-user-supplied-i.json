@@ -2,11 +2,11 @@
   "id": "ccb3d381-8316-42bd-a309-b7219439652d",
   "title": "command messages use raw user-supplied ids",
   "description": "pebbles delete echoes the raw user-typed ID argument, and the approve-on-non-proposed error prints the full UUID, while creation messages use the spec-canonical appropriate-length ID (r[appropriate-length-id]). Acceptance: all command output messages display the appropriate-length ID resolved from the index, never the raw argument or full UUID. Test: jj_integration t16 asserts delete echoes the canonical short id and the approve error does not contain the full UUID.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:46.094694292Z",
-  "updated_at": "2026-09-03T03:28:46.094694292Z"
+  "updated_at": "2026-09-03T03:37:29.679781509Z"
 }
