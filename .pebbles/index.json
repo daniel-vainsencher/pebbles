@@ -247,6 +247,10 @@
     {
       "id": "8cf8b917-f39b-4f29-9342-645879c7af05",
       "file_name": "uc-8cf8b917-trycmd-tests-fail-under-forced-color-env.json"
+    },
+    {
+      "id": "f7de2186-a974-4b88-abcb-ff18be4fb19f",
+      "file_name": "des-f7de2186-specify-epic-progress-counting-semantics.json"
     }
   ]
 }
