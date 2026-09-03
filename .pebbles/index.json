@@ -243,6 +243,10 @@
     {
       "id": "ccb3d381-8316-42bd-a309-b7219439652d",
       "file_name": "uc-ccb3d381-command-messages-use-raw-user-supplied-i.json"
+    },
+    {
+      "id": "8cf8b917-f39b-4f29-9342-645879c7af05",
+      "file_name": "uc-8cf8b917-trycmd-tests-fail-under-forced-color-env.json"
     }
   ]
 }
