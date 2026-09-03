@@ -255,6 +255,10 @@
     {
       "id": "0d04a3cc-d2c5-489c-82cb-e991ae5c7019",
       "file_name": "des-0d04a3cc-cli-help-and-manual-editing-guidance-for.json"
+    },
+    {
+      "id": "86e32b7e-1961-4f6d-9ebf-f0d1f800855f",
+      "file_name": "bug-86e32b7e-convert-to-the-same-type-creates-a-junk-.json"
     }
   ]
 }
