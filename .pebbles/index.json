@@ -263,6 +263,10 @@
     {
       "id": "0ac66588-2fd1-41b6-80f5-0d55924f5c92",
       "file_name": "epic-0ac66588-repository-graph-integrity-layer.json"
+    },
+    {
+      "id": "57b9c35c-f9e2-4c28-a541-5fbc838a94c5",
+      "file_name": "bug-57b9c35c-delete-does-not-guard-against-breaking-l.json"
     }
   ]
 }
