@@ -2,11 +2,11 @@
   "id": "86e32b7e-1961-4f6d-9ebf-f0d1f800855f",
   "title": "convert to the same type creates a junk commit",
   "description": "pebbles convert <id> <same-type> bumps updated_at and creates a 'Convert X: bug -> bug' jj commit that changes nothing. Decision: detect the same-type conversion, do nothing except warn the user (they may have picked the wrong issue or type). Acceptance: no commit, no file change, warning message naming the current type. Test: jj_integration t18.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-06T04:22:52.431922445Z",
-  "updated_at": "2026-09-06T04:22:52.431922445Z"
+  "updated_at": "2026-09-06T13:09:24.917064043Z"
 }
