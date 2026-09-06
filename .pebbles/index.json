@@ -271,6 +271,10 @@
     {
       "id": "f1390b8e-448a-42e0-b640-8086f0874a71",
       "file_name": "bug-f1390b8e-sigpipe-kills-pebbles-with-a-panic.json"
+    },
+    {
+      "id": "fa088167-77c9-4cc3-bae9-c593fb32e954",
+      "file_name": "bug-fa088167-epic-error-prints-full-uuid.json"
     }
   ]
 }
