@@ -287,6 +287,10 @@
     {
       "id": "74499c46-c103-4f7d-aa85-447ae2ff8673",
       "file_name": "uc-74499c46-schema-compliance-reporting-on-load.json"
+    },
+    {
+      "id": "fc414be5-b7af-4724-a877-1b568b087c71",
+      "file_name": "uc-fc414be5-link-time-dag-enforcement.json"
     }
   ]
 }
