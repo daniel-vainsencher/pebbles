@@ -2,7 +2,7 @@
   "id": "fc414be5-b7af-4724-a877-1b568b087c71",
   "title": "link-time DAG enforcement",
   "description": "link only checks self-links and duplicates today; a link that closes a directed required_for/scheduled_before cycle is accepted and later panics flow. Enforce r[graph-acyclic] at link time: reject any link whose directed edge would create a cycle in the dependency graph (self-edges are the minimal case, already rejected).",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-06T13:31:47.237545342Z",
-  "updated_at": "2026-09-06T13:31:47.339426086Z"
+  "updated_at": "2026-09-06T13:36:30.331717542Z"
 }
