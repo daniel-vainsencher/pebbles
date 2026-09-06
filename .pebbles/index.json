@@ -267,6 +267,10 @@
     {
       "id": "57b9c35c-f9e2-4c28-a541-5fbc838a94c5",
       "file_name": "bug-57b9c35c-delete-does-not-guard-against-breaking-l.json"
+    },
+    {
+      "id": "f1390b8e-448a-42e0-b640-8086f0874a71",
+      "file_name": "bug-f1390b8e-sigpipe-kills-pebbles-with-a-panic.json"
     }
   ]
 }

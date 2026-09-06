@@ -1,0 +1,12 @@
+{
+  "id": "f1390b8e-448a-42e0-b640-8086f0874a71",
+  "title": "SIGPIPE kills pebbles with a panic",
+  "description": "pebbles list | head panics with 'failed printing to stdout: Broken pipe' because Rust ignores SIGPIPE by default. Avoid the panic: die by SIGPIPE like standard Unix tools.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-06T13:30:31.217130088Z",
+  "updated_at": "2026-09-06T13:30:31.217130088Z"
+}
