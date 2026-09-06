@@ -1,0 +1,12 @@
+{
+  "id": "0f6f1445-fa3d-4772-ae4b-8002e0c8a9f6",
+  "title": "pebbles doctor: detect index/file inconsistency",
+  "description": "Implement r[index-consistent]: a command (working name: pebbles doctor) that reports and optionally repairs divergence between index.json and issues/ - missing files, orphaned files, unknown index entries. The repo's own database has historically carried orphaned test-pollution files.",
+  "status": "proposed",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-06T13:31:32.072875370Z",
+  "updated_at": "2026-09-06T13:31:32.072875370Z"
+}

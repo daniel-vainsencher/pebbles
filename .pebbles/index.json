@@ -275,6 +275,10 @@
     {
       "id": "fa088167-77c9-4cc3-bae9-c593fb32e954",
       "file_name": "bug-fa088167-epic-error-prints-full-uuid.json"
+    },
+    {
+      "id": "0f6f1445-fa3d-4772-ae4b-8002e0c8a9f6",
+      "file_name": "uc-0f6f1445-pebbles-doctor-detect-index-file-inconsi.json"
     }
   ]
 }
