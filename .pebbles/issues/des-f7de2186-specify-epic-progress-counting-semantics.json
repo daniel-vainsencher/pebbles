@@ -2,11 +2,11 @@
   "id": "f7de2186-a974-4b88-abcb-ff18be4fb19f",
   "title": "specify epic progress counting semantics",
   "description": "Epic progress counts are computed in display.rs (print_issue_list, print_issue_tree) from whatever issue slice the caller passes. Operations::list hands display a FILTERED slice, so with --status or --issue-type filters the (done/total) counts only include children matching the filter - a filtered view silently rewrites project progress. This is currently unspecified behavior, not a bug to silently fix.\\n\\nDesign questions:\\n1. Should epic counts always be computed over the FULL issue set regardless of list filters (progress is a property of the epic, not the view)? Proposed: yes.\\n2. Where do counts belong? Proposed: Operations returns them alongside issues (view-model boundary); display stays a pure formatter.\\n3. Do counts include proposed children or only todo/in_progress/done? Today: all non-filtered children count toward total, done counts toward done.\\n4. What about dangling part_of targets (deleted epics)?\\n\\nRelevant code: src/display.rs print_issue_list epic_counts block; src/display.rs print_issue_tree epic_counts block; src/operations.rs list() filtered slice; SPEC r[issue-ordering]; bug pebble 'inconsistent epic child count display' covers only the (0) vs (0/1) format.",
-  "status": "proposed",
+  "status": "done",
   "issue_type": "design",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-03T03:28:46.239508803Z",
-  "updated_at": "2026-09-03T03:28:46.239508803Z"
+  "updated_at": "2026-09-06T13:09:25.005868804Z"
 }
