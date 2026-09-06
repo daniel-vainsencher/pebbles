@@ -5,8 +5,13 @@
   "status": "todo",
   "issue_type": "usecase",
   "tags": [],
-  "relationships": [],
+  "relationships": [
+    {
+      "relation_type": "part_of",
+      "target_id": "0ac66588-2fd1-41b6-80f5-0d55924f5c92"
+    }
+  ],
   "metadata": {},
   "created_at": "2026-09-06T13:31:47.237545342Z",
-  "updated_at": "2026-09-06T13:31:47.237545342Z"
+  "updated_at": "2026-09-06T13:31:47.339426086Z"
 }
