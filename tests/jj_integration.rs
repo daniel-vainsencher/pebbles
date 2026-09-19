@@ -618,6 +618,40 @@ fn t15_noop_operations_make_no_commit() {
     repo.assert_clean_wc("after no-op operations");
 }
 
+/// T16: output messages use the appropriate-length ID, never the raw argument
+/// or the full UUID (SPEC r[appropriate-length-id]).
+#[test]
+fn t16_messages_use_appropriate_length_id() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let out = repo.pebbles(&["new", "Foo bug", "-t", "bug"]);
+    let id = repo.find_id(|_| true);
+
+    // The creation message already uses the canonical short id; capture it.
+    let short = out
+        .lines()
+        .next()
+        .unwrap()
+        .strip_prefix("Created bug ")
+        .expect("creation message")
+        .to_string();
+    assert!(short.len() >= 3 && id.starts_with(&short));
+
+    // Approving a non-proposed issue errors with the short id, not the UUID.
+    repo.pebbles(&["approve", &id]); // proposed -> todo
+    let err = repo.pebbles_fail(&["approve", &id]);
+    assert!(
+        err.contains(&short) && !err.contains(&id),
+        "approve error should use short id {:?}, got: {:?}",
+        short,
+        err
+    );
+
+    // Deleting via the full UUID echoes the short id, not the raw argument.
+    let out = repo.pebbles(&["delete", &id]);
+    assert_eq!(out.trim(), format!("✓ Deleted issue {}", short));
+}
+
 /// T19: a link that closes a directed dependency cycle is rejected
 /// (r[graph-acyclic]).
 // r[verify graph-acyclic]
@@ -728,6 +762,29 @@ fn t22_delete_guard_and_delete_links_too() {
         content
     );
     assert_eq!(repo.read_index().len(), 1, "target is gone");
+}
+
+/// T24: the epic error uses the appropriate-length id (r[appropriate-length-id]).
+#[test]
+fn t24_epic_error_uses_short_id() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let out = repo.pebbles(&["new", "Not an epic", "-t", "bug", "--approved"]);
+    let id = repo.find_id(|_| true);
+    let short = out
+        .lines()
+        .next()
+        .unwrap()
+        .strip_prefix("Created bug ")
+        .expect("creation message");
+
+    let err = repo.pebbles_fail(&["epic", &id]);
+    assert!(
+        err.contains(short) && !err.contains(&id),
+        "epic error should use the appropriate-length id {:?}, got: {:?}",
+        short,
+        err
+    );
 }
 
 /// T18: converting an issue to its current type is a no-op with a warning.

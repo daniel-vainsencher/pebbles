@@ -197,9 +197,10 @@ impl Operations {
         let issue = self.storage.load_issue(&uuid)?;
 
         if issue.status != Status::Proposed {
+            let short = self.appropriate_length_id(&uuid)?;
             bail!(
                 "Issue {} is not proposed (current status: {})",
-                uuid,
+                short,
                 issue.status
             );
         }
@@ -453,7 +454,12 @@ impl Operations {
         let epic = self.storage.load_issue(&uuid)?;
 
         if epic.issue_type != IssueType::Epic {
-            bail!("Issue {} is not an epic (it's a {})", uuid, epic.issue_type);
+            let short = self.appropriate_length_id(&uuid)?;
+            bail!(
+                "Issue {} is not an epic (it's a {})",
+                short,
+                epic.issue_type
+            );
         }
 
         let all_issues = self.storage.load_all_issues()?;

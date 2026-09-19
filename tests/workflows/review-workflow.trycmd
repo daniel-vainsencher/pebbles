@@ -51,7 +51,7 @@ File: bug-aaaaaaaa-proposed-bug.json
 ```console
 $ pebbles approve bbbbbbbb
 ? failed
-Error: Issue bbbbbbbb-2222-2222-2222-222222222222 is not proposed (current status: todo)
+Error: Issue bbb is not proposed (current status: todo)
 
 ```
 
