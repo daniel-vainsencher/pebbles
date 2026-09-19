@@ -491,6 +491,30 @@ fn t10_approve() {
     repo.assert_no_paths_outside_pebbles("approve");
 }
 
+/// T11: `pebbles unlink` commit message must name the target issue, not the
+/// literal `<target>` placeholder.
+// r[verify no-duplicate-relationships]
+#[test]
+fn t11_unlink_commit_message_names_target() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Source", "-t", "bug"]);
+    let src_id = repo.find_id(|_| true);
+
+    repo.pebbles(&["new", "Target", "-t", "bug"]);
+    let tgt_id = repo.find_id(|e| e.id != src_id);
+
+    repo.pebbles(&["link", &src_id, "required_for", &tgt_id]);
+    repo.pebbles(&["unlink", &src_id, "required_for", &tgt_id]);
+
+    let desc = repo.last_commit_description();
+    assert!(
+        desc.contains("Remove relationship: Source required_for Target"),
+        "unlink commit message should name the target, got: {:?}",
+        desc
+    );
+}
+
 /// T12: linking an issue to itself must be rejected with no commit.
 #[test]
 fn t12_self_link_rejected() {

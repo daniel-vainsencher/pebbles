@@ -416,6 +416,13 @@ impl Operations {
         let target_uuid = self.resolve_id(target_id)?;
 
         let mut source_issue = self.storage.load_issue(&source_uuid)?;
+        // The target may no longer exist (e.g. it was deleted while this
+        // relationship survived); fall back to its short id for the message.
+        let target_label = self
+            .storage
+            .load_issue(&target_uuid)
+            .map(|issue| issue.title)
+            .unwrap_or_else(|_| target_uuid.to_string()[..8].to_string());
 
         if !source_issue.remove_relationship(relation_type.clone(), target_uuid) {
             bail!("Relationship not found");
@@ -428,8 +435,8 @@ impl Operations {
         let paths = paths_for_save(&self.storage, &outcome);
         self.jj.commit(
             &format!(
-                "Remove relationship: {} {} <target>",
-                source_issue.title, relation_type
+                "Remove relationship: {} {} {}",
+                source_issue.title, relation_type, target_label
             ),
             &as_path_refs(&paths),
         )?;
