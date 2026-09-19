@@ -718,9 +718,11 @@ impl Operations {
             bail!("Issue with ID {} not found", uuid);
         }
 
+        // Prefix matching is case-insensitive (SPEC r[short-id-input]).
+        let id_str = id_str.to_lowercase();
         let matches: Vec<_> = all_ids
             .iter()
-            .filter(|uuid| uuid.to_string().starts_with(id_str))
+            .filter(|uuid| uuid.to_string().starts_with(&id_str))
             .collect();
 
         match matches.len() {

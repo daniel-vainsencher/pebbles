@@ -547,6 +547,18 @@ fn t12_self_link_rejected() {
     repo.assert_clean_wc("after rejected self-link");
 }
 
+/// T13: short ID input is case-insensitive (SPEC r[short-id-input]).
+#[test]
+fn t13_short_id_input_case_insensitive() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Foo bug", "-t", "bug"]);
+    let id = repo.find_id(|_| true);
+
+    let upper = id[..4].to_uppercase();
+    repo.pebbles(&["show", &upper]);
+}
+
 /// T14: empty and whitespace-only titles are rejected (create and update).
 #[test]
 fn t14_empty_title_rejected() {
