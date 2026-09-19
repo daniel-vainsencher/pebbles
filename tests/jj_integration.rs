@@ -52,6 +52,8 @@ impl TestRepo {
             .env("PEBBLES_DB_PATH", ".pebbles")
             // Avoid colored output bleeding into anything we parse.
             .env("NO_COLOR", "1")
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("FORCE_COLOR")
             .output()
             .expect("run pebbles");
         if !output.status.success() {
@@ -72,6 +74,8 @@ impl TestRepo {
             .args(args)
             .current_dir(&self.root)
             .env("NO_COLOR", "1")
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("FORCE_COLOR")
             .output()
             .expect("run jj");
         if !output.status.success() {
