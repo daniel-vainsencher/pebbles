@@ -299,6 +299,10 @@
     {
       "id": "80ca18b3-2c41-400e-9222-6c15277e8a1c",
       "file_name": "uc-80ca18b3-tui-review-queue-mode-one-key-approve-cl.json"
+    },
+    {
+      "id": "cb08a6e4-f43d-41d4-bdee-fb06474101a8",
+      "file_name": "uc-cb08a6e4-tui-inline-edit-pane-for-issue-fields.json"
     }
   ]
 }
