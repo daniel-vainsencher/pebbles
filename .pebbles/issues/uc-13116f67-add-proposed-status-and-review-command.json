@@ -2,11 +2,11 @@
   "id": "13116f67-d82e-4d19-b2a6-288458bf5ddd",
   "title": "Add proposed status and review command",
   "description": null,
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-08-28T18:20:10.257656023Z",
-  "updated_at": "2026-08-28T18:20:10.257656023Z"
+  "updated_at": "2026-09-19T22:09:23.538657534Z"
 }
