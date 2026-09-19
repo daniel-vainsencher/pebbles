@@ -295,6 +295,10 @@
     {
       "id": "c0c57024-aff8-4d50-a830-346778269338",
       "file_name": "uc-c0c57024-tui-two-pane-browser-foldable-epic-pebbl.json"
+    },
+    {
+      "id": "80ca18b3-2c41-400e-9222-6c15277e8a1c",
+      "file_name": "uc-80ca18b3-tui-review-queue-mode-one-key-approve-cl.json"
     }
   ]
 }
