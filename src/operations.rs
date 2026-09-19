@@ -136,7 +136,7 @@ impl Operations {
         }
 
         // r[impl issue-ordering]
-        issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
         Ok(issues)
     }
@@ -378,7 +378,7 @@ impl Operations {
             .collect();
 
         // r[impl issue-ordering]
-        child_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        child_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
         Ok((epic, child_issues))
     }
@@ -417,7 +417,7 @@ impl Operations {
             .collect();
 
         // r[impl issue-ordering]
-        unblocked_issues.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
         Ok(unblocked_issues)
     }

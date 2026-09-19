@@ -290,7 +290,7 @@ pub fn print_issue_tree(issues: &[Issue]) {
             .copied()
             .collect();
 
-        children.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        children.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
         for (idx, child) in children.iter().enumerate() {
             let is_last = idx == children.len() - 1;
