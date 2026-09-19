@@ -1,0 +1,12 @@
+{
+  "id": "d5b52cd6-00cd-4c74-b8fc-ff29fa9fbde1",
+  "title": "Evaluate termlens (TUI e2e test harness) for pebbles TUI tests",
+  "description": "Check out https://github.com/vyncint/termlens and lusingander/sauva's tests/terminal_e2e.rs (pattern for driving a ratatui app headlessly). Evaluate API, maturity, ratatui compat; write and run a minimal toy test; document learnings in this issue and recommend adopt/skip.",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-19T22:09:23.993541171Z",
+  "updated_at": "2026-09-19T22:09:23.993541171Z"
+}

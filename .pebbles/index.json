@@ -307,6 +307,10 @@
     {
       "id": "c3081e01-b78b-4e07-b4c4-dc6a99be6da1",
       "file_name": "des-c3081e01-tui-multi-project-layer-project-discover.json"
+    },
+    {
+      "id": "d5b52cd6-00cd-4c74-b8fc-ff29fa9fbde1",
+      "file_name": "val-d5b52cd6-evaluate-termlens-tui-e2e-test-harness-f.json"
     }
   ]
 }
