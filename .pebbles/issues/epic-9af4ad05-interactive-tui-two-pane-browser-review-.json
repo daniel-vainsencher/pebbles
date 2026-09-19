@@ -1,6 +1,6 @@
 {
   "id": "9af4ad05-6521-4ea9-965a-da1ccc73ca66",
-  "title": "Implement TUI (Terminal User Interface)",
+  "title": "Interactive TUI: two-pane browser, review queue, multi-project",
   "description": "Epic: a ratatui TUI for pebbles. Three pillars:\n1. Two-pane browser: left = foldable tree of epics with child pebbles (reuses list --tree data + epic progress counts); right = detail pane for the highlighted issue (show output, relationships, spec refs). Design baseline: 94223b04.\n2. Review-queue mode: one-key approve/close over the proposed queue, built on bulk-operation primitives (0c580f95).\n3. Multi-project layer: projects above epics — scan ~/repos for .pebbles (unless config lists other dirs), sorted by pebbles index mtime, most recent first (design c302f8f4).\nTUI features must land with SPEC r[tui-*] rules and tests, per the repo's spec+design approach.",
   "status": "todo",
   "issue_type": "epic",
@@ -8,5 +8,5 @@
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-11T01:56:06.221274729Z",
-  "updated_at": "2026-09-19T22:09:34.059539746Z"
+  "updated_at": "2026-09-19T22:10:08.655389195Z"
 }
