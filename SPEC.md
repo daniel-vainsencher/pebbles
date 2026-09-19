@@ -311,11 +311,11 @@ The `metadata` field is a `HashMap<String, String>` that can store arbitrary key
 - User-defined attributes
 - Tool-specific data
 
-**Access:** The CLI is the preferred way to update issues (see [CLI Interface](#cli-interface)); dedicated metadata commands are not yet implemented. Prefer scripting with `jq` for metadata, and treat direct JSON editing as a last resort — it bypasses pebbles' validation rules and jj commits.
+**Access:** The CLI is the preferred way to update issues (see [CLI Interface](#cli-interface)); dedicated metadata commands are not yet implemented. Prefer scripting with `jq` for metadata. Edit JSON manually only if the CLI is failing — manual edits bypass pebbles' validation rules and jj commits.
 
 ### Tags
 
-The `tags` field is a `Vec<String>` for categorization. Currently not used by CLI commands. Use the CLI for all supported updates; direct JSON editing is a last resort.
+The `tags` field is a `Vec<String>` for categorization. Currently not used by CLI commands. Use the CLI for all supported updates; edit JSON manually only if the CLI is failing.
 
 ## Future Considerations
 

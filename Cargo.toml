@@ -2,7 +2,7 @@
 name = "pebbles"
 version = "0.2.1"
 edition = "2021"
-authors = ["OpenHands <openhands@all-hands.dev>"]
+authors = ["Daniel Vainsencher <danielv@nirinor.ai>"]
 description = "A rock-solid issue management tool built on top of Jujutsu (jj)"
 license = "MIT"
 
@@ -15,9 +15,6 @@ chrono = { version = "0.4", features = ["serde"] }
 uuid = { version = "1.8", features = ["v4", "serde"] }
 colored = "2.1"
 slug = "0.1"
-fuzzy-matcher = "0.3"
-ratatui = "0.29"
-crossterm = "0.29"
 rust-sugiyama = "0.4"
 
 [dev-dependencies]

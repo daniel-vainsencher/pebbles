@@ -259,7 +259,7 @@ For metadata, which the CLI does not yet manage:
 2. **Future CLI commands:** `pebbles metadata set <id> <key> <value>`
 3. **Direct JSON editing:** Edit issue files directly
 
-Direct JSON editing is a last resort. It bypasses pebbles' validation rules and jj integration: changes land as uncommitted working-copy modifications with no descriptive commit, and mistakes can violate relationship rules or leave the index out of sync.
+Edit JSON manually only if the CLI is failing. Manual edits bypass pebbles' validation rules and jj integration: changes land as uncommitted working-copy modifications with no descriptive commit, and mistakes can violate relationship rules or leave the index out of sync. After any manual edit, run `pebbles list` to verify that every issue still loads.
 
 ### Testing Functional Core vs Imperative Shell
 
@@ -375,7 +375,7 @@ For integration testing without affecting real data:
 - Create `.no_jj` marker file to skip jj operations
 - Enables safe testing of editing commands
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) and [TESTABILITY_ANALYSIS.md](TESTABILITY_ANALYSIS.md) for detailed testing guidance.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed testing guidance.
 
 ## Comparison with Alternatives
 

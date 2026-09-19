@@ -7,12 +7,12 @@ use clap::{Parser, Subcommand};
     version,
     about = "A rock-solid issue management tool built on top of Jujutsu",
     long_about = "A rock-solid issue management tool built on top of Jujutsu\n\n\
-    IMPORTANT: Never manually edit files in .pebbles/. Always use the pebbles CLI \
-    to create, update, or delete issues. Manual edits can corrupt the index and \
-    cause data loss.\n\n\
-    If manual editing is absolutely necessary (e.g., fixing corruption), first get \
-    explicit permission, make the edits carefully, then run 'pebbles list' to verify \
-    the index is still valid and all issues load correctly."
+    Issues are JSON files under .pebbles/. Make all changes through the pebbles \
+    CLI: it validates relationships, renames files when titles or types change, \
+    keeps the index in sync, and commits each operation to jj.\n\n\
+    Edit files under .pebbles/ manually only if the CLI is failing (for example, \
+    to repair a corrupt index). Afterwards, run 'pebbles list' to verify that \
+    every issue still loads."
 )]
 pub struct Cli {
     #[command(subcommand)]
