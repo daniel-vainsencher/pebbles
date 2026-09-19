@@ -149,6 +149,7 @@ impl Storage {
         Ok(())
     }
 
+    // r[impl schema-valid-issues]
     pub fn load_all_issues(&self) -> Result<Vec<Issue>> {
         let index = self.load_index()?;
         let mut issues = Vec::new();

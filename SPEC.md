@@ -159,6 +159,18 @@ r[no-broken-links]
 - Deleting an issue that other issues reference is an error naming each broken link, unless `--delete-links-too` is passed, in which case the referencing relationships are removed in the same operation.
 - Implementation: [`Operations::delete()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs)
 
+r[index-consistent]
+**Index consistency:**
+- `.pebbles/index.json` must map exactly the set of files under `.pebbles/issues/`: every index entry resolves to an issue file, and every issue file is indexed.
+- Divergence (missing files, orphaned files, unknown entries) is detectable on demand and reported.
+- Implementation: pending (repository graph layer) | Test: pending
+
+r[schema-valid-issues]
+**Schema-valid issue files:**
+- Every file under `.pebbles/issues/` must parse as a schema-compliant `Issue`.
+- Files that fail to parse or violate the schema are reported when the issue set is loaded, and never silently ignored.
+- Implementation: [`Storage::load_all_issues()`](src/storage.rs) | Test: pending
+
 ## Validation Rules
 
 ### Relationship Validation
