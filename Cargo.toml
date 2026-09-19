@@ -16,6 +16,7 @@ uuid = { version = "1.8", features = ["v4", "serde"] }
 colored = "2.1"
 slug = "0.1"
 rust-sugiyama = "0.4"
+libc = "0.2"
 
 [dev-dependencies]
 trycmd = "0.15"

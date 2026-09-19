@@ -17,6 +17,11 @@ use operations::Operations;
 use std::env;
 
 fn main() -> Result<()> {
+    // Rust ignores SIGPIPE by default, which makes any piped consumer that
+    // exits early (e.g. `pebbles list | head`) turn writes into panics.
+    // Restore default handling: die by SIGPIPE like standard Unix tools.
+    unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
+
     let cli = Cli::parse();
     let current_dir = env::current_dir()?;
     let ops = Operations::new(&current_dir)?;
