@@ -77,10 +77,12 @@ fn main() -> Result<()> {
 
             // r[impl epic-progress-counts]
             let full_epic_counts = ops.epic_counts()?;
+            // r[impl appropriate-length-id]
+            let id_prefixes = ops.id_prefixes()?;
             if tree {
-                print_issue_tree(&issues, &full_epic_counts, filter_applied);
+                print_issue_tree(&issues, &full_epic_counts, filter_applied, &id_prefixes);
             } else {
-                print_issue_list(&issues, &full_epic_counts, filter_applied);
+                print_issue_list(&issues, &full_epic_counts, filter_applied, &id_prefixes);
             }
         }
 
@@ -159,14 +161,18 @@ fn main() -> Result<()> {
 
         Commands::Epic { id } => {
             let (epic, child_issues) = ops.epic(&id)?;
-            print_epic_view(&epic, &child_issues);
+            // r[impl appropriate-length-id]
+            let id_prefixes = ops.id_prefixes()?;
+            print_epic_view(&epic, &child_issues, &id_prefixes);
         }
 
         Commands::Next => {
             let issues = ops.next()?;
             // r[impl epic-progress-counts] - next is a filtered view.
             let full_epic_counts = ops.epic_counts()?;
-            print_issue_list(&issues, &full_epic_counts, true);
+            // r[impl appropriate-length-id]
+            let id_prefixes = ops.id_prefixes()?;
+            print_issue_list(&issues, &full_epic_counts, true, &id_prefixes);
         }
 
         // r[impl review-command]
@@ -174,7 +180,9 @@ fn main() -> Result<()> {
             let issues = ops.list(Some(Status::Proposed), None)?;
             // r[impl epic-progress-counts] - review is a filtered view.
             let full_epic_counts = ops.epic_counts()?;
-            print_issue_list(&issues, &full_epic_counts, true);
+            // r[impl appropriate-length-id]
+            let id_prefixes = ops.id_prefixes()?;
+            print_issue_list(&issues, &full_epic_counts, true, &id_prefixes);
         }
 
         Commands::Convert { id, new_type } => {
@@ -208,9 +216,11 @@ fn main() -> Result<()> {
 
             // Determine output format
             let fmt = format.as_deref().unwrap_or("text");
+            // r[impl appropriate-length-id]
+            let id_prefixes = ops.id_prefixes()?;
             let content = match fmt {
-                "svg" => flow::render_svg(&issues, &layout),
-                "text" => flow::render_text(&issues, &layout),
+                "svg" => flow::render_svg(&issues, &layout, &id_prefixes),
+                "text" => flow::render_text(&issues, &layout, &id_prefixes),
                 other => anyhow::bail!("Invalid format '{}': expected 'text' or 'svg'", other),
             };
 

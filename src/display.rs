@@ -30,6 +30,7 @@ pub fn print_issue_list(
     issues: &[Issue],
     full_epic_counts: &HashMap<Uuid, (usize, usize)>,
     filter_applied: bool,
+    id_prefixes: &HashMap<Uuid, String>,
 ) {
     if issues.is_empty() {
         println!("{}", "No issues found.".dimmed());
@@ -58,7 +59,10 @@ pub fn print_issue_list(
             IssueType::Milestone => "mile".yellow().bold(),
         };
 
-        let id_short = issue.short_id();
+        let id_short = id_prefixes
+            .get(&issue.id)
+            .cloned()
+            .unwrap_or_else(|| issue.short_id());
 
         // Add epic count for epics
         let count_str = if issue.issue_type == IssueType::Epic {
@@ -174,7 +178,11 @@ pub fn print_issue_detail(
     println!("{}", "━".repeat(60).dimmed());
 }
 
-pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
+pub fn print_epic_view(
+    epic: &Issue,
+    child_issues: &[Issue],
+    id_prefixes: &HashMap<Uuid, String>,
+) {
     let status_str = match epic.status {
         Status::Proposed => "PROPOSED".white(),
         Status::Todo => "TODO".yellow(),
@@ -185,7 +193,11 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
 
     println!("{}", "━".repeat(60).dimmed());
     println!("{}: {}", "Epic".bold(), epic.title.bold());
-    println!("{}: {}", "ID".bold(), epic.short_id().cyan());
+    println!(
+        "{}: {}",
+        "ID".bold(),
+        id_prefixes.get(&epic.id).cloned().unwrap_or_else(|| epic.short_id()).cyan()
+    );
     println!("{}: {}", "Status".bold(), status_str);
 
     if let Some(desc) = &epic.description {
@@ -228,7 +240,11 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
             let status_badge = format!("[{}]", status_str);
             println!(
                 "  {} {} {} {}",
-                issue.short_id().dimmed(),
+                id_prefixes
+                    .get(&issue.id)
+                    .cloned()
+                    .unwrap_or_else(|| issue.short_id())
+                    .dimmed(),
                 type_badge,
                 status_badge,
                 issue.title
@@ -243,6 +259,7 @@ pub fn print_issue_tree(
     issues: &[Issue],
     full_epic_counts: &HashMap<Uuid, (usize, usize)>,
     filter_applied: bool,
+    id_prefixes: &HashMap<Uuid, String>,
 ) {
     if issues.is_empty() {
         println!("{}", "No issues found.".dimmed());
@@ -284,7 +301,11 @@ pub fn print_issue_tree(
         let status_badge = format!("[{}]", status_str);
         println!(
             "{} {} {} {}{}",
-            epic.short_id().dimmed(),
+            id_prefixes
+                    .get(&epic.id)
+                    .cloned()
+                    .unwrap_or_else(|| epic.short_id())
+                    .dimmed(),
             "[epic]".yellow().bold(),
             status_badge,
             epic.title.bold(),
@@ -332,7 +353,11 @@ pub fn print_issue_tree(
             println!(
                 "  {} {} {} {} {}",
                 prefix.dimmed(),
-                child.short_id().dimmed(),
+                id_prefixes
+                    .get(&child.id)
+                    .cloned()
+                    .unwrap_or_else(|| child.short_id())
+                    .dimmed(),
                 type_badge,
                 status_badge,
                 child.title
@@ -384,7 +409,11 @@ pub fn print_issue_tree(
             let status_badge = format!("[{}]", status_str);
             println!(
                 "{} {} {} {}",
-                issue.short_id().dimmed(),
+                id_prefixes
+                    .get(&issue.id)
+                    .cloned()
+                    .unwrap_or_else(|| issue.short_id())
+                    .dimmed(),
                 type_badge,
                 status_badge,
                 issue.title.bold()

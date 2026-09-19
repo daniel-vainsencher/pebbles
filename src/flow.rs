@@ -2,6 +2,7 @@ use crate::models::{Issue, RelationType};
 use anyhow::{bail, Result};
 use rust_sugiyama::configure::Config;
 use std::collections::HashMap;
+use uuid::Uuid;
 
 /// Represents the layout result for visualization
 pub struct FlowLayout {
@@ -156,8 +157,20 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
     })
 }
 
+/// Minimal unambiguous ID prefix for display, falling back to the 8-char ID.
+fn issue_id_prefix(id: Uuid, id_prefixes: &HashMap<Uuid, String>) -> String {
+    id_prefixes
+        .get(&id)
+        .cloned()
+        .unwrap_or_else(|| id.to_string()[..8].to_string())
+}
+
 /// Render layout as text in columns
-pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
+pub fn render_text(
+    issues: &[Issue],
+    layout: &FlowLayout,
+    id_prefixes: &HashMap<Uuid, String>,
+) -> String {
     if layout.coordinates.is_empty() {
         return "No issues to visualize.".to_string();
     }
@@ -204,7 +217,7 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
 
             for (idx, _y) in sorted_issues {
                 let issue = &issues[idx];
-                let short_id = &issue.id.to_string()[..8];
+                let short_id = issue_id_prefix(issues[idx].id, id_prefixes);
                 output.push_str(&format!(
                     "  {} [{}] [{}] {}\n",
                     short_id,
@@ -226,7 +239,7 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
         standalone.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
         for (idx, _y) in standalone {
             let issue = &issues[idx];
-            let short_id = &issue.id.to_string()[..8];
+            let short_id = issue_id_prefix(issues[idx].id, id_prefixes);
             output.push_str(&format!(
                 "  {} [{}] [{}] {}\n",
                 short_id,
@@ -241,7 +254,11 @@ pub fn render_text(issues: &[Issue], layout: &FlowLayout) -> String {
 }
 
 /// Render layout as SVG
-pub fn render_svg(issues: &[Issue], layout: &FlowLayout) -> String {
+pub fn render_svg(
+    issues: &[Issue],
+    layout: &FlowLayout,
+    id_prefixes: &HashMap<Uuid, String>,
+) -> String {
     let padding = 20.0;
     let svg_width = layout.width + 2.0 * padding;
     let svg_height = layout.height + 2.0 * padding;
@@ -297,7 +314,7 @@ pub fn render_svg(issues: &[Issue], layout: &FlowLayout) -> String {
     // Draw boxes
     for &(idx, (x, y)) in &layout.coordinates {
         let issue = &issues[idx];
-        let short_id = &issue.id.to_string()[..8];
+        let short_id = issue_id_prefix(issue.id, id_prefixes);
         let box_width = (issue.title.len() as f64 * 8.0).max(80.0);
         let box_height = 30.0;
 
@@ -326,7 +343,7 @@ pub fn render_svg(issues: &[Issue], layout: &FlowLayout) -> String {
             type_class,
             x + padding + 5.0,
             y + padding + 20.0,
-            escape_xml(short_id),
+            escape_xml(&short_id),
             escape_xml(&issue.title.chars().take(30).collect::<String>())
         ));
     }
@@ -387,7 +404,7 @@ mod tests {
             _index_to_issue: HashMap::new(),
         };
         let issues = vec![issue("Fix <script> & \"quotes\" bug")];
-        let svg = render_svg(&issues, &layout);
+        let svg = render_svg(&issues, &layout, &HashMap::new());
         assert!(!svg.contains("<script>"), "raw markup leaked into SVG");
         assert!(svg.contains("&lt;script&gt;"), "escaped text missing");
         assert!(svg.contains("&amp;"), "& not escaped");

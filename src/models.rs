@@ -188,6 +188,10 @@ impl Issue {
         self.updated_at = Utc::now();
     }
 
+    /// The 8-character ID used in issue filenames.
+    /// Stable regardless of other issues in the repo (SPEC r[issue-filename-format]).
+    /// User-facing display uses the minimal unambiguous prefix instead
+    /// (SPEC r[appropriate-length-id]); see `Operations::id_prefixes`.
     pub fn short_id(&self) -> String {
         self.id.to_string()[..8].to_string()
     }

@@ -29,7 +29,7 @@ $ pebbles list --status todo
 
 ```console
 $ pebbles list --issue-type bug
-11111111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
 
 ```
 
@@ -107,7 +107,7 @@ $ pebbles link 33333333 required_for 22222222
 $ pebbles epic 44444444
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Epic: User Authentication Epic
-ID: 44444444
+ID: 444
 Status: TODO
 
 Implement complete user authentication system
@@ -116,9 +116,9 @@ Progress: 0/3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Child Issues:
-  33333333 [des] [IN PROGRESS] JWT token authentication system
-  22222222 [uc] [TODO] User can login with email and password
-  11111111 [bug] [TODO] Login button doesn't respond on mobile
+  333 [des] [IN PROGRESS] JWT token authentication system
+  222 [uc] [TODO] User can login with email and password
+  111 [bug] [TODO] Login button doesn't respond on mobile
 
 
 ```
@@ -173,7 +173,7 @@ File: bug-11111111-fix-mobile-login-button-click-handler.json
 $ pebbles epic 44444444
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Epic: User Authentication Epic
-ID: 44444444
+ID: 444
 Status: TODO
 
 Implement complete user authentication system
@@ -182,9 +182,9 @@ Progress: 1/3
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Child Issues:
-  11111111 [bug] [DONE] Fix mobile login button click handler
-  33333333 [des] [IN PROGRESS] JWT token authentication system
-  22222222 [uc] [TODO] User can login with email and password
+  111 [bug] [DONE] Fix mobile login button click handler
+  333 [des] [IN PROGRESS] JWT token authentication system
+  222 [uc] [TODO] User can login with email and password
 
 
 ```
@@ -193,7 +193,7 @@ Child Issues:
 
 ```console
 $ pebbles list --status in_progress
-33333333 [des] [IN PROGRESS] JWT token authentication system
+333 [des] [IN PROGRESS] JWT token authentication system
 
 ```
 
@@ -222,6 +222,6 @@ File: bug-[..]-temporary-test-issue.json
 ```console
 $ pebbles list --issue-type bug
 [..] [bug] [PROPOSED] Temporary test issue
-11111111 [bug] [DONE] Fix mobile login button click handler
+111 [bug] [DONE] Fix mobile login button click handler
 
 ```

@@ -688,29 +688,49 @@ impl Operations {
         Ok(incoming)
     }
 
+    /// Returns minimal unambiguous ID prefixes for every ID in the index.
+    ///
+    /// The minimum length is 3 characters. Always returns lowercase.
+    /// See SPEC.md for the definition of "appropriate length ID".
+    // r[impl appropriate-length-id]
+    pub fn id_prefixes(&self) -> Result<HashMap<Uuid, String>> {
+        let index = self.storage.load_index()?;
+        let all_ids = index.all_ids();
+        let id_strs: Vec<(Uuid, String)> = all_ids
+            .iter()
+            .map(|uuid| (*uuid, uuid.to_string().to_lowercase()))
+            .collect();
+
+        let mut prefixes = HashMap::with_capacity(id_strs.len());
+        for (uuid, id_str) in &id_strs {
+            // Find minimum prefix length (≥3) that uniquely identifies this ID
+            let mut prefix = id_str.clone();
+            for len in 3..=id_str.len() {
+                let candidate = &id_str[..len];
+                let matches = id_strs
+                    .iter()
+                    .filter(|(_, other)| other.starts_with(candidate))
+                    .count();
+                if matches == 1 {
+                    prefix = candidate.to_string();
+                    break;
+                }
+            }
+            prefixes.insert(*uuid, prefix);
+        }
+        Ok(prefixes)
+    }
+
     /// Returns the shortest unambiguous ID prefix for the given UUID.
     /// The minimum length is 3 characters. Always returns lowercase.
     /// See SPEC.md for the definition of "appropriate length ID".
     // r[impl appropriate-length-id]
     pub fn appropriate_length_id(&self, id: &Uuid) -> Result<String> {
-        let index = self.storage.load_index()?;
-        let all_ids = index.all_ids();
-        let id_str = id.to_string().to_lowercase();
-
-        // Find minimum prefix length (≥3) that uniquely identifies this ID
-        for len in 3..=id_str.len() {
-            let prefix = &id_str[..len];
-            let matches = all_ids
-                .iter()
-                .filter(|uuid| uuid.to_string().to_lowercase().starts_with(prefix))
-                .count();
-            if matches == 1 {
-                return Ok(prefix.to_string());
-            }
-        }
-
-        // Fallback to full ID if somehow not unique (shouldn't happen)
-        Ok(id_str)
+        let prefixes = self.id_prefixes()?;
+        Ok(prefixes
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| id.to_string().to_lowercase()))
     }
 
     // r[impl short-id-input]

@@ -204,9 +204,11 @@ The "appropriate length ID" is the canonical way to display issue IDs in pebbles
   1. **Unambiguous** - matches exactly one issue in the database
   2. **At least 3 characters** - to be clearly recognizable as an ID
 - Always **lowercase**
-- Used in creation messages (e.g., `Created bug 763`) and recommended for user display
+- Used for all issue-listing display (`list`, `list --tree`, `next`, `review`, `epic`, `flow`) and in creation/deletion/error messages (e.g., `Created bug 763`)
+- The `show` command displays the full UUID
+- Issue filenames keep the fixed 8-character short ID so they do not change as new issues are added (see [r[issue-filename-format]](#issue-filename-format))
 
-Implementation: [`Operations::appropriate_length_id()`](src/operations.rs)
+Implementation: [`Operations::id_prefixes()`](src/operations.rs) and [`Operations::appropriate_length_id()`](src/operations.rs)
 
 r[short-id-input]
 **Short ID Input:**
