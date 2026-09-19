@@ -1,0 +1,12 @@
+{
+  "id": "c0c57024-aff8-4d50-a830-346778269338",
+  "title": "TUI: two-pane browser — foldable epic/pebble tree, detail pane",
+  "description": "Left pane: foldable tree of epics with child pebbles (reuses list --tree data and epic progress counts). Right pane: detail of the highlighted issue — show output, relationships, incoming links, spec refs. Keys: j/k or arrows to move, Enter/f to fold/unfold, ? for help. Widget choice pending tui-tree-widget evaluation.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-19T22:09:23.698881090Z",
+  "updated_at": "2026-09-19T22:09:23.698881090Z"
+}
