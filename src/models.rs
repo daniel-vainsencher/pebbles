@@ -301,6 +301,25 @@ impl Default for Index {
 }
 
 /// Information about an incoming relationship: source issue details and relation type.
+/// Builds a map of epic child progress from a list of issues.
+/// Key: epic ID, Value: (total children, done children) via `part_of`
+/// relationships. Pure function, testable without I/O.
+pub fn build_epic_counts(issues: &[Issue]) -> HashMap<Uuid, (usize, usize)> {
+    let mut counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
+    for issue in issues {
+        for rel in &issue.relationships {
+            if rel.relation_type == RelationType::PartOf {
+                let entry = counts.entry(rel.target_id).or_insert((0, 0));
+                entry.0 += 1;
+                if issue.status == Status::Done {
+                    entry.1 += 1;
+                }
+            }
+        }
+    }
+    counts
+}
+
 /// Returns true if adding a directed edge `from -> to` to the adjacency map
 /// would create a directed cycle (i.e. `to` can already reach `from`).
 /// Pure function used to enforce the DAG invariant (SPEC r[graph-acyclic]).
@@ -447,6 +466,26 @@ mod tests {
             IssueType::UxProblem
         );
         assert_eq!("ux".parse::<IssueType>(), Ok(IssueType::UxProblem));
+    }
+
+    #[test]
+    fn test_build_epic_counts() {
+        let mut child_done = make_issue("C1", Status::Done);
+        let mut child_todo = make_issue("C2", Status::Todo);
+        let epic = make_issue("E", Status::Todo);
+        let epic_id = epic.id;
+
+        child_done.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: epic_id,
+        });
+        child_todo.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: epic_id,
+        });
+
+        let counts = build_epic_counts(&[child_done, child_todo, epic]);
+        assert_eq!(counts.get(&epic_id), Some(&(2, 1)));
     }
 
     #[test]

@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::jj::JJ;
 use crate::models::{
-    build_dependency_adjacency, build_incoming_relationships_map, creates_cycle,
+    build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
     Issue, IssueType, RelationType, Status,
 };
 use crate::storage::{SaveOutcome, Storage};
@@ -648,6 +648,13 @@ impl Operations {
             total_relationships,
             by_relationship_type,
         })
+    }
+
+    /// Epic child progress `(total, done)` computed over the FULL issue set,
+    /// independent of any view filter. See SPEC r[epic-progress-counts].
+    pub fn epic_counts(&self) -> Result<HashMap<Uuid, (usize, usize)>> {
+        let all_issues = self.storage.load_all_issues()?;
+        Ok(build_epic_counts(&all_issues))
     }
 
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {

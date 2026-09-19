@@ -1,28 +1,43 @@
-use crate::models::{Issue, IssueType, RelationType, Status};
+use crate::models::{build_epic_counts, Issue, IssueType, RelationType, Status};
 use crate::operations::ProjectSummary;
 use colored::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
-pub fn print_issue_list(issues: &[Issue]) {
+/// Format an epic's child progress as ` (done/total)`.
+///
+/// `filtered` counts are computed over the view slice; `full` over the
+/// complete issue set. When a filter is applied, both ratios are shown:
+/// ` (done/total, done/total total)`. See SPEC r[epic-progress-counts].
+fn format_epic_count(
+    filtered: Option<(usize, usize)>,
+    full: Option<(usize, usize)>,
+    filter_applied: bool,
+) -> String {
+    let ratio = |counts: Option<(usize, usize)>| match counts {
+        Some((total, done)) => format!("{}/{}", done, total),
+        None => "0/0".to_string(),
+    };
+
+    if filter_applied {
+        format!(" ({}, {} total)", ratio(filtered), ratio(full))
+    } else {
+        format!(" ({})", ratio(full.or(filtered)))
+    }
+}
+
+pub fn print_issue_list(
+    issues: &[Issue],
+    full_epic_counts: &HashMap<Uuid, (usize, usize)>,
+    filter_applied: bool,
+) {
     if issues.is_empty() {
         println!("{}", "No issues found.".dimmed());
         return;
     }
 
-    // Build epic counts: map epic_id -> (total, done)
-    let mut epic_counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
-    for issue in issues {
-        for rel in &issue.relationships {
-            if rel.relation_type == crate::models::RelationType::PartOf {
-                let entry = epic_counts.entry(rel.target_id).or_insert((0, 0));
-                entry.0 += 1;
-                if issue.status == Status::Done {
-                    entry.1 += 1;
-                }
-            }
-        }
-    }
+    // Epic counts over the view slice; full-set counts come from the caller.
+    let epic_counts = build_epic_counts(issues);
 
     for issue in issues {
         let status_str = match issue.status {
@@ -47,11 +62,13 @@ pub fn print_issue_list(issues: &[Issue]) {
 
         // Add epic count for epics
         let count_str = if issue.issue_type == IssueType::Epic {
-            if let Some((total, done)) = epic_counts.get(&issue.id) {
-                format!(" ({}/{})", done, total).dimmed().to_string()
-            } else {
-                " (0)".dimmed().to_string()
-            }
+            format_epic_count(
+                epic_counts.get(&issue.id).copied(),
+                full_epic_counts.get(&issue.id).copied(),
+                filter_applied,
+            )
+            .dimmed()
+            .to_string()
         } else {
             String::new()
         };
@@ -222,7 +239,11 @@ pub fn print_epic_view(epic: &Issue, child_issues: &[Issue]) {
     println!();
 }
 
-pub fn print_issue_tree(issues: &[Issue]) {
+pub fn print_issue_tree(
+    issues: &[Issue],
+    full_epic_counts: &HashMap<Uuid, (usize, usize)>,
+    filter_applied: bool,
+) {
     if issues.is_empty() {
         println!("{}", "No issues found.".dimmed());
         return;
@@ -238,19 +259,9 @@ pub fn print_issue_tree(issues: &[Issue]) {
         .filter(|i| i.issue_type != IssueType::Epic)
         .collect();
 
-    // Build epic counts
-    let mut epic_counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
-    for issue in &non_epics {
-        for rel in &issue.relationships {
-            if rel.relation_type == crate::models::RelationType::PartOf {
-                let entry = epic_counts.entry(rel.target_id).or_insert((0, 0));
-                entry.0 += 1;
-                if issue.status == Status::Done {
-                    entry.1 += 1;
-                }
-            }
-        }
-    }
+    // Epic counts over the view slice; full-set counts come from the caller.
+    let slice: Vec<Issue> = non_epics.iter().map(|i| (*i).clone()).collect();
+    let epic_counts = build_epic_counts(&slice);
 
     // Display epics with their children
     for epic in &epics {
@@ -262,11 +273,13 @@ pub fn print_issue_tree(issues: &[Issue]) {
             Status::Blocked => "BLOCKED".red(),
         };
 
-        let count_str = if let Some((total, done)) = epic_counts.get(&epic.id) {
-            format!(" ({}/{})", done, total).dimmed().to_string()
-        } else {
-            " (0)".dimmed().to_string()
-        };
+        let count_str = format_epic_count(
+            epic_counts.get(&epic.id).copied(),
+            full_epic_counts.get(&epic.id).copied(),
+            filter_applied,
+        )
+        .dimmed()
+        .to_string();
 
         let status_badge = format!("[{}]", status_str);
         println!(
@@ -503,6 +516,46 @@ pub fn print_summary(summary: &ProjectSummary) {
         println!(
             "{}",
             "No actionable issues (all are blocked or done)".dimmed()
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::format_epic_count;
+
+    #[test]
+    fn test_epic_count_format_is_always_done_over_total() {
+        assert_eq!(
+            format_epic_count(Some((3, 1)), Some((3, 1)), false),
+            " (1/3)"
+        );
+        // A childless epic uses the same done/total shape.
+        assert_eq!(format_epic_count(None, None, false), " (0/0)");
+    }
+
+    #[test]
+    fn test_epic_count_without_filter_is_single_ratio() {
+        // Without a filter the slice equals the full set: one ratio.
+        assert_eq!(
+            format_epic_count(Some((3, 1)), Some((3, 1)), false),
+            " (1/3)"
+        );
+        assert_eq!(format_epic_count(None, None, false), " (0/0)");
+    }
+
+    // r[verify epic-progress-counts]
+    #[test]
+    fn test_epic_count_with_filter_shows_both_ratios() {
+        // Filtered ratio first, then the complete-set ratio.
+        assert_eq!(
+            format_epic_count(Some((1, 0)), Some((3, 1)), true),
+            " (0/1, 1/3 total)"
+        );
+        // All children filtered out: filtered ratio is 0/0.
+        assert_eq!(
+            format_epic_count(None, Some((3, 1)), true),
+            " (0/0, 1/3 total)"
         );
     }
 }

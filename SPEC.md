@@ -305,6 +305,17 @@ Example: Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue
 Verification: [jj-integration](tests/jj_integration.rs) tests `t5_rename_via_title` and `t8_convert` confirm all three paths land in the same commit
 Implementation: [`Storage::save_issue()`](src/storage.rs)
 
+### Epic Progress Counts
+
+r[epic-progress-counts]
+Epics display child progress as a `(done/total)` ratio over `part_of` relationships:
+
+- Without a view filter, one ratio is shown, covering all children of the epic.
+- When a view filter is applied (`list --status`/`--issue-type`/`--orphaned`, `next`, `review`), two ratios are shown: the ratio over the filtered children first, then the ratio over the complete set — e.g. `(0/1, 1/3 total)`.
+- The complete-set ratio is always computed over all issues, independent of the view filter; progress is a property of the epic, not of the view.
+
+Implementation: [`Operations::epic_counts()`](src/operations.rs), [`build_epic_counts()`](src/models.rs) | Verify: [display tests](src/display.rs), [core-workflow](tests/workflows/core-workflow.trycmd)
+
 ### Timestamp Updates
 
 The `updated_at` timestamp is automatically updated when:

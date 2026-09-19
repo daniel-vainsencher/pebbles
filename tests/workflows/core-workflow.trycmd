@@ -6,10 +6,10 @@ This test demonstrates the core pebbles workflow: listing, showing, updating, li
 
 ```console
 $ pebbles list
-44444444 [epic] [TODO] User Authentication Epic (0)
-33333333 [des] [TODO] JWT token authentication system
-22222222 [uc] [TODO] User can login with email and password
-11111111 [bug] [TODO] Login button doesn't respond on mobile
+444 [epic] [TODO] User Authentication Epic (0/0)
+333 [des] [TODO] JWT token authentication system
+222 [uc] [TODO] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile
 
 ```
 
@@ -18,10 +18,10 @@ $ pebbles list
 r[verify list-filter]
 ```console
 $ pebbles list --status todo
-44444444 [epic] [TODO] User Authentication Epic (0)
-33333333 [des] [TODO] JWT token authentication system
-22222222 [uc] [TODO] User can login with email and password
-11111111 [bug] [TODO] Login button doesn't respond on mobile
+444 [epic] [TODO] User Authentication Epic (0/0, 0/0 total)
+333 [des] [TODO] JWT token authentication system
+222 [uc] [TODO] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile
 
 ```
 

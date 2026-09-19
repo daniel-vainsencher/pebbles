@@ -62,6 +62,7 @@ fn main() -> Result<()> {
             } else {
                 None
             };
+            let filter_applied = status_filter.is_some() || type_filter.is_some() || orphaned;
             let mut issues = ops.list(status_filter, type_filter)?;
 
             if orphaned {
@@ -74,10 +75,12 @@ fn main() -> Result<()> {
                 });
             }
 
+            // r[impl epic-progress-counts]
+            let full_epic_counts = ops.epic_counts()?;
             if tree {
-                print_issue_tree(&issues);
+                print_issue_tree(&issues, &full_epic_counts, filter_applied);
             } else {
-                print_issue_list(&issues);
+                print_issue_list(&issues, &full_epic_counts, filter_applied);
             }
         }
 
@@ -161,13 +164,17 @@ fn main() -> Result<()> {
 
         Commands::Next => {
             let issues = ops.next()?;
-            print_issue_list(&issues);
+            // r[impl epic-progress-counts] - next is a filtered view.
+            let full_epic_counts = ops.epic_counts()?;
+            print_issue_list(&issues, &full_epic_counts, true);
         }
 
         // r[impl review-command]
         Commands::Review => {
             let issues = ops.list(Some(Status::Proposed), None)?;
-            print_issue_list(&issues);
+            // r[impl epic-progress-counts] - review is a filtered view.
+            let full_epic_counts = ops.epic_counts()?;
+            print_issue_list(&issues, &full_epic_counts, true);
         }
 
         Commands::Convert { id, new_type } => {
