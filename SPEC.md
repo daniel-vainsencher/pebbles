@@ -195,6 +195,7 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 r[new-issues-default-proposed]
 - `new <title>` - Create new issue with optional `--issue-type` and `-d` for description  
   New issues start with status `proposed`. Passing `--approved` creates the issue with status `todo` instead.
+  The title must be non-empty after trimming; empty or whitespace-only titles are an error.
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 r[list-filter]

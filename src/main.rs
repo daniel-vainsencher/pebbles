@@ -90,12 +90,15 @@ fn main() -> Result<()> {
 
         Commands::Status { id, status } => {
             let new_status = status.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            ops.update_status(&id, new_status)?;
-            let issue = ops.show(&id)?;
-            let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
-            println!("✓ Updated issue status");
-            print_issue_detail(&issue, &related_titles, &incoming);
+            if ops.update_status(&id, new_status)? {
+                let issue = ops.show(&id)?;
+                let related_titles = ops.get_related_titles(&issue);
+                let incoming = ops.get_incoming_relationships(&issue.id)?;
+                println!("✓ Updated issue status");
+                print_issue_detail(&issue, &related_titles, &incoming);
+            } else {
+                println!("No changes: issue already has this status");
+            }
         }
 
         Commands::Approve { id } => {
@@ -112,12 +115,15 @@ fn main() -> Result<()> {
             title,
             description,
         } => {
-            ops.update(&id, title, description)?;
-            let issue = ops.show(&id)?;
-            let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
-            println!("✓ Updated issue");
-            print_issue_detail(&issue, &related_titles, &incoming);
+            if ops.update(&id, title, description)? {
+                let issue = ops.show(&id)?;
+                let related_titles = ops.get_related_titles(&issue);
+                let incoming = ops.get_incoming_relationships(&issue.id)?;
+                println!("✓ Updated issue");
+                print_issue_detail(&issue, &related_titles, &incoming);
+            } else {
+                println!("No changes: nothing to update");
+            }
         }
 
         Commands::Delete { id } => {
@@ -162,13 +168,20 @@ fn main() -> Result<()> {
         }
 
         Commands::Convert { id, new_type } => {
-            let new_type_parsed = new_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            ops.convert(&id, new_type_parsed)?;
-            let issue = ops.show(&id)?;
-            let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
-            println!("✓ Converted issue type");
-            print_issue_detail(&issue, &related_titles, &incoming);
+            let new_type_parsed: crate::models::IssueType =
+                new_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            if ops.convert(&id, new_type_parsed.clone())? {
+                let issue = ops.show(&id)?;
+                let related_titles = ops.get_related_titles(&issue);
+                let incoming = ops.get_incoming_relationships(&issue.id)?;
+                println!("✓ Converted issue type");
+                print_issue_detail(&issue, &related_titles, &incoming);
+            } else {
+                println!(
+                    "Warning: issue is already a {}; no changes made",
+                    new_type_parsed
+                );
+            }
         }
 
         Commands::Summary => {
@@ -187,7 +200,8 @@ fn main() -> Result<()> {
             let fmt = format.as_deref().unwrap_or("text");
             let content = match fmt {
                 "svg" => flow::render_svg(&issues, &layout),
-                _ => flow::render_text(&issues, &layout),
+                "text" => flow::render_text(&issues, &layout),
+                other => anyhow::bail!("Invalid format '{}': expected 'text' or 'svg'", other),
             };
 
             // Output to file or stdout

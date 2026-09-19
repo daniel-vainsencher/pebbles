@@ -164,6 +164,50 @@ impl TestRepo {
             out
         );
     }
+
+    /// Run `pebbles <args>` expecting failure. Returns stderr.
+    fn pebbles_fail(&self, args: &[&str]) -> String {
+        let output = Command::new(PEBBLES_BIN)
+            .args(args)
+            .current_dir(&self.root)
+            .env("PEBBLES_DB_PATH", ".pebbles")
+            .env("NO_COLOR", "1")
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("FORCE_COLOR")
+            .output()
+            .expect("run pebbles");
+        assert!(
+            !output.status.success(),
+            "pebbles {:?} was expected to fail but succeeded:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout)
+        );
+        String::from_utf8_lossy(&output.stderr).to_string()
+    }
+
+    /// Description of the most recent non-working-copy commit (`@-`).
+    fn last_commit_description(&self) -> String {
+        self.jj(&["log", "--no-pager", "-r", "@-", "-T", "description"])
+    }
+
+    /// Number of commits reachable from `@-` (i.e. committed changes).
+    fn commit_count(&self) -> usize {
+        let out = self.jj(&[
+            "log",
+            "--no-pager",
+            "-r",
+            "::@-",
+            "-T",
+            "commit_id ++ \"\n\"",
+        ]);
+        out.lines().filter(|l| !l.trim().is_empty()).count()
+    }
+
+    /// Read an issue file's raw JSON content.
+    fn read_issue_file(&self, file_name: &str) -> String {
+        std::fs::read_to_string(self.root.join(".pebbles/issues").join(file_name))
+            .expect("read issue file")
+    }
 }
 
 // --- Index parsing ----------------------------------------------------------
@@ -445,4 +489,121 @@ fn t10_approve() {
     repo.assert_clean_wc("after approve");
     repo.assert_last_commit_paths("approve", &p(&[&issue_path(&file)]));
     repo.assert_no_paths_outside_pebbles("approve");
+}
+
+/// T14: empty and whitespace-only titles are rejected (create and update).
+#[test]
+fn t14_empty_title_rejected() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+
+    let err = repo.pebbles_fail(&["new", ""]);
+    assert!(
+        err.contains("title"),
+        "error should mention title: {:?}",
+        err
+    );
+
+    let err = repo.pebbles_fail(&["new", "   "]);
+    assert!(
+        err.contains("title"),
+        "error should mention title: {:?}",
+        err
+    );
+
+    // A valid issue exists for the update check.
+    repo.pebbles(&["new", "Real issue", "-t", "bug", "--approved"]);
+    let id = repo.find_id(|_| true);
+
+    let err = repo.pebbles_fail(&["update", &id, "--title", "  "]);
+    assert!(
+        err.contains("title"),
+        "error should mention title: {:?}",
+        err
+    );
+
+    // Nothing was created by the rejected commands.
+    let count = repo.read_index().len();
+    assert_eq!(count, 1, "only the valid issue should exist");
+}
+
+/// T15: no-op `update` and `status` make no commit and leave the file intact.
+#[test]
+fn t15_noop_operations_make_no_commit() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Foo bug", "-t", "bug", "--approved"]);
+    let id = repo.find_id(|_| true);
+    let file = repo.find_file_name(|_| true);
+    let before_count = repo.commit_count();
+    let before_content = repo.read_issue_file(&file);
+
+    // update with no flags: nothing to change.
+    repo.pebbles(&["update", &id]);
+    assert_eq!(
+        repo.commit_count(),
+        before_count,
+        "no-op update must not create a commit"
+    );
+
+    // status to the current status (todo): nothing to change.
+    repo.pebbles(&["status", &id, "todo"]);
+    assert_eq!(
+        repo.commit_count(),
+        before_count,
+        "no-op status must not create a commit"
+    );
+
+    assert_eq!(
+        repo.read_issue_file(&file),
+        before_content,
+        "no-op operations must not touch the issue file (updated_at)"
+    );
+    repo.assert_clean_wc("after no-op operations");
+}
+
+/// T18: converting an issue to its current type is a no-op with a warning.
+#[test]
+fn t18_convert_same_type_warns() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Foo bug", "-t", "bug", "--approved"]);
+    let id = repo.find_id(|_| true);
+    let file = repo.find_file_name(|_| true);
+    let before_count = repo.commit_count();
+    let before_content = repo.read_issue_file(&file);
+
+    let out = repo.pebbles(&["convert", &id, "bug"]);
+    assert!(
+        out.contains("already a bug"),
+        "should warn on same-type conversion, got: {:?}",
+        out
+    );
+
+    assert_eq!(
+        repo.commit_count(),
+        before_count,
+        "no-op convert must not create a commit"
+    );
+    assert_eq!(
+        repo.read_issue_file(&file),
+        before_content,
+        "no-op convert must not touch the issue file"
+    );
+    repo.assert_clean_wc("after no-op convert");
+}
+
+/// T17: `flow --format` rejects values other than text/svg.
+#[test]
+fn t17_flow_rejects_unknown_format() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Foo bug", "-t", "bug", "--approved"]);
+
+    let err = repo.pebbles_fail(&["flow", "--format", "jsonl"]);
+    assert!(
+        err.contains("text") && err.contains("svg"),
+        "error should name the valid formats, got: {:?}",
+        err
+    );
 }

@@ -17,6 +17,15 @@ pub struct ProjectSummary {
     pub by_relationship_type: HashMap<RelationType, usize>,
 }
 
+/// Titles must be non-empty after trimming: they become slugs in filenames
+/// and the primary human-readable handle for an issue.
+fn validate_title(title: &str) -> Result<()> {
+    if title.trim().is_empty() {
+        bail!("Issue title cannot be empty");
+    }
+    Ok(())
+}
+
 pub struct Operations {
     storage: Storage,
     jj: JJ,
@@ -84,6 +93,8 @@ impl Operations {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
+        validate_title(&title)?;
+
         // New issues start as proposed; `--approved` skips review and
         // creates them directly as todo.
         let mut issue = Issue::new(title, description, issue_type);
@@ -139,13 +150,19 @@ impl Operations {
         self.storage.load_issue(&uuid)
     }
 
-    pub fn update_status(&self, id: &str, new_status: Status) -> Result<()> {
+    /// Returns `Ok(false)` when the issue already had the requested status
+    /// (no file write, no jj commit).
+    pub fn update_status(&self, id: &str, new_status: Status) -> Result<bool> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
         let uuid = self.resolve_id(id)?;
         let mut issue = self.storage.load_issue(&uuid)?;
+
+        if issue.status == new_status {
+            return Ok(false);
+        }
 
         let old_status = issue.status.clone();
         issue.status = new_status;
@@ -164,7 +181,7 @@ impl Operations {
             &as_path_refs(&paths),
         )?;
 
-        Ok(())
+        Ok(true)
     }
 
     // r[impl approve-command]
@@ -190,12 +207,13 @@ impl Operations {
         Ok(())
     }
 
+    /// Returns `Ok(false)` when nothing changed (no file write, no jj commit).
     pub fn update(
         &self,
         id: &str,
         title: Option<String>,
         description: Option<String>,
-    ) -> Result<()> {
+    ) -> Result<bool> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -203,12 +221,25 @@ impl Operations {
         let uuid = self.resolve_id(id)?;
         let mut issue = self.storage.load_issue(&uuid)?;
 
+        let mut changed = false;
+
         if let Some(new_title) = title {
-            issue.title = new_title;
+            validate_title(&new_title)?;
+            if issue.title != new_title {
+                issue.title = new_title;
+                changed = true;
+            }
         }
 
         if let Some(new_desc) = description {
-            issue.description = Some(new_desc);
+            if issue.description.as_deref() != Some(new_desc.as_str()) {
+                issue.description = Some(new_desc);
+                changed = true;
+            }
+        }
+
+        if !changed {
+            return Ok(false);
         }
 
         issue.update();
@@ -223,7 +254,7 @@ impl Operations {
             &as_path_refs(&paths),
         )?;
 
-        Ok(())
+        Ok(true)
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
@@ -391,7 +422,9 @@ impl Operations {
         Ok(unblocked_issues)
     }
 
-    pub fn convert(&self, id: &str, new_type: IssueType) -> Result<()> {
+    /// Returns `Ok(false)` when the issue already has the requested type
+    /// (no file write, no jj commit); the caller warns the user.
+    pub fn convert(&self, id: &str, new_type: IssueType) -> Result<bool> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -400,6 +433,10 @@ impl Operations {
         let mut issue = self.storage.load_issue(&uuid)?;
 
         let old_type = issue.issue_type.clone();
+
+        if old_type == new_type {
+            return Ok(false);
+        }
 
         // Validate conversion
         if old_type == IssueType::Epic && new_type != IssueType::Epic {
@@ -443,7 +480,7 @@ impl Operations {
             &as_path_refs(&paths),
         )?;
 
-        Ok(())
+        Ok(true)
     }
 
     pub fn summary(&self) -> Result<ProjectSummary> {
