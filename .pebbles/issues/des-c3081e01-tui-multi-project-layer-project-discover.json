@@ -1,0 +1,12 @@
+{
+  "id": "c3081e01-b78b-4e07-b4c4-dc6a99be6da1",
+  "title": "TUI: multi-project layer — project discovery, registry, ordering",
+  "description": "Projects appear as a level above epics in the tree. Decisions (per user): (1) discover projects by scanning ~/repos for .pebbles/ directories, unless a config lists other directories to search; (2) sort projects by modification time of their .pebbles/index.json, most recent first. Open design points: config file location/format (candidate: ~/.config/pebbles/projects.toml), project switching keys, whether the CLI needs a companion command (pebbles projects list). SPEC: needs r[project-registry] and r[tui-*] rules when implemented; the detail pane should surface each issue's SPEC rule references (r[impl]/r[verify]) so the TUI supports the project's spec+design approach.",
+  "status": "todo",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-19T22:09:23.924369885Z",
+  "updated_at": "2026-09-19T22:09:23.924369885Z"
+}

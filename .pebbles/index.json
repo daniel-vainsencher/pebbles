@@ -303,6 +303,10 @@
     {
       "id": "cb08a6e4-f43d-41d4-bdee-fb06474101a8",
       "file_name": "uc-cb08a6e4-tui-inline-edit-pane-for-issue-fields.json"
+    },
+    {
+      "id": "c3081e01-b78b-4e07-b4c4-dc6a99be6da1",
+      "file_name": "des-c3081e01-tui-multi-project-layer-project-discover.json"
     }
   ]
 }
