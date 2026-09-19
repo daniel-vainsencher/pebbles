@@ -1,0 +1,12 @@
+{
+  "id": "ea0091cd-4c87-44f3-a2f2-40f111950847",
+  "title": "Evaluate tui-tree-widget as the tree widget for the pebbles TUI",
+  "description": "Clone tui-tree-widget (see crates.io), evaluate API: per-node fold state, dynamic children, styling (epic badges, status colors), ratatui version compat, maintenance. Build a minimal two-level fold/unfold demo. Document learnings and an adopt vs DIY recommendation in this issue.",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-19T22:09:24.076176985Z",
+  "updated_at": "2026-09-19T22:09:24.076176985Z"
+}
