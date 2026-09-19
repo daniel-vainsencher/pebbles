@@ -491,6 +491,38 @@ fn t10_approve() {
     repo.assert_no_paths_outside_pebbles("approve");
 }
 
+/// T12: linking an issue to itself must be rejected with no commit.
+#[test]
+fn t12_self_link_rejected() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Lonely", "-t", "bug"]);
+    let id = repo.find_id(|_| true);
+    let file = repo.find_file_name(|_| true);
+
+    let before_count = repo.commit_count();
+    let err = repo.pebbles_fail(&["link", &id, "required_for", &id]);
+    assert!(
+        err.to_lowercase().contains("itself"),
+        "error should mention self-linking, got: {:?}",
+        err
+    );
+
+    // No commit was made and the issue file has no relationships.
+    let content = repo.read_issue_file(&file);
+    assert!(
+        !content.contains("required_for"),
+        "self-edge must not be stored, got: {:?}",
+        content
+    );
+    assert_eq!(
+        repo.commit_count(),
+        before_count,
+        "rejected link must not create a commit"
+    );
+    repo.assert_clean_wc("after rejected self-link");
+}
+
 /// T14: empty and whitespace-only titles are rejected (create and update).
 #[test]
 fn t14_empty_title_rejected() {
@@ -560,6 +592,70 @@ fn t15_noop_operations_make_no_commit() {
         "no-op operations must not touch the issue file (updated_at)"
     );
     repo.assert_clean_wc("after no-op operations");
+}
+
+/// T19: a link that closes a directed dependency cycle is rejected
+/// (r[graph-acyclic]).
+// r[verify graph-acyclic]
+#[test]
+fn t19_link_creating_cycle_rejected() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "A", "-t", "bug", "--approved"]);
+    let a_id = repo.find_id(|_| true);
+    repo.pebbles(&["new", "B", "-t", "bug", "--approved"]);
+    let b_id = repo.find_id(|e| e.id != a_id);
+
+    repo.pebbles(&["link", &a_id, "required_for", &b_id]);
+    let before = repo.commit_count();
+
+    let err = repo.pebbles_fail(&["link", &b_id, "required_for", &a_id]);
+    assert!(
+        err.to_lowercase().contains("cycle"),
+        "error should mention the cycle, got: {:?}",
+        err
+    );
+    assert_eq!(
+        repo.commit_count(),
+        before,
+        "rejected link must not create a commit"
+    );
+    repo.assert_clean_wc("after rejected cycle link");
+}
+
+/// T20: longer cycles are rejected too, for both dependency relation types
+/// (r[graph-acyclic]).
+#[test]
+fn t20_longer_cycle_rejected() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    for title in ["A", "B", "C"] {
+        repo.pebbles(&["new", title, "-t", "bug", "--approved"]);
+    }
+    let ids: Vec<String> = repo.read_index().iter().map(|e| e.id.clone()).collect();
+    let (a, b, c) = (&ids[0], &ids[1], &ids[2]);
+
+    repo.pebbles(&["link", a, "required_for", b]);
+    repo.pebbles(&["link", b, "scheduled_before", c]);
+    let before = repo.commit_count();
+
+    // C -> A closes A -> B -> C -> A.
+    let err = repo.pebbles_fail(&["link", c, "required_for", a]);
+    assert!(
+        err.to_lowercase().contains("cycle"),
+        "error should mention the cycle, got: {:?}",
+        err
+    );
+
+    // A path of length 2 also counts: B -> C exists, so C -> B is a cycle.
+    let err = repo.pebbles_fail(&["link", c, "scheduled_before", b]);
+    assert!(
+        err.to_lowercase().contains("cycle"),
+        "error should mention the cycle, got: {:?}",
+        err
+    );
+    assert_eq!(repo.commit_count(), before);
+    repo.assert_clean_wc("after rejected longer cycles");
 }
 
 /// T18: converting an issue to its current type is a no-op with a warning.

@@ -301,6 +301,45 @@ impl Default for Index {
 }
 
 /// Information about an incoming relationship: source issue details and relation type.
+/// Returns true if adding a directed edge `from -> to` to the adjacency map
+/// would create a directed cycle (i.e. `to` can already reach `from`).
+/// Pure function used to enforce the DAG invariant (SPEC r[graph-acyclic]).
+pub fn creates_cycle(adjacency: &HashMap<Uuid, Vec<Uuid>>, from: Uuid, to: Uuid) -> bool {
+    // Walk forward from `to`; reaching `from` means the new edge closes a cycle.
+    let mut stack = vec![to];
+    let mut visited: std::collections::HashSet<Uuid> = std::collections::HashSet::new();
+    while let Some(node) = stack.pop() {
+        if node == from {
+            return true;
+        }
+        if !visited.insert(node) {
+            continue;
+        }
+        if let Some(nexts) = adjacency.get(&node) {
+            stack.extend(nexts.iter().copied());
+        }
+    }
+    false
+}
+
+/// Build the dependency adjacency map (edge: source -> target) over the
+/// ordering relationships `required_for` and `scheduled_before`. `part_of`
+/// is containment, not a dependency, and is excluded.
+pub fn build_dependency_adjacency(issues: &[Issue]) -> HashMap<Uuid, Vec<Uuid>> {
+    let mut adjacency: HashMap<Uuid, Vec<Uuid>> = HashMap::new();
+    for issue in issues {
+        for rel in &issue.relationships {
+            if matches!(
+                rel.relation_type,
+                RelationType::RequiredFor | RelationType::ScheduledBefore
+            ) {
+                adjacency.entry(issue.id).or_default().push(rel.target_id);
+            }
+        }
+    }
+    adjacency
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct IncomingRelationship {
     pub source_id: Uuid,
@@ -408,6 +447,50 @@ mod tests {
             IssueType::UxProblem
         );
         assert_eq!("ux".parse::<IssueType>(), Ok(IssueType::UxProblem));
+    }
+
+    #[test]
+    fn test_creates_cycle_detects_reachable_cycle() {
+        let mut a = make_issue("A", Status::Todo);
+        let mut b = make_issue("B", Status::Todo);
+        let c = make_issue("C", Status::Todo);
+
+        // A -> B -> C via required_for.
+        a.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
+        b.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: c.id,
+        });
+        let adjacency = build_dependency_adjacency(&[a.clone(), b.clone(), c.clone()]);
+
+        // C -> A closes the cycle; A -> C does not.
+        assert!(creates_cycle(&adjacency, c.id, a.id));
+        assert!(creates_cycle(&adjacency, c.id, b.id)); // C -> B closes B <-> C
+        assert!(!creates_cycle(&adjacency, a.id, c.id));
+        drop(c);
+    }
+
+    #[test]
+    fn test_creates_cycle_self_edge() {
+        let a = make_issue("A", Status::Todo);
+        let adjacency = build_dependency_adjacency(std::slice::from_ref(&a));
+        // An edge from A to A is the minimal cycle.
+        assert!(creates_cycle(&adjacency, a.id, a.id));
+    }
+
+    #[test]
+    fn test_build_dependency_adjacency_excludes_part_of() {
+        let mut child = make_issue("Child", Status::Todo);
+        let epic = make_issue("Epic", Status::Todo);
+        child.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: epic.id,
+        });
+        let adjacency = build_dependency_adjacency(&[child, epic]);
+        assert!(adjacency.is_empty());
     }
 
     #[test]

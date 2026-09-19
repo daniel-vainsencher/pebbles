@@ -140,6 +140,19 @@ r[issue-filename-format]
 }
 ```
 
+## Repository Graph Integrity
+
+The issue set forms a graph: nodes are issues, edges are relationships. These
+invariants apply to the graph as a whole, in addition to the per-issue
+validation rules below. They are enforced when relationships change and can
+be checked on demand over the whole repository.
+
+r[graph-acyclic]
+**Acyclic dependency graph (DAG):**
+- The directed graph over `required_for` and `scheduled_before` edges must remain acyclic.
+- A `link` that would close a directed cycle is rejected, including the minimal cycle of a self-edge.
+- Implementation: [`Operations::add_relationship()`](src/operations.rs), [`Operations::convert()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs)
+
 ## Validation Rules
 
 ### Relationship Validation
@@ -156,6 +169,11 @@ r[no-duplicate-relationships]
 **Duplicate prevention:**
 - Cannot add the same relationship (same type and target) twice
 - Implementation: [`Issue::add_relationship()`](src/models.rs#L188-L207)
+
+**Self-relationships:**
+- An issue cannot be linked to itself; `pebbles link <id> <relation> <id>` is an error
+- This is the minimal case of the acyclicity invariant r[graph-acyclic]
+- Test: [jj-integration](tests/jj_integration.rs) t12_self_link_rejected
 
 ### ID Resolution
 

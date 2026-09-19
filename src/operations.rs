@@ -4,7 +4,10 @@ use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
 use crate::jj::JJ;
-use crate::models::{build_incoming_relationships_map, Issue, IssueType, RelationType, Status};
+use crate::models::{
+    build_dependency_adjacency, build_incoming_relationships_map, creates_cycle,
+    Issue, IssueType, RelationType, Status,
+};
 use crate::storage::{SaveOutcome, Storage};
 
 pub struct ProjectSummary {
@@ -295,8 +298,26 @@ impl Operations {
         let source_uuid = self.resolve_id(source_id)?;
         let target_uuid = self.resolve_id(target_id)?;
 
+        if source_uuid == target_uuid {
+            // The minimal cycle (r[graph-acyclic]).
+            bail!("Cannot link an issue to itself");
+        }
+
         let mut source_issue = self.storage.load_issue(&source_uuid)?;
         let target_issue = self.storage.load_issue(&target_uuid)?;
+
+        // DAG invariant: reject edges that close a directed dependency cycle
+        // (r[graph-acyclic]).
+        let all_issues = self.storage.load_all_issues()?;
+        let adjacency = build_dependency_adjacency(&all_issues);
+        if creates_cycle(&adjacency, source_uuid, target_uuid) {
+            bail!(
+                "Cannot add relationship {} {} {}: it would create a dependency cycle",
+                source_issue.title,
+                relation_type,
+                target_issue.title
+            );
+        }
 
         // Validate relationship
         source_issue
