@@ -2,7 +2,7 @@
   "id": "ea0091cd-4c87-44f3-a2f2-40f111950847",
   "title": "Evaluate tui-tree-widget as the tree widget for the pebbles TUI",
   "description": "EVALUATED 2026-09-19. Recommendation: ADOPT (minor caveats).\n- Crate tui-tree-widget 0.24.1 (2026-08-09), repo github.com/EdJoPaTo/tui-rs-tree-widget (cloned at ~/repos/tui-tree-widget). Actively maintained, MIT, ~1080-line codebase with unit tests asserting exact rendered buffers.\n- Targets ratatui 0.30. Pebbles has no ratatui dep yet, so no version conflict.\n- API fit: TreeItem text is a full ratatui Text (status-color badges/epic styling are free). TreeState holds fold state + single selection + scroll + mouse keyed by identifier paths, so fold/selection survive rebuilding items from fresh data each frame. Enter-fold = toggle_selected().\n- Demo verified: 2-level epic/pebble tree with colored badges, fold/unfold, scroll, headless on ratatui TestBackend — compiled and passed assertions first run.\n- Gaps: single-select only (fine for the detail-pane model), no key-event glue (we wire keys), no independent badge column, scrollbar API experimental.\n- Risks: single maintainer, minor-version churn with deprecations, ratatui-0.30-only. Pin exact version in Cargo.toml.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "validation",
   "tags": [],
   "relationships": [
@@ -17,5 +17,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-19T22:09:24.076176985Z",
-  "updated_at": "2026-09-19T22:09:49.417757710Z"
+  "updated_at": "2026-09-19T22:09:49.501286982Z"
 }
