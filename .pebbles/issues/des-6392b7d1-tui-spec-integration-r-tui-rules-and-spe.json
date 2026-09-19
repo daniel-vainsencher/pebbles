@@ -1,0 +1,12 @@
+{
+  "id": "6392b7d1-2c37-45ac-8b10-adb2aa9960e7",
+  "title": "TUI: SPEC integration — r[tui-*] rules and spec+design discipline",
+  "description": "Every TUI feature lands with SPEC rules (r[tui-browser], r[tui-review], r[project-registry], ...), trycmd or jj-integration tests, and design decisions recorded in design issues before implementation — same spec+design approach as the rest of pebbles. Includes the close/rejected-status SPEC decision for the review queue.",
+  "status": "todo",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-19T22:09:24.156856123Z",
+  "updated_at": "2026-09-19T22:09:24.156856123Z"
+}
