@@ -2,11 +2,11 @@
   "id": "155be259-872c-40f8-b8ff-7567de84b7d3",
   "title": "Review short_id vs appropriate_length_id: unify ID display",
   "description": "short_id() always returns 8 chars. appropriate_length_id() returns minimum unambiguous prefix (3+ chars). Currently only 'pebbles new' uses appropriate_length_id, while list/show/epic use short_id.\n\nReview all uses of short_id and determine if they could use the shorter appropriate_length_id instead. If so, make short_id behave like appropriate_length_id and remove the separate function.\n\nConsiderations:\n- Shorter IDs are easier to type and remember\n- Need to ensure IDs remain unambiguous in all contexts\n- May need to pass Operations/index to places that currently just use Issue.short_id()",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-06-01T15:04:40.678059576Z",
-  "updated_at": "2026-06-01T15:04:40.678059576Z"
+  "updated_at": "2026-09-19T13:59:15.115073748Z"
 }
