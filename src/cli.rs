@@ -106,6 +106,12 @@ pub enum Commands {
     Delete {
         #[arg(help = "Issue ID (full UUID or prefix)")]
         id: String,
+
+        #[arg(
+            long,
+            help = "Also remove relationships pointing at this issue from other issues"
+        )]
+        delete_links_too: bool,
     },
 
     #[command(about = "Add a relationship between issues")]

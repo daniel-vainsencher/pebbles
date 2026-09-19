@@ -153,6 +153,12 @@ r[graph-acyclic]
 - A `link` that would close a directed cycle is rejected, including the minimal cycle of a self-edge.
 - Implementation: [`Operations::add_relationship()`](src/operations.rs), [`Operations::convert()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs)
 
+r[no-broken-links]
+**No broken links:**
+- Every relationship `target_id` must reference a live issue.
+- Deleting an issue that other issues reference is an error naming each broken link, unless `--delete-links-too` is passed, in which case the referencing relationships are removed in the same operation.
+- Implementation: [`Operations::delete()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs)
+
 ## Validation Rules
 
 ### Relationship Validation

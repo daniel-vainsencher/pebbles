@@ -658,6 +658,54 @@ fn t20_longer_cycle_rejected() {
     repo.assert_clean_wc("after rejected longer cycles");
 }
 
+/// T22: deleting a referenced issue is guarded by r[no-broken-links]:
+/// it fails naming the broken links unless --delete-links-too removes them.
+// r[verify no-broken-links]
+#[test]
+fn t22_delete_guard_and_delete_links_too() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let out = repo.pebbles(&["new", "Source", "-t", "bug", "--approved"]);
+    let src_id = repo.find_id(|_| true);
+    let src_file = repo.find_file_name(|_| true);
+    let src_short = out
+        .lines()
+        .next()
+        .unwrap()
+        .strip_prefix("Created bug ")
+        .expect("creation message");
+
+    repo.pebbles(&["new", "Target", "-t", "bug", "--approved"]);
+    let tgt_id = repo.find_id(|e| e.id != src_id);
+    let tgt_file = repo.find_file_name(|e| e.id != src_id);
+
+    repo.pebbles(&["link", &src_id, "required_for", &tgt_id]);
+
+    // Guarded delete fails and names the linking issue.
+    let err = repo.pebbles_fail(&["delete", &tgt_id]);
+    assert!(
+        err.contains("--delete-links-too") && err.contains(src_short),
+        "error should name the broken link and the escape hatch, got: {:?}",
+        err
+    );
+
+    // --delete-links-too removes the referencing relationship first.
+    repo.pebbles(&["delete", &tgt_id, "--delete-links-too"]);
+    repo.assert_clean_wc("after guarded delete");
+    repo.assert_last_commit_paths(
+        "guarded delete",
+        &p(&[&issue_path(&src_file), &issue_path(&tgt_file), INDEX_PATH]),
+    );
+
+    let content = repo.read_issue_file(&src_file);
+    assert!(
+        !content.contains("required_for"),
+        "referencing relationship must be gone, got: {:?}",
+        content
+    );
+    assert_eq!(repo.read_index().len(), 1, "target is gone");
+}
+
 /// T18: converting an issue to its current type is a no-op with a warning.
 #[test]
 fn t18_convert_same_type_warns() {

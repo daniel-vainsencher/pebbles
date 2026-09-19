@@ -126,9 +126,12 @@ fn main() -> Result<()> {
             }
         }
 
-        Commands::Delete { id } => {
-            ops.delete(&id)?;
-            println!("✓ Deleted issue {}", id);
+        Commands::Delete {
+            id,
+            delete_links_too,
+        } => {
+            let short = ops.delete(&id, delete_links_too)?;
+            println!("✓ Deleted issue {}", short);
         }
 
         Commands::Link {

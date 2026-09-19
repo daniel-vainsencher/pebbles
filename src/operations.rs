@@ -260,29 +260,91 @@ impl Operations {
         Ok(true)
     }
 
-    pub fn delete(&self, id: &str) -> Result<()> {
+    /// Deletes the issue and returns its appropriate-length ID (computed
+    /// while the index still contains it) for display purposes.
+    ///
+    /// r[impl no-broken-links]: if other issues reference this one, the
+    /// delete fails naming each broken link unless `delete_links_too` is
+    /// set, in which case the referencing relationships are removed in the
+    /// same operation and commit.
+    pub fn delete(&self, id: &str, delete_links_too: bool) -> Result<String> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
         let uuid = self.resolve_id(id)?;
+        let short = self.appropriate_length_id(&uuid)?;
         let issue = self.storage.load_issue(&uuid)?;
         let issue_path = self.storage.issue_path(&issue.file_name());
 
+        // Find every issue with a relationship pointing at this one.
+        let all_issues = self.storage.load_all_issues()?;
+        let referencing: Vec<Issue> = all_issues
+            .into_iter()
+            .filter(|i| i.relationships.iter().any(|rel| rel.target_id == uuid))
+            .collect();
+
+        if !referencing.is_empty() && !delete_links_too {
+            let listing = referencing
+                .iter()
+                .map(|i| {
+                    let rel = i
+                        .relationships
+                        .iter()
+                        .find(|rel| rel.target_id == uuid)
+                        .expect("filtered to referencing issues");
+                    format!(
+                        "  {} '{}' ({})",
+                        self.appropriate_length_id(&i.id)
+                            .unwrap_or_else(|_| i.short_id()),
+                        i.title,
+                        rel.relation_type
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            bail!(
+                "Cannot delete {} '{}': {} issue(s) reference it:\n{}\nUse --delete-links-too to remove these links and delete anyway.",
+                short,
+                issue.title,
+                referencing.len(),
+                listing
+            );
+        }
+
+        let mut commit_paths: Vec<PathBuf> = vec![issue_path.clone()];
         let mut index = self.storage.load_index()?;
+
+        // Remove the referencing relationships from their source issues.
+        for mut source in referencing {
+            source.remove_relationship(
+                source
+                    .relationships
+                    .iter()
+                    .find(|rel| rel.target_id == uuid)
+                    .expect("filtered to referencing issues")
+                    .relation_type
+                    .clone(),
+                uuid,
+            );
+            let outcome = self.storage.save_issue(&source, &mut index)?;
+            commit_paths.push(self.storage.issue_path(&outcome.new_file_name));
+        }
+
         self.storage.delete_issue(&uuid, &index)?;
         index.remove(&uuid);
         self.storage.save_index(&index)?;
+        commit_paths.push(self.storage.index_path().clone());
 
-        // Delete commits the (now-removed) issue file *and* index.json,
-        // which had its entry removed.
-        let index_path = self.storage.index_path().clone();
+        // Delete commits the (now-removed) issue file, every file touched by
+        // link removal, and index.json.
+        let path_refs: Vec<&Path> = commit_paths.iter().map(|p| p.as_path()).collect();
         self.jj.commit(
             &format!("Delete {}: {}", issue.issue_type, issue.title),
-            &[issue_path.as_path(), index_path.as_path()],
+            &path_refs,
         )?;
 
-        Ok(())
+        Ok(short)
     }
 
     pub fn add_relationship(
