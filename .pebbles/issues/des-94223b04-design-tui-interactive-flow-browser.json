@@ -2,7 +2,7 @@
   "id": "94223b04-5452-42fe-8738-5c94a6ac67c2",
   "title": "Design TUI interactive flow browser",
   "description": "DESIGN (TUI interaction + architecture, agreed 2026-09-19; supersedes the original flow-browser sketch below, which remains the source of the navigation ideas).\n\nModule layout: src/tui.rs, pure helpers separated from the imperative shell:\n- tree_items(issues, epic_counts) -> Vec<TreeItem<String>>: epics (children part_of, newest first, with (done/total) progress) then orphaned pebbles; node ids are issue UUIDs.\n- review_entries(issues) -> proposed issues, newest first.\n- detail_lines(issue, related_titles, incoming) -> Vec<Line>: fields, relationships, incoming links, spec refs.\n- App state: mode (Browser | Review | Help overlay), issues cache, TreeState<String>, review selection, transient message line. Data loads once at startup; mutations re-run Operations (approve/delete - each is its own jj commit) and reload the issue set.\n\nBrowser keys: j/k or Up/Down move (TreeState), Enter/f fold/unfold, ? help overlay, r review mode, q quit. Review keys: a approve, d close (delete, y confirms), j/k move, Esc/r back, q quit. Left pane 40% tree, right 60% detail.\n\nCLI entry: `pebbles tui` (Commands::Tui). Errors (not initialized) print and exit non-zero; no TTY-specific trycmd coverage.\n\nTesting layers (per ea0/d5b evaluations): unit tests on the pure helpers; TestBackend snapshot tests for rendering; termlens e2e for a small set of flows (initial render, navigation, approve round-trip, quit/alt-screen restoration) using PEBBLES_DB_PATH + .no_jj fixtures. trycmd stays CLI-only.\n\nSPEC: add r[tui], r[tui-review] when this lands (issue 639). Multi-project layer and edit pane are later children (c30, cb0).",
-  "status": "todo",
+  "status": "done",
   "issue_type": "design",
   "tags": [],
   "relationships": [
@@ -21,5 +21,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:13:03.641084336Z",
-  "updated_at": "2026-09-20T02:10:47.402423853Z"
+  "updated_at": "2026-09-20T02:19:18.857636065Z"
 }
