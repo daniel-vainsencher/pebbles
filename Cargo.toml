@@ -1,6 +1,6 @@
 [package]
 name = "pebbles"
-version = "0.2.1"
+version = "1.0.0"
 edition = "2021"
 authors = ["Daniel Vainsencher <danielv@nirinor.ai>"]
 description = "A rock-solid issue management tool built on top of Jujutsu (jj)"
