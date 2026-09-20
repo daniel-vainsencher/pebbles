@@ -323,13 +323,15 @@ Implementation: [`Operations::epic_counts()`](src/operations.rs), [`build_epic_c
 r[tui]
 **Browser (`pebbles tui`):**
 - Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp).
-- Navigation: `j`/`k` or Up/Down move; Enter or `f` fold/unfold the selected epic; `?` toggles a help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Tree and filter lists sort by status (proposed, todo, in progress, blocked, done), then by type (bug, design, others), newest first within the same status+type: users read from the top.
+- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
 - Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
 
 r[tui-review]
-**Review queue (key `r` in the browser):**
-- Lists proposed issues newest-first; `a` approves the selected issue (r[approve-command]), `d` then `y` closes it by deleting it (r[no-broken-links] guards apply and surface as error messages).
-- Mutations commit per operation like the CLI (or skip via `.no_jj` in tests) and reload the issue set; `Esc` or `r` returns to the browser.
+**Review filter (key `r` toggles it, `Esc`/`r` clears it):**
+- A quick status filter on the main two-pane UI, not a separate mode: the left pane lists only proposed issues and its title shows the filter; the right pane keeps showing the selected issue's detail.
+- `a` approves the selected proposed issue (r[approve-command]); `d` then `y` closes it by deleting it (r[no-broken-links] guards apply and surface as error messages). Outside the filter, `a`/`d` only hint at the filter.
+- After any mutation the issue set reloads and the selection moves to the first visible item, so `a`/`d` always act on what is listed.
 - Open question: whether closing a proposal should become a dedicated rejected status instead of delete (tracked in the review-queue issue).
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit + TestBackend tests](src/tui.rs)
