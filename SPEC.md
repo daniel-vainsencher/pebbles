@@ -336,6 +336,18 @@ r[tui-review]
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit + TestBackend tests](src/tui.rs)
 
+### Projects
+
+r[project-registry]
+**Multi-project registry (`pebbles tui`):**
+- A project is a directory containing a `.pebbles/` directory.
+- Discovery: scan one level of `~/repos/`, plus additional directories from the config file `~/.config/pebbles/projects.json` (`{"extra_dirs": ["/path/1", "/path/2"]}`; an absent or malformed config contributes nothing). The current directory is always included when it contains `.pebbles/`, so single-project usage works unchanged from any directory.
+- Ordering: projects sort by the modification time of their `.pebbles/index.json`, most recent first; a project without an index sorts last; ties order by directory name.
+- The TUI tree shows projects as the top level, above epics. A project node carries its total issue count and unfolds into that project's epic/orphan structure. The detail pane for a project node shows its path, per-status issue counts, and the last index modification time.
+- Mutations (approve, close) route to the issue's own project: each project keeps its own jj repo and per-operation commits (or `.no_jj` skips them in tests).
+- With a status filter active, only projects that have matching issues are listed.
+- Implementation: [`projects::discover()`](src/projects.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit tests](src/projects.rs)
+
 ### Timestamp Updates
 
 The `updated_at` timestamp is automatically updated when:
