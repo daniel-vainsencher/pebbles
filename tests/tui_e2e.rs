@@ -39,6 +39,7 @@ fn fixture_with_issues() -> (tempfile::TempDir, PathBuf) {
     index.push_str(&mk("auth-epic", 0x44444444, "epic", "todo", "Auth epic", ""));
     index.push_str(&mk("login-bug", 0x22222222, "bug", "todo", "Login bug", "part"));
     index.push_str(&mk("proposed-idea", 0x33333333, "usecase", "proposed", "Fresh idea", ""));
+    index.push_str(&mk("other-idea", 0x55555555, "design", "proposed", "Other idea", ""));
     index.pop(); // trailing comma
     index.push_str("]}");
     fs::write(pebbles.join("index.json"), index).expect("index");
@@ -65,14 +66,23 @@ fn tui_browse_approve_quit() -> termlens::Result<()> {
     t.send(Key::Enter)?;
     t.wait_until(|s| s.contains("Login bug"))?;
 
-    // Open the review queue, approve the proposal.
+    // Review filter: two panes stay up, only proposed issues are listed.
     t.send(Key::Char('r'))?;
-    t.wait_until(|s| s.contains("Fresh idea"))?;
+    t.wait_until(|s| s.contains("proposed (a approve") && s.contains("Fresh idea"))?;
+    t.wait_until(|s| s.contains("Status:") && s.contains("Fresh idea"))?;
+
+    // Approve the first proposal (design sorts before usecase: Other idea).
     t.send(Key::Char('a'))?;
     t.wait_until(|s| s.contains("Approved"))?;
 
-    // Back to browser, quit, terminal restored.
-    t.send(Key::Esc)?;
+    // Selection moves to the remaining proposal: close it with d then y.
+    t.send(Key::Char('d'))?;
+    t.wait_until(|s| s.contains("Press y to confirm"))?;
+    t.send(Key::Char('y'))?;
+    t.wait_until(|s| s.contains("Deleted"))?;
+
+    // Clear the filter, quit, terminal restored.
+    t.send(Key::Char('r'))?;
     t.send(Key::Char('q'))?;
     let status = t.wait_exit()?;
     assert!(status.success(), "exit: {status}");
@@ -81,24 +91,25 @@ fn tui_browse_approve_quit() -> termlens::Result<()> {
     assert!(after.cursor_visible(), "{after}");
 
     // The approval landed on disk (pure file I/O under .no_jj).
-    let issue_file = root
+    let files: Vec<String> = root
         .join(".pebbles/issues")
         .read_dir()
         .unwrap()
         .filter_map(|e| e.ok())
-        .map(|e| e.path())
-        .find(|p| p.to_string_lossy().contains("fresh-idea"))
-        .unwrap_or_else(|| {
-            let listing: Vec<String> = root
-                .join(".pebbles/issues")
-                .read_dir()
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .map(|e| e.file_name().to_string_lossy().to_string())
-                .collect();
-            panic!("issue files: {listing:?}");
-        });
-    let content = fs::read_to_string(issue_file).unwrap();
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+
+    // The approved proposal is now todo on disk.
+    let approved = files
+        .iter()
+        .find(|f| f.contains("other-idea"))
+        .expect("approved issue file exists");
+    let content = fs::read_to_string(root.join(".pebbles/issues").join(approved)).unwrap();
     assert!(content.contains("\"status\": \"todo\""), "approved: {content}");
+
+    // The closed (deleted) proposal is gone from disk and the index.
+    assert!(!files.iter().any(|f| f.contains("proposed-idea")), "closed issue deleted: {files:?}");
+    let index = fs::read_to_string(root.join(".pebbles/index.json")).unwrap();
+    assert!(!index.contains("33333333-"), "index no longer lists the deleted issue: {index}");
     Ok(())
 }
