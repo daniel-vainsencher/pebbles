@@ -335,6 +335,7 @@ Pebbles follows an "imperative shell, functional core" design for testing:
 │    trycmd        - snapshot workflows        │
 │    jj_integration - jj commit behavior       │
 │    sigpipe       - broken-pipe handling      │
+│    tui_e2e       - TUI via termlens (PTY)    │
 │   covers: shell orchestration, jj commits    │
 └──────────────────────────────────────────────┘
          ↓

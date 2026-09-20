@@ -318,6 +318,22 @@ Epics display child progress as a `(done/total)` ratio over `part_of` relationsh
 
 Implementation: [`Operations::epic_counts()`](src/operations.rs), [`build_epic_counts()`](src/models.rs) | Verify: [display tests](src/display.rs), [core-workflow](tests/workflows/core-workflow.trycmd)
 
+### Interactive TUI
+
+r[tui]
+**Browser (`pebbles tui`):**
+- Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp).
+- Navigation: `j`/`k` or Up/Down move; Enter or `f` fold/unfold the selected epic; `?` toggles a help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
+
+r[tui-review]
+**Review queue (key `r` in the browser):**
+- Lists proposed issues newest-first; `a` approves the selected issue (r[approve-command]), `d` then `y` closes it by deleting it (r[no-broken-links] guards apply and surface as error messages).
+- Mutations commit per operation like the CLI (or skip via `.no_jj` in tests) and reload the issue set; `Esc` or `r` returns to the browser.
+- Open question: whether closing a proposal should become a dedicated rejected status instead of delete (tracked in the review-queue issue).
+
+Implementation: [`tui::run()`](src/tui.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit + TestBackend tests](src/tui.rs)
+
 ### Timestamp Updates
 
 The `updated_at` timestamp is automatically updated when:
