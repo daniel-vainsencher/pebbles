@@ -327,6 +327,10 @@
     {
       "id": "a525f10c-661b-4798-b092-7d54a67eeb11",
       "file_name": "bug-a525f10c-mutations-fail-when-pebbles-issues-direc.json"
+    },
+    {
+      "id": "76204e9f-f37c-45b6-8c7d-52f77b82a6cd",
+      "file_name": "bug-76204e9f-init-silently-orphans-existing-issue-fil.json"
     }
   ]
 }
