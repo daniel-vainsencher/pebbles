@@ -5,6 +5,7 @@ mod jj;
 mod models;
 mod operations;
 mod storage;
+mod tui;
 
 use crate::models::Status;
 use anyhow::Result;
@@ -200,6 +201,11 @@ fn main() -> Result<()> {
                     new_type_parsed
                 );
             }
+        }
+
+
+        Commands::Tui => {
+            tui::run(&ops)?;
         }
 
         Commands::Summary => {

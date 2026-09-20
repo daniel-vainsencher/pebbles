@@ -161,6 +161,9 @@ pub enum Commands {
         new_type: String,
     },
 
+    #[command(about = "Interactive TUI (experimental)")]
+    Tui,
+
     #[command(about = "Show project summary and statistics")]
     Summary,
 
