@@ -322,7 +322,7 @@ Implementation: [`Operations::epic_counts()`](src/operations.rs), [`build_epic_c
 
 r[tui]
 **Browser (`pebbles tui`):**
-- Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp).
+- Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp); multi-line descriptions render as separate lines and long lines word-wrap.
 - Tree and filter lists sort by status (proposed, todo, in progress, blocked, done), then by type (bug, design, others), newest first within the same status+type: users read from the top.
 - Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
 - Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
