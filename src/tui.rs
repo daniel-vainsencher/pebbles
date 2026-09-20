@@ -181,10 +181,16 @@ pub fn detail_lines(
         status_span(&issue.status),
     ]));
     if let Some(desc) = &issue.description {
-        lines.push(Line::from(vec![
-            Span::styled("Description: ", Style::new().add_modifier(Modifier::BOLD)),
-            Span::raw(desc.clone()),
-        ]));
+        for (i, part) in desc.split('\n').enumerate() {
+            if i == 0 {
+                lines.push(Line::from(vec![
+                    Span::styled("Description: ", Style::new().add_modifier(Modifier::BOLD)),
+                    Span::raw(part.to_string()),
+                ]));
+            } else {
+                lines.push(Line::raw(format!("  {part}")));
+            }
+        }
     }
     if !issue.tags.is_empty() {
         lines.push(Line::from(vec![
@@ -399,7 +405,9 @@ fn render_browser(f: &mut Frame, app: &mut App) {
         .selected_issue()
         .map(|i| i.title.clone())
         .unwrap_or_else(|| "detail".to_string());
-    let detail = Paragraph::new(detail_lines).block(Block::bordered().title(title));
+    let detail = Paragraph::new(detail_lines)
+        .wrap(ratatui::widgets::Wrap { trim: false })
+        .block(Block::bordered().title(title));
     f.render_widget(detail, detail_area);
     f.render_widget(message_paragraph(app), message_area);
 }
@@ -704,6 +712,18 @@ mod tests {
     }
 
     #[test]
+    fn detail_lines_split_multiline_description() {
+        let mut i = issue(0x1234, "Titled", Status::Todo, IssueType::Bug);
+        i.description = Some("first line\nsecond line".to_string());
+        let lines = detail_lines(&i, &HashMap::new(), &HashMap::new())
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>();
+        let first = lines.iter().position(|l| l.contains("Description: first line")).expect("first");
+        assert!(lines[first + 1].contains("second line"), "{lines:?}");
+    }
+
+    #[test]
     fn detail_lines_show_relationships_both_ways() {
         let issues = fixture();
         let epic = issues.iter().find(|i| i.issue_type == IssueType::Epic).unwrap();
@@ -730,11 +750,17 @@ mod tests {
         let issues = fixture();
         let mut app = make_app(&issues, None);
         app.tree_state.open(vec![Uuid::from_u128(0x4444).to_string()]);
+        // Long description: must wrap, not truncate at the pane edge.
+        let epic = app.issues.iter_mut().find(|i| i.issue_type == IssueType::Epic).unwrap();
+        epic.description =
+            Some("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo".to_string());
+        app.rebuild_items();
         let rows = draw(&mut app);
         assert!(rows.iter().any(|r| r.contains("The epic")), "tree pane: {rows:?}");
         assert!(rows.iter().any(|r| r.contains("Todo child")), "tree pane child: {rows:?}");
         assert!(rows.iter().any(|r| r.contains("Orphan")), "tree pane orphan: {rows:?}");
         assert!(rows.iter().any(|r| r.contains("Status:")), "detail pane fields: {rows:?}");
+        assert!(rows.iter().any(|r| r.contains("kilo")), "long description wraps: {rows:?}");
     }
 
     #[test]
