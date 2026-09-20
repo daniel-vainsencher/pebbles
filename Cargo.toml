@@ -17,7 +17,11 @@ colored = "2.1"
 slug = "0.1"
 rust-sugiyama = "0.4"
 libc = "0.2"
+crossterm = "0.29"
+ratatui = { version = "0.30", features = ["crossterm"] }
+tui-tree-widget = "=0.24.1"
 
 [dev-dependencies]
 trycmd = "0.15"
 tempfile = "3"
+termlens = "=0.11.2"
