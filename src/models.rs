@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 // r[impl status-serialization]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "lowercase")]
 pub enum Status {
     Proposed,
