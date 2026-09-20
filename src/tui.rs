@@ -18,6 +18,7 @@ use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::collections::HashMap;
 use std::io::{Stdout, stdout};
+use std::path::{Path, PathBuf};
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 use uuid::Uuid;
 
@@ -245,6 +246,17 @@ pub fn detail_lines(
 // App state (pure; mutations go through Operations)
 // ---------------------------------------------------------------------------
 
+/// One project's loaded data (r[project-registry]).
+#[derive(Clone, Debug)]
+pub struct ProjectData {
+    pub root: PathBuf,
+    pub name: String,
+    pub issues: Vec<Issue>,
+    pub related_titles: HashMap<Uuid, String>,
+    pub incoming: HashMap<Uuid, Vec<(Uuid, String, RelationType)>>,
+    pub index_mtime: Option<std::time::SystemTime>,
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Mode {
     Browser,
@@ -254,9 +266,8 @@ pub enum Mode {
 pub struct App {
     pub mode: Mode,
     pub filter: Option<Status>,
-    pub issues: Vec<Issue>,
-    pub related_titles: HashMap<Uuid, String>,
-    pub incoming: HashMap<Uuid, Vec<(Uuid, String, RelationType)>>,
+    pub projects: Vec<ProjectData>,
+    pub ops_map: HashMap<PathBuf, Operations>,
     pub items: Vec<TreeItem<'static, String>>,
     pub tree_state: TreeState<String>,
     pub message: Option<String>,
@@ -264,14 +275,74 @@ pub struct App {
     pub should_quit: bool,
 }
 
+pub fn project_total(pd: &ProjectData) -> usize {
+    pd.issues.len()
+}
+
+/// Left-pane line for a project node: name + total issue count.
+pub fn project_line(pd: &ProjectData) -> Line<'static> {
+    Line::from(vec![
+        Span::styled(
+            pd.name.clone(),
+            Style::new().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(format!(" ({})", project_total(pd))),
+    ])
+}
+
+/// Detail-pane lines for a highlighted project node (r[project-registry]).
+pub fn project_detail_lines(pd: &ProjectData) -> Vec<Line<'static>> {
+    let mut by_status: HashMap<&str, usize> = HashMap::new();
+    for issue in &pd.issues {
+        let label = match issue.status {
+            Status::Proposed => "proposed",
+            Status::Todo => "todo",
+            Status::InProgress => "in progress",
+            Status::Done => "done",
+            Status::Blocked => "blocked",
+        };
+        *by_status.entry(label).or_default() += 1;
+    }
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled("Path: ", Style::new().add_modifier(Modifier::BOLD)),
+        Span::raw(pd.root.to_string_lossy().to_string()),
+    ]));
+    lines.push(Line::from(format!("Issues: {}", project_total(pd))));
+    lines.push(Line::from(format!(
+        "proposed {} | todo {} | in progress {} | done {} | blocked {}",
+        by_status.get("proposed").copied().unwrap_or(0),
+        by_status.get("todo").copied().unwrap_or(0),
+        by_status.get("in progress").copied().unwrap_or(0),
+        by_status.get("done").copied().unwrap_or(0),
+        by_status.get("blocked").copied().unwrap_or(0),
+    )));
+    let mtime_line = pd
+        .index_mtime
+        .map(|m| {
+            let dt: chrono::DateTime<chrono::Utc> = m.into();
+            format!("Last index update: {}", dt.format("%Y-%m-%d %H:%M"))
+        })
+        .unwrap_or_else(|| "Last index update: unknown".to_string());
+    lines.push(Line::from(mtime_line));
+    lines
+}
+
+/// Recursively check whether any node in the tree carries `identifier`.
+pub fn items_contain(items: &[TreeItem<'static, String>], identifier: &str) -> bool {
+    items.iter().any(|item| {
+        item.identifier().as_str() == identifier
+            || items_contain(item.children(), identifier)
+    })
+}
+
 impl App {
     pub fn new() -> Self {
         App {
             mode: Mode::Browser,
             filter: None,
-            issues: Vec::new(),
-            related_titles: HashMap::new(),
-            incoming: HashMap::new(),
+            projects: Vec::new(),
+            ops_map: HashMap::new(),
             items: Vec::new(),
             tree_state: TreeState::default(),
             message: None,
@@ -280,30 +351,51 @@ impl App {
         }
     }
 
-    pub fn rebuild_items(&mut self) {
-        let counts = build_epic_counts(&self.issues);
-        self.items = tree_items(&self.issues, &counts, self.filter)
-            .expect("unique identifiers");
+    /// Load every project root (registry order) and build the tree.
+    pub fn load(roots: &[PathBuf]) -> Result<Self> {
+        let mut app = App::new();
+        for root in roots {
+            let ops = Operations::new(root)?;
+            let pd = load_project_data(root, &ops)?;
+            app.ops_map.insert(root.clone(), ops);
+            app.projects.push(pd);
+        }
+        app.rebuild_items();
+        if !app.selection_visible() {
+            app.reset_selection_to_first();
+        }
+        Ok(app)
     }
 
-    pub fn reload(&mut self, ops: &Operations) -> Result<()> {
-        let issues = ops.list(None, None)?;
-        self.related_titles = issues
-            .iter()
-            .map(|i| (i.id, i.title.clone()))
-            .collect();
-        self.incoming = build_incoming_relationships_map(&issues)
-            .into_iter()
-            .map(|(uuid, rels)| {
-                (
-                    uuid,
-                    rels.into_iter()
-                        .map(|r| (r.source_id, r.source_title, r.relation_type))
-                        .collect(),
-                )
-            })
-            .collect();
-        self.issues = issues;
+    pub fn rebuild_items(&mut self) {
+        let mut items = Vec::new();
+        for pd in &self.projects {
+            let counts = build_epic_counts(&pd.issues);
+            let children = tree_items(&pd.issues, &counts, self.filter)
+                .expect("unique identifiers");
+            if self.filter.is_some() && children.is_empty() {
+                continue; // hide projects without matching issues (r[project-registry])
+            }
+            let children = match children.is_empty() {
+                true => children,
+                false => children,
+            };
+            let _ = children.is_empty();
+            items.push(
+                TreeItem::new(pd.root.to_string_lossy().to_string(), project_line(pd), children)
+                    .expect("unique identifiers"),
+            );
+        }
+        self.items = items;
+    }
+
+    /// Reload a single project after a mutation.
+    pub fn reload_project(&mut self, root: &Path) -> Result<()> {
+        let ops = self.ops_map.get(root).context("no operations for project")?;
+        let pd = load_project_data(root, ops)?;
+        if let Some(slot) = self.projects.iter_mut().find(|p| p.root == root) {
+            *slot = pd;
+        }
         self.rebuild_items();
         if !self.selection_visible() {
             self.reset_selection_to_first();
@@ -311,24 +403,38 @@ impl App {
         Ok(())
     }
 
-    /// The selection must point at an issue that is actually visible in the
-    /// current item list (under a status filter, stale selections would let
-    /// a/d act on filtered-out issues).
+    /// The project owning `uuid` (mutations route here).
+    pub fn project_of(&self, uuid: &Uuid) -> Option<&ProjectData> {
+        self.projects
+            .iter()
+            .find(|pd| pd.issues.iter().any(|i| i.id == *uuid))
+    }
+
     fn selection_visible(&self) -> bool {
-        let Some(uuid) = self.tree_state.selected().last().and_then(|s| Uuid::parse_str(s).ok())
-        else {
+        let Some(last) = self.tree_state.selected().last() else {
             return false;
         };
-        match self.filter {
-            Some(_) => self.items.iter().any(|it| it.identifier().as_str() == uuid.to_string()),
-            None => self.issues.iter().any(|i| i.id == uuid),
+        if !items_contain(&self.items, last) {
+            return false;
         }
+        // Issue selections must still resolve to a live issue.
+        if let Ok(uuid) = Uuid::parse_str(last) {
+            return self.project_of(&uuid).is_some();
+        }
+        true
     }
 
     fn reset_selection_to_first(&mut self) {
-        match self.items.first() {
-            Some(first) => {
-                self.tree_state.select(vec![first.identifier().clone()]);
+        // Prefer the first ISSUE (deep-first), opening its ancestors so the
+        // selection is visible; fall back to the first project node.
+        match first_leaf_path(&self.items, &mut Vec::new()) {
+            Some(mut full_path) => {
+                let leaf = full_path.pop();
+                // Open every ancestor so the whole path is visible.
+                for len in 1..=full_path.len() {
+                    self.tree_state.open(full_path[..len].to_vec());
+                }
+                self.tree_state.select(full_path_leaf(leaf, &full_path));
             }
             None => {
                 self.tree_state.select(Vec::new());
@@ -337,10 +443,68 @@ impl App {
     }
 
     pub fn selected_issue(&self) -> Option<&Issue> {
-        let sel = self.tree_state.selected();
-        let uuid = Uuid::parse_str(sel.last()?).ok()?;
-        self.issues.iter().find(|i| i.id == uuid)
+        self.selected_with_project().map(|(issue, _)| issue)
     }
+
+    pub fn selected_with_project(&self) -> Option<(&Issue, &ProjectData)> {
+        let uuid = Uuid::parse_str(self.tree_state.selected().last()?).ok()?;
+        let pd = self.project_of(&uuid)?;
+        let issue = pd.issues.iter().find(|i| i.id == uuid)?;
+        Some((issue, pd))
+    }
+}
+
+fn load_project_data(root: &Path, ops: &Operations) -> Result<ProjectData> {
+    let issues = ops.list(None, None)?;
+    let related_titles = issues.iter().map(|i| (i.id, i.title.clone())).collect();
+    let incoming = build_incoming_relationships_map(&issues)
+        .into_iter()
+        .map(|(uuid, rels)| {
+            (
+                uuid,
+                rels.into_iter()
+                    .map(|r| (r.source_id, r.source_title, r.relation_type))
+                    .collect(),
+            )
+        })
+        .collect();
+    Ok(ProjectData {
+        root: root.to_path_buf(),
+        name: root
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .unwrap_or_else(|| root.to_string_lossy().to_string()),
+        issues,
+        related_titles,
+        incoming,
+        index_mtime: crate::projects::index_mtime(root),
+    })
+}
+
+/// Deep-first search for the first leaf node path (an issue, not a container).
+fn first_leaf_path(
+    items: &[TreeItem<'static, String>],
+    prefix: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    for item in items {
+        prefix.push(item.identifier().clone());
+        if item.children().is_empty() {
+            return Some(prefix.clone());
+        }
+        if let Some(found) = first_leaf_path(item.children(), prefix) {
+            return Some(found);
+        }
+        prefix.pop();
+    }
+    None
+}
+
+fn full_path_leaf(leaf: Option<String>, prefix: &[String]) -> Vec<String> {
+    let mut full = prefix.to_vec();
+    if let Some(leaf) = leaf {
+        full.push(leaf);
+    }
+    full
 }
 
 // ---------------------------------------------------------------------------
@@ -379,7 +543,7 @@ fn tree_title(app: &App) -> String {
         Some(Status::Proposed) => {
             "pebbles - proposed (a approve, d+y close, Esc/r clear)".to_string()
         }
-        _ => "pebbles".to_string(),
+        _ => "pebbles - projects".to_string(),
     }
 }
 
@@ -397,19 +561,29 @@ fn render_browser(f: &mut Frame, app: &mut App) {
         .highlight_style(Style::new().bg(Color::Rgb(60, 60, 60)));
     f.render_stateful_widget(tree, tree_area, &mut app.tree_state);
 
-    let detail_lines = match app.selected_issue() {
-        Some(issue) => detail_lines(issue, &app.related_titles, &app.incoming),
-        None => vec![Line::raw("No selection")],
+    let (detail_lines, title) = if let Some((issue, pd)) = app.selected_with_project() {
+        (
+            detail_lines(issue, &pd.related_titles, &pd.incoming),
+            issue.title.clone(),
+        )
+    } else if let Some(pd) = selected_project(app) {
+        (project_detail_lines(pd), pd.name.clone())
+    } else {
+        (vec![Line::raw("No selection")], "detail".to_string())
     };
-    let title = app
-        .selected_issue()
-        .map(|i| i.title.clone())
-        .unwrap_or_else(|| "detail".to_string());
     let detail = Paragraph::new(detail_lines)
         .wrap(ratatui::widgets::Wrap { trim: false })
         .block(Block::bordered().title(title));
     f.render_widget(detail, detail_area);
     f.render_widget(message_paragraph(app), message_area);
+}
+
+fn selected_project(app: &App) -> Option<&ProjectData> {
+    let sel = app.tree_state.selected().last()?;
+    if Uuid::parse_str(sel).is_ok() {
+        return None; // an issue is selected, not a project node
+    }
+    app.projects.iter().find(|pd| pd.root.to_string_lossy().to_string() == *sel)
 }
 
 fn render_help(f: &mut Frame, app: &mut App) {
@@ -435,16 +609,45 @@ fn centered_rect(area: Rect, pct_x: u16, height: u16) -> Rect {
 // Imperative shell: terminal setup, event loop, mutations
 // ---------------------------------------------------------------------------
 
-pub fn run(ops: &Operations) -> Result<()> {
-    let mut app = App::new();
-    app.reload(ops)?;
+pub fn run() -> Result<()> {
+    // r[project-registry]: scan ~/repos (+ config extras), always include the
+    // current directory when it is a project; sort by index mtime.
+    let extra_dirs = {
+        let path = PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join(".config/pebbles/projects.json");
+        crate::projects::parse_extra_dirs(std::fs::read_to_string(path).ok().as_deref())
+    };
+    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_default();
+    let mut candidates: Vec<(PathBuf, Option<std::time::SystemTime>)> = crate::projects::discover(&home, &extra_dirs)?
+        .into_iter()
+        .map(|p| (p.root.clone(), crate::projects::index_mtime(&p.root)))
+        .collect();
+    let cwd = std::env::current_dir()?;
+    if cwd.join(".pebbles").is_dir() {
+        let canon = std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
+        if !candidates
+            .iter()
+            .any(|(root, _)| std::fs::canonicalize(root).map(|c| c == canon).unwrap_or(false))
+        {
+            candidates.push((cwd.clone(), crate::projects::index_mtime(&cwd)));
+        }
+    }
+    let roots: Vec<PathBuf> = crate::projects::sort_projects(candidates)
+        .into_iter()
+        .map(|p| p.root)
+        .collect();
+    if roots.is_empty() {
+        anyhow::bail!("Pebbles not initialized. Run 'pebbles init' first.");
+    }
+
+    let mut app = App::load(&roots)?;
 
     enable_raw_mode().context("enabling raw mode")?;
     let mut stdout = stdout();
     stdout.execute(EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
-    let result = event_loop(&mut terminal, &mut app, ops);
+    let result = event_loop(&mut terminal, &mut app);
 
     disable_raw_mode()?;
     let stdout = terminal.backend_mut();
@@ -456,13 +659,12 @@ pub fn run(ops: &Operations) -> Result<()> {
 fn event_loop(
     terminal: &mut Terminal<CrosstermBackend<Stdout>>,
     app: &mut App,
-    ops: &Operations,
 ) -> Result<()> {
     loop {
         // TreeState.select_first() needs identifiers from a previous render,
         // so re-select when empty and let the next draw pick it up.
-        if app.tree_state.selected().is_empty() && !app.items.is_empty() {
-            app.tree_state.select_first();
+        if !app.selection_visible() && !app.items.is_empty() {
+            app.reset_selection_to_first();
         }
         terminal.draw(|f| render_app(f, app))?;
         if let Event::Key(key) = read()? {
@@ -470,7 +672,7 @@ fn event_loop(
                 continue;
             }
             match app.mode {
-                Mode::Browser => browser_key(app, key.code, ops)?,
+                Mode::Browser => browser_key(app, key.code)?,
                 Mode::Help => app.mode = Mode::Browser,
             }
         }
@@ -480,7 +682,7 @@ fn event_loop(
     }
 }
 
-fn browser_key(app: &mut App, code: KeyCode, ops: &Operations) -> Result<()> {
+fn browser_key(app: &mut App, code: KeyCode) -> Result<()> {
     match code {
         KeyCode::Char('q') => app.should_quit = true,
         KeyCode::Char('j') | KeyCode::Down => {
@@ -503,13 +705,11 @@ fn browser_key(app: &mut App, code: KeyCode, ops: &Operations) -> Result<()> {
             app.filter = if app.filter.is_some() { None } else { Some(Status::Proposed) };
             app.confirm_delete = false;
             app.rebuild_items();
-            // Select the first item of the (possibly filtered) list so the
-            // detail pane and a/d act on what is visible.
             app.reset_selection_to_first();
         }
         KeyCode::Char('a') => {
             if app.filter.is_some() {
-                approve_selected(app, ops)?;
+                approve_selected(app)?;
             } else {
                 app.message = Some("Press r to enter the proposed filter to approve".to_string());
             }
@@ -518,8 +718,7 @@ fn browser_key(app: &mut App, code: KeyCode, ops: &Operations) -> Result<()> {
             if app.filter.is_some() {
                 if app.selected_issue().is_some() {
                     app.confirm_delete = true;
-                    app.message =
-                        Some("Press y to confirm closing (delete)".to_string());
+                    app.message = Some("Press y to confirm closing (delete)".to_string());
                 } else {
                     app.message = Some("No selection".to_string());
                 }
@@ -529,15 +728,15 @@ fn browser_key(app: &mut App, code: KeyCode, ops: &Operations) -> Result<()> {
         }
         KeyCode::Char('y') if app.confirm_delete => {
             app.confirm_delete = false;
-            delete_selected(app, ops)?;
+            delete_selected(app)?;
         }
         _ => app.confirm_delete = false,
     }
     Ok(())
 }
 
-fn approve_selected(app: &mut App, ops: &Operations) -> Result<()> {
-    let Some(issue) = app.selected_issue() else {
+fn approve_selected(app: &mut App) -> Result<()> {
+    let Some((issue, pd)) = app.selected_with_project() else {
         app.message = Some("No selection".to_string());
         return Ok(());
     };
@@ -546,25 +745,36 @@ fn approve_selected(app: &mut App, ops: &Operations) -> Result<()> {
         return Ok(());
     }
     let uuid = issue.id;
+    let root = pd.root.clone();
+    let Some(ops) = app.ops_map.get(&root) else {
+        app.message = Some("No operations for this project".to_string());
+        return Ok(());
+    };
     match ops.approve(&uuid.to_string()) {
         Ok(()) => {
-            app.reload(ops)?;
-            app.message = Some(format!("\u{2713} Approved {}", ops.appropriate_length_id(&uuid)?));
+            let alid = ops.appropriate_length_id(&uuid)?;
+            app.reload_project(&root)?;
+            app.message = Some(format!("\u{2713} Approved {alid}"));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
     Ok(())
 }
 
-fn delete_selected(app: &mut App, ops: &Operations) -> Result<()> {
-    let Some(issue) = app.selected_issue() else {
+fn delete_selected(app: &mut App) -> Result<()> {
+    let Some((issue, pd)) = app.selected_with_project() else {
         app.message = Some("No selection".to_string());
         return Ok(());
     };
     let uuid = issue.id;
+    let root = pd.root.clone();
+    let Some(ops) = app.ops_map.get(&root) else {
+        app.message = Some("No operations for this project".to_string());
+        return Ok(());
+    };
     match ops.delete(&uuid.to_string(), false) {
         Ok(short) => {
-            app.reload(ops)?;
+            app.reload_project(&root)?;
             app.message = Some(format!("\u{2713} Deleted {short}"));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
@@ -577,6 +787,7 @@ mod tests {
     use super::*;
     use crate::models::Relationship;
     use ratatui::backend::TestBackend;
+    use std::time::{Duration, UNIX_EPOCH};
 
     fn issue(uuid_suffix: u128, title: &str, status: Status, issue_type: IssueType) -> Issue {
         let mut i = Issue::new(title.to_string(), None, issue_type);
@@ -589,47 +800,47 @@ mod tests {
         source.relationships.push(Relationship { relation_type, target_id: target });
     }
 
-    fn fixture() -> Vec<Issue> {
-        let epic_id = Uuid::from_u128(0x4444);
-        let child_done = issue(0x1111, "Done child", Status::Done, IssueType::Usecase);
-        let mut child_todo = issue(0x2222, "Todo child", Status::Todo, IssueType::Bug);
-        rel(&mut child_todo, RelationType::PartOf, epic_id);
-        let mut done_child2 = child_done;
-        rel(&mut done_child2, RelationType::PartOf, epic_id);
-        let epic = issue(0x4444, "The epic", Status::Todo, IssueType::Epic);
-        let orphan = issue(0x3333, "Orphan", Status::Proposed, IssueType::Design);
-        vec![child_todo, done_child2, epic, orphan]
+    fn pd(root: &str, issues: Vec<Issue>) -> ProjectData {
+        ProjectData {
+            root: PathBuf::from(root),
+            name: PathBuf::from(root)
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default(),
+            related_titles: issues.iter().map(|i| (i.id, i.title.clone())).collect(),
+            incoming: build_incoming_relationships_map(&issues)
+                .into_iter()
+                .map(|(uuid, rels)| {
+                    (
+                        uuid,
+                        rels.into_iter()
+                            .map(|r| (r.source_id, r.source_title, r.relation_type))
+                            .collect(),
+                    )
+                })
+                .collect(),
+            issues,
+            index_mtime: None,
+        }
     }
 
-    fn make_app(issues: &[Issue], filter: Option<Status>) -> App {
-        let counts = build_epic_counts(issues);
-        let items = tree_items(issues, &counts, filter).unwrap();
-        let incoming = build_incoming_relationships_map(issues)
-            .into_iter()
-            .map(|(uuid, rels)| {
-                (
-                    uuid,
-                    rels.into_iter()
-                        .map(|r| (r.source_id, r.source_title, r.relation_type))
-                        .collect(),
-                )
-            })
-            .collect();
-        let related: HashMap<Uuid, String> = issues.iter().map(|i| (i.id, i.title.clone())).collect();
-        let mut app = App {
-            issues: issues.to_vec(),
-            related_titles: related,
-            incoming,
-            items,
-            filter,
-            ..App::new()
-        };
-        app.tree_state.select_first();
+    fn project_a_issues() -> Vec<Issue> {
+        let epic_id = Uuid::from_u128(0x4444);
+        let mut child_todo = issue(0x2222, "Todo child", Status::Todo, IssueType::Bug);
+        rel(&mut child_todo, RelationType::PartOf, epic_id);
+        let epic = issue(0x4444, "The epic", Status::Todo, IssueType::Epic);
+        vec![child_todo, epic]
+    }
+
+    fn app_with(pds: Vec<ProjectData>) -> App {
+        let mut app = App::new();
+        app.projects = pds;
+        app.rebuild_items();
         app
     }
 
     fn draw_once(app: &mut App) -> Vec<String> {
-        let mut terminal = Terminal::new(TestBackend::new(80, 24)).unwrap();
+        let mut terminal = Terminal::new(TestBackend::new(90, 24)).unwrap();
         terminal.draw(|f| render_app(f, app)).unwrap();
         let buf = terminal.backend().buffer().clone();
         (0..buf.area.height)
@@ -647,8 +858,8 @@ mod tests {
     /// identifiers, mirroring the event loop's post-draw re-select).
     fn draw(app: &mut App) -> Vec<String> {
         draw_once(app);
-        if app.tree_state.selected().is_empty() && !app.items.is_empty() {
-            app.tree_state.select_first();
+        if !app.selection_visible() {
+            app.reset_selection_to_first();
         }
         draw_once(app)
     }
@@ -657,58 +868,14 @@ mod tests {
         rows.iter().position(|r| r.contains(needle))
     }
 
+    // ---- pure helper tests (kept from the single-project iteration) ----
+
     #[test]
-    fn tree_groups_epics_with_children_then_orphans() {
-        let issues = fixture();
+    fn epic_progress_line() {
+        let issues = project_a_issues();
         let counts = build_epic_counts(&issues);
-        let items = tree_items(&issues, &counts, None).unwrap();
-        assert_eq!(items.len(), 2, "one epic + one orphan");
         let epic = issues.iter().find(|i| i.issue_type == IssueType::Epic).unwrap();
-        assert!(epic_line(epic, &counts).to_string().contains("The epic"));
-        assert_eq!(items[0].children().len(), 2, "epic has both children");
-        let orphan = issues.iter().find(|i| is_orphan(i)).unwrap();
-        assert!(leaf_line(orphan).to_string().contains("Orphan"));
-    }
-
-    #[test]
-    fn children_sort_proposed_before_todo_before_done_then_bug_before_rest() {
-        // Within an epic: todo-bug before done-usecase; a proposed child would
-        // come first. Bug ranks before non-bug within the same status.
-        let epic_id = Uuid::from_u128(0x4444);
-        let mut bug_design_done = issue(0x7777, "Done design", Status::Done, IssueType::Design);
-        rel(&mut bug_design_done, RelationType::PartOf, epic_id);
-        let mut issues = fixture();
-        issues.push(bug_design_done);
-        let counts = build_epic_counts(&issues);
-        let items = tree_items(&issues, &counts, None).unwrap();
-        assert_eq!(items[0].children().len(), 3);
-        // Render and assert row order: todo-bug < done-design < done-usecase.
-        let mut app = make_app(&issues, None);
-        app.tree_state.open(vec![Uuid::from_u128(0x4444).to_string()]);
-        let rows = draw(&mut app);
-        let todo_bug = row_of(&rows, "Todo child").unwrap();
-        let done_design = row_of(&rows, "Done design").unwrap();
-        let done_usecase = row_of(&rows, "Done child").unwrap();
-        assert!(todo_bug < done_design, "{rows:?}");
-        assert!(done_design < done_usecase, "{rows:?}");
-    }
-
-    #[test]
-    fn proposed_filter_flat_list_sorted_bug_before_design() {
-        let mut bug = issue(0x6666, "Bug fix", Status::Proposed, IssueType::Bug);
-        bug.updated_at = bug.updated_at - chrono::Duration::hours(1);
-        let design = issue(0x8888, "Des fix", Status::Proposed, IssueType::Design);
-        // design is newer, but bug still sorts first within the status.
-        let issues = vec![design.clone(), bug.clone()];
-        let counts = build_epic_counts(&issues);
-        let items = tree_items(&issues, &counts, Some(Status::Proposed)).unwrap();
-        assert_eq!(items.len(), 2, "flat list, no epics");
-        let mut app = make_app(&issues, Some(Status::Proposed));
-        let rows = draw(&mut app);
-        let bug_row = row_of(&rows, "Bug fix").unwrap_or_else(|| panic!("rows: {rows:?}"));
-        let design_row = row_of(&rows, "Des fix").unwrap_or_else(|| panic!("rows: {rows:?}"));
-        assert!(bug_row < design_row, "{rows:?}");
-        assert!(!rows.iter().any(|r| r.contains("The epic")), "filter hides epics");
+        assert!(epic_line(epic, &counts).to_string().contains("The epic (0/1)"));
     }
 
     #[test]
@@ -725,7 +892,7 @@ mod tests {
 
     #[test]
     fn detail_lines_show_relationships_both_ways() {
-        let issues = fixture();
+        let issues = project_a_issues();
         let epic = issues.iter().find(|i| i.issue_type == IssueType::Epic).unwrap();
         let related: HashMap<Uuid, String> =
             issues.iter().map(|i| (i.id, i.title.clone())).collect();
@@ -745,53 +912,163 @@ mod tests {
         assert!(lines.iter().any(|l| l.contains("part of") || l.contains("has part")), "has relationship");
     }
 
+    // ---- multi-project tree (r[project-registry]) ----
+
     #[test]
-    fn browser_renders_tree_and_detail_on_test_backend() {
-        let issues = fixture();
-        let mut app = make_app(&issues, None);
-        app.tree_state.open(vec![Uuid::from_u128(0x4444).to_string()]);
-        // Long description: must wrap, not truncate at the pane edge.
-        let epic = app.issues.iter_mut().find(|i| i.issue_type == IssueType::Epic).unwrap();
-        epic.description =
-            Some("alpha bravo charlie delta echo foxtrot golf hotel india juliet kilo".to_string());
-        app.rebuild_items();
-        let rows = draw(&mut app);
-        assert!(rows.iter().any(|r| r.contains("The epic")), "tree pane: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("Todo child")), "tree pane child: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("Orphan")), "tree pane orphan: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("Status:")), "detail pane fields: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("kilo")), "long description wraps: {rows:?}");
+    fn tree_nests_projects_above_epics() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let app = app_with(vec![a, b]);
+        assert_eq!(app.items.len(), 2, "two project nodes");
+        assert_eq!(app.items[0].children().len(), 1, "alpha subtree top level: one epic");
+        assert_eq!(app.items[1].children().len(), 1, "beta: one orphan leaf");
     }
 
     #[test]
-    fn right_unfolds_and_left_folds() {
-        let issues = fixture();
-        let mut app = make_app(&issues, None);
+    fn project_line_shows_name_and_total() {
+        let a = pd("/repos/alpha", project_a_issues());
+        assert!(project_line(&a).to_string().contains("alpha"), "name: {:?}", project_line(&a).to_string());
+        assert!(project_line(&a).to_string().contains("(2)"), "total count");
+    }
+
+    #[test]
+    fn project_detail_lines_show_path_counts_and_mtime() {
+        let mut a = pd("/repos/alpha", project_a_issues());
+        a.index_mtime = Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000));
+        let lines = project_detail_lines(&a).iter().map(|l| l.to_string()).collect::<Vec<_>>();
+        assert!(lines.iter().any(|l| l.contains("/repos/alpha")), "path: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("Issues: 2")), "total: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("todo 2")), "per-status counts: {lines:?}");
+        assert!(lines.iter().any(|l| l.contains("Last index update") || l.contains("unknown")), "mtime line");
+    }
+
+    #[test]
+    fn selection_across_projects_routes_to_own_project() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let app = app_with(vec![a, b]);
+        let b_uuid = Uuid::from_u128(0x3333);
+        let (issue, pd_b) = {
+            let issue = app
+                .projects
+                .iter()
+                .find(|p| p.root == PathBuf::from("/repos/beta"))
+                .unwrap()
+                .issues
+                .iter()
+                .find(|i| i.id == b_uuid)
+                .unwrap()
+                .title
+                .clone();
+            let project = app.project_of(&b_uuid).unwrap();
+            (issue, project.root.clone())
+        };
+        assert_eq!(issue, "Orphan");
+        assert_eq!(pd_b, PathBuf::from("/repos/beta"), "mutations route to the issue's project");
+        assert!(app.project_of(&Uuid::from_u128(0x4444)).is_some(), "alpha issue found too");
+    }
+
+    #[test]
+    fn selection_visible_checks_recursively() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
+        // child uuid nested inside project > epic
+        let child_uuid = Uuid::from_u128(0x2222).to_string();
+        app.tree_state.select(vec![
+            "/repos/alpha".to_string(),
+            Uuid::from_u128(0x4444).to_string(),
+            child_uuid.clone(),
+        ]);
+        assert!(items_contain(&app.items, &child_uuid), "recursive containment");
+        assert!(app.selection_visible());
+        app.tree_state.select(vec!["/repos/nowhere".to_string()]);
+        assert!(!app.selection_visible(), "unknown root not visible");
+    }
+
+    #[test]
+    fn proposed_filter_lists_per_project_and_hides_empty_projects() {
+        let a = pd("/repos/alpha", project_a_issues()); // nothing proposed
+        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let mut app = app_with(vec![a, b]);
+        app.filter = Some(Status::Proposed);
+        app.rebuild_items();
+        app.tree_state.open(vec!["/repos/beta".to_string()]);
+        let rows = draw(&mut app);
+        assert!(rows.iter().any(|r| r.contains("beta")), "project with matches shown");
+        assert!(!rows.iter().any(|r| r.contains("alpha")), "empty project hidden under filter");
+        assert!(rows.iter().any(|r| r.contains("Orphan")), "proposed leaf visible");
+    }
+
+    #[test]
+    fn children_sort_proposed_before_todo_before_done_then_bug_before_rest() {
+        let epic_id = Uuid::from_u128(0x4444);
+        let mut done_design = issue(0x7777, "Done design", Status::Done, IssueType::Design);
+        rel(&mut done_design, RelationType::PartOf, epic_id);
+        let mut issues = project_a_issues();
+        issues.push(done_design);
+        let a = pd("/repos/alpha", issues);
+        let mut app = app_with(vec![a]);
+        app.tree_state.open(vec!["/repos/alpha".to_string()]);
+        app.tree_state.open(vec![
+            "/repos/alpha".to_string(),
+            Uuid::from_u128(0x4444).to_string(),
+        ]);
+        let rows = draw(&mut app);
+        let todo_bug = row_of(&rows, "Todo child").unwrap();
+        let done_design_row = row_of(&rows, "Done design").unwrap();
+        assert!(todo_bug < done_design_row, "{rows:?}");
+    }
+
+    #[test]
+    fn browser_renders_projects_tree_and_detail() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
+        app.tree_state.open(vec!["/repos/alpha".to_string()]);
+        app.tree_state.open(vec![
+            "/repos/alpha".to_string(),
+            Uuid::from_u128(0x4444).to_string(),
+        ]);
+        app.tree_state.select(vec![
+            "/repos/alpha".to_string(),
+            Uuid::from_u128(0x4444).to_string(),
+        ]);
+        let rows = draw(&mut app);
+        assert!(rows.iter().any(|r| r.contains("alpha")), "project node: {rows:?}");
+        assert!(rows.iter().any(|r| r.contains("The epic")), "epic under project: {rows:?}");
+        assert!(rows.iter().any(|r| r.contains("Status:")), "detail fields: {rows:?}");
+    }
+
+    #[test]
+    fn right_unfolds_and_left_folds_within_project() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
         let tree_side = |rows: &[String]| {
             rows.iter()
-                .map(|r| r.chars().take(31).collect::<String>())
+                .map(|r| r.chars().take(34).collect::<String>())
                 .collect::<Vec<_>>()
         };
-        let rows_closed = tree_side(&draw(&mut app)); // also populates identifiers
-        assert!(!rows_closed.iter().any(|r| r.contains("Todo child")), "starts folded");
-        app.tree_state.key_right(); // unfold selected epic
+        // Startup auto-opens down to the first issue (selection visible).
         let rows_open = tree_side(&draw(&mut app));
-        assert!(rows_open.iter().any(|r| r.contains("Todo child")), "Right unfolds: {rows_open:?}");
-        app.tree_state.key_left(); // fold again
+        assert!(rows_open.iter().any(|r| r.contains("The epic")), "project auto-opened: {rows_open:?}");
+        assert!(rows_open.iter().any(|r| r.contains("Todo child")), "first issue selected & visible");
+        app.tree_state.key_up(); // move onto the epic
+        let _ = draw(&mut app);
+        app.tree_state.key_left(); // fold the (selected, open) epic
         let rows_folded = tree_side(&draw(&mut app));
-        assert!(!rows_folded.iter().any(|r| r.contains("Todo child")), "Left folds");
+        assert!(!rows_folded.iter().any(|r| r.contains("Todo child")), "Left folds epic");
+        app.tree_state.key_right(); // Right re-unfolds the epic
+        let rows_unfolded = tree_side(&draw(&mut app));
+        assert!(rows_unfolded.iter().any(|r| r.contains("Todo child")), "Right unfolds epic");
     }
 
     #[test]
     fn help_overlay_is_opaque() {
-        let issues = fixture();
-        let mut app = make_app(&issues, None);
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
         app.mode = Mode::Help;
         let rows = draw(&mut app);
         let joined = rows.join("\n");
         assert!(joined.contains("help (any key to close)"), "help shown: {joined}");
-        // Rows under the opaque overlay must not leak the browser underneath
-        // (the overlay spans the vertical middle of the frame).
         let under: Vec<&String> = rows.iter().enumerate().filter(|(i, _)| (7..=16).contains(i)).map(|(_, r)| r).collect();
         assert!(under.iter().any(|r| r.contains("move")), "help body: {under:?}");
         assert!(!under.iter().any(|r| r.contains("No selection") || r.contains("Status:")), "browser leaked through: {under:?}");

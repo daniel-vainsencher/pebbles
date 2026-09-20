@@ -5,6 +5,7 @@ mod jj;
 mod models;
 mod operations;
 mod storage;
+mod projects;
 mod tui;
 
 use crate::models::Status;
@@ -205,7 +206,7 @@ fn main() -> Result<()> {
 
 
         Commands::Tui => {
-            tui::run(&ops)?;
+            tui::run()?;
         }
 
         Commands::Summary => {
