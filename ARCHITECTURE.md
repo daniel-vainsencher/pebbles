@@ -317,10 +317,9 @@ Now testable without storage.
 Pebbles follows an "imperative shell, functional core" design for testing:
 
 **Imperative Shell** (CLI → Operations → Storage/JJ):
-- Tested via end-to-end trycmd integration tests
+- Tested via end-to-end tests that run the real binary: trycmd snapshot workflows (`tests/workflows/*.trycmd`, `tests/cmd/`), the jj-integration suite (`tests/jj_integration.rs`), and broken-pipe tests (`tests/sigpipe.rs`)
 - Validates actual behavior with real file I/O
-- Tests shell orchestration (loading, saving, committing)
-- Example: Tests workflows in `tests/workflows/*.trycmd`
+- Tests shell orchestration (loading, saving, committing) and jj integration
 
 **Functional Core** (pure business logic):
 - Effects are explicit in function signatures (moves, mutable borrows)
@@ -331,10 +330,13 @@ Pebbles follows an "imperative shell, functional core" design for testing:
 ### Testing Layers
 
 ```
-┌─────────────────────────────────┐
-│   Layer 3: CLI Tests            │  trycmd - end-to-end workflows
-│   covers: shell orchestration   │
-└─────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│   Layer 3: End-to-end tests (real binary)    │
+│    trycmd        - snapshot workflows        │
+│    jj_integration - jj commit behavior       │
+│    sigpipe       - broken-pipe handling      │
+│   covers: shell orchestration, jj commits    │
+└──────────────────────────────────────────────┘
          ↓
 ┌─────────────────────────────────┐
 │   Layer 2: Logic Tests          │  unit tests for pure functions
@@ -367,6 +369,11 @@ Pebbles follows an "imperative shell, functional core" design for testing:
 - Core workflows: create, update, link, delete
 - Edge cases: validation errors, missing data
 - Integration: multiple operations together
+
+**Integration tests (tests/jj_integration.rs, tests/sigpipe.rs):**
+- Each operation commits exactly the files it touched
+- Short-ID input, appropriate-length IDs in messages, cycle rejection
+- Broken-pipe handling: no panic when the consumer exits early
 
 ### Test Mode
 
