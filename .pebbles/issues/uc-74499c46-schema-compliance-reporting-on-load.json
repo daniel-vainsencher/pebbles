@@ -2,7 +2,7 @@
   "id": "74499c46-c103-4f7d-aa85-447ae2ff8673",
   "title": "schema-compliance reporting on load",
   "description": "Complete r[schema-valid-issues]: load_all_issues already warns on unparseable files; extend to validate the full schema and report violations consistently, and give callers a way to distinguish a degraded issue set from a clean one.",
-  "status": "proposed",
+  "status": "todo",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-06T13:31:32.224399919Z",
-  "updated_at": "2026-09-06T13:31:32.534814123Z"
+  "updated_at": "2026-09-20T02:49:54.673742171Z"
 }
