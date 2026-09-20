@@ -2,7 +2,7 @@
   "id": "80ca18b3-2c41-400e-9222-6c15277e8a1c",
   "title": "TUI: review-queue mode — one-key approve/close of proposed issues",
   "description": "A queue view over the proposed list with a = approve, d = close (delete), applied in bulk (built on batch primitives from 0c580f95 so the CLI stays composable). Open SPEC question: is plain delete enough to 'close' a proposal, or is a rejected status warranted (r[review-command] would need extending).",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-19T22:09:23.771164977Z",
-  "updated_at": "2026-09-19T22:09:34.227621145Z"
+  "updated_at": "2026-09-20T02:19:19.038791551Z"
 }
