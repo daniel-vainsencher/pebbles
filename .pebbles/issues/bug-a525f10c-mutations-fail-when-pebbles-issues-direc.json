@@ -1,0 +1,12 @@
+{
+  "id": "a525f10c-661b-4798-b092-7d54a67eeb11",
+  "title": "Mutations fail when .pebbles/issues/ directory is missing",
+  "description": "Any mutation that writes an issue file aborts with 'Failed to write issue file: <name> / No such file or directory (os error 2)' when .pebbles/issues/ is absent. Only Storage::init() calls create_dir_all (src/storage.rs); save_issue() uses fs::write directly on issues_dir.\n\nThe directory goes away on its own in a jj repo because jj tracks files, not directories: the last file removed deletes the directory. Measured on pebbles 1.0.0 (build of this repo's HEAD) in a colocated jj temp repo: seed one issue on a branch, then 'jj new <base-change>' to the change that predates the branch's issue file. jj reports 'Added 0 files, modified 1 files, removed 1 files', .pebbles/issues/ is gone, and every later 'pebbles new' fails. Same result from 'rm -rf .pebbles/issues' plus 'pebbles new' in a .no_jj store: exit 1, while 'pebbles list' keeps working (it warns once per index entry and exits 0).\n\nAsk: create the issues directory on demand in the write path (save_issue, or a Storage helper called before it) so a checkout/restore that removes it is self-healing, and add a SPEC rule for it. Related: the index/file divergence this can hide is covered by 0f6f1445 (doctor), but that is detection after the fact.",
+  "status": "proposed",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-20T16:39:59.088232918Z",
+  "updated_at": "2026-09-20T16:39:59.088232918Z"
+}
