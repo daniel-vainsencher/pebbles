@@ -113,11 +113,11 @@ pebbles list --status in_progress --issue-type epic
 ```bash
 pebbles show <id>
 
-# Short IDs work (minimum 3 characters)[^1]
+# Short IDs work (unique prefix)[^1]
 pebbles show a1b
 ```
 
-[^1]: ID length is at least 3 characters. As your project grows, you may need longer prefixes if short IDs become ambiguous.
+[^1]: Any prefix that uniquely identifies one issue works, even 1-2 characters, as long as it is unambiguous. Pebbles displays a 3-character prefix by default and only extends it when needed. As your project grows, you may need longer prefixes if short IDs become ambiguous.
 
 ### Update Issues
 
@@ -227,10 +227,10 @@ pebbles show a1b2
 ### Using Short IDs
 
 ```bash
-# Full UUID not required - use shortest unambiguous prefix (min 3 chars)
+# Full UUID not required - use the shortest unambiguous prefix
 pebbles show 53ed9aa8        # 8 chars always works
 pebbles status 53ed done     # Shorter if unambiguous
-pebbles update 53e --title "New title"  # Minimum 3 characters
+pebbles update 53 --title "New title"  # A unique 2-char prefix works too
 ```
 
 ### Shell Integration
@@ -270,9 +270,9 @@ Every pebbles operation creates a jj change with a descriptive message:
 ```bash
 jj log
 # Shows:
-# @ Update issue: Login button fixed
-# ○ Create issue: Dashboard redesign
-# ○ Link issues: Design required for implementation
+# @ Update bug Login button fixed: proposed -> todo
+# ○ Create ux_problem: Dashboard redesign
+# ○ Add relationship: JWT implementation required_for User Authentication
 ```
 
 ### Syncing Across Machines
