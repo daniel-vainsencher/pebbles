@@ -1,14 +1,16 @@
 //! Interactive TUI: two-pane browser (epic/pebble tree + detail) with a
-//! proposed-issues review filter. Pure helpers are separated from the
-//! terminal shell so they are unit-testable without I/O (ARCHITECTURE.md
-//! Testing Strategy).
+//! proposed-issues review filter and a quick search line (`/`). Pure
+//! helpers are separated from the terminal shell so they are unit-testable
+//! without I/O (ARCHITECTURE.md Testing Strategy).
 //!
 //! Design: pebble 94223b04. Widget: tui-tree-widget (pebble: tui-tree-widget eval). E2E: termlens.
-//! r[impl tui] r[impl tui-review]
+//! r[impl tui] r[impl tui-review] r[impl tui-search] r[impl tui-background]
 
 use anyhow::{Context, Result};
 use crossterm::event::{read, Event, KeyCode, KeyEventKind};
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Layout, Rect};
@@ -17,7 +19,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
 use std::collections::HashMap;
-use std::io::{Stdout, stdout};
+use std::io::{stdout, Stdout};
 use std::path::{Path, PathBuf};
 use tui_tree_widget::{Tree, TreeItem, TreeState};
 use uuid::Uuid;
@@ -110,16 +112,207 @@ fn is_orphan(issue: &Issue) -> bool {
             .any(|rel| rel.relation_type == RelationType::PartOf)
 }
 
+// ---------------------------------------------------------------------------
+// Search query (r[tui-search])
+// ---------------------------------------------------------------------------
+
+/// A compiled search term. Terms combine with AND: an issue is visible only
+/// when every term in the query matches.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryTerm {
+    /// Bare alphanumerics: whole-word match against title/description, or
+    /// case-insensitive prefix match against the issue's short id.
+    Text(String),
+    /// `s:` status filter; the bool negates (`s:!d` = anything but done).
+    Status(Status, bool),
+    /// `t:` type filter; the bool negates (`t:!bug` = anything but bugs).
+    Type(IssueType, bool),
+    /// Unparseable spec (`s:x`, `t:9`, bare punctuation): matches nothing.
+    Dead,
+}
+
+/// A compiled search query: the AND of its terms.
+#[derive(Clone, Debug)]
+pub struct SearchQuery {
+    pub terms: Vec<QueryTerm>,
+}
+
+/// Parse the status code after `s:`: one letter (p/t/i/b/d) or a full name.
+fn parse_status_code(s: &str) -> Option<Status> {
+    match s.to_lowercase().as_str() {
+        "p" | "proposed" => Some(Status::Proposed),
+        "t" | "todo" => Some(Status::Todo),
+        "i" | "in_progress" | "inprogress" | "in-progress" => Some(Status::InProgress),
+        "b" | "blocked" => Some(Status::Blocked),
+        "d" | "done" => Some(Status::Done),
+        _ => None,
+    }
+}
+
+/// Parse the type code after `t:`: a short code or a full name.
+fn parse_type_code(s: &str) -> Option<IssueType> {
+    match s.to_lowercase().as_str() {
+        "bug" => Some(IssueType::Bug),
+        "ux" | "ux_problem" | "uxproblem" | "ux-problem" => Some(IssueType::UxProblem),
+        "uc" | "usecase" | "use-case" | "use_case" => Some(IssueType::Usecase),
+        "des" | "design" => Some(IssueType::Design),
+        "val" | "validation" => Some(IssueType::Validation),
+        "epic" => Some(IssueType::Epic),
+        "mile" | "milestone" => Some(IssueType::Milestone),
+        _ => None,
+    }
+}
+
+/// Split a token into maximal alphanumeric runs: "pane-edit" -> ["pane", "edit"].
+fn text_runs(token: &str) -> Vec<String> {
+    let mut runs: Vec<String> = Vec::new();
+    let mut run: String = String::new();
+    for c in token.chars() {
+        if c.is_alphanumeric() {
+            run.push(c);
+        } else if !run.is_empty() {
+            runs.push(run);
+            run = String::new();
+        }
+    }
+    if !run.is_empty() {
+        runs.push(run);
+    }
+    runs
+}
+
+/// Split a `s:`/`t:` value into an optional `!` negation and the code.
+fn split_negation(value: &str) -> (bool, &str) {
+    if let Some(rest) = value.strip_prefix("!") {
+        (true, rest)
+    } else {
+        (false, value)
+    }
+}
+
+/// Compile a raw search line into its AND-ed terms (r[tui-search]).
+pub fn parse_search_query(raw: &str) -> SearchQuery {
+    let mut terms: Vec<QueryTerm> = Vec::new();
+    for token in raw.split_whitespace() {
+        let lower = token.to_lowercase();
+        if let Some(code) = lower.strip_prefix("s:") {
+            let (negated, code) = split_negation(code);
+            match parse_status_code(code) {
+                Some(status) => terms.push(QueryTerm::Status(status, negated)),
+                None => terms.push(QueryTerm::Dead),
+            }
+        } else if let Some(code) = lower.strip_prefix("t:") {
+            let (negated, code) = split_negation(code);
+            match parse_type_code(code) {
+                Some(issue_type) => terms.push(QueryTerm::Type(issue_type, negated)),
+                None => terms.push(QueryTerm::Dead),
+            }
+        } else {
+            let runs = text_runs(token);
+            if runs.is_empty() {
+                terms.push(QueryTerm::Dead); // bare punctuation matches nothing
+            } else {
+                for run in runs {
+                    terms.push(QueryTerm::Text(run));
+                }
+            }
+        }
+    }
+    SearchQuery { terms }
+}
+
+/// Whole-word, case-insensitive match of `term` inside `text`: the term must
+/// appear as a maximal alphanumeric run, so "pan" never matches "pane".
+fn text_matches(term: &str, text: &str) -> bool {
+    if term.is_empty() {
+        return false;
+    }
+    let term_lower = term.to_lowercase();
+    let mut word: String = String::new();
+    for c in text.chars() {
+        if c.is_alphanumeric() {
+            word.push(c);
+        } else if !word.is_empty() {
+            if word.to_lowercase() == term_lower {
+                return true;
+            }
+            word = String::new();
+        }
+    }
+    !word.is_empty() && word.to_lowercase() == term_lower
+}
+
+/// Case-insensitive prefix match against the 8-char short id: "cb" finds cb08a6e4.
+fn short_id_matches(short_id: &str, term: &str) -> bool {
+    !term.is_empty()
+        && short_id
+            .to_lowercase()
+            .starts_with(term.to_lowercase().as_str())
+}
+
+fn term_matches(issue: &Issue, term: &QueryTerm) -> bool {
+    match term {
+        QueryTerm::Text(text) => {
+            let description_matches = if let Some(d) = &issue.description {
+                text_matches(text.as_str(), d.as_str())
+            } else {
+                false
+            };
+            !text.is_empty()
+                && (short_id_matches(&issue.short_id(), text.as_str())
+                    || text_matches(text.as_str(), issue.title.as_str())
+                    || description_matches)
+        }
+        QueryTerm::Status(status, negated) => {
+            let equal = issue.status == *status;
+            if *negated {
+                !equal
+            } else {
+                equal
+            }
+        }
+        QueryTerm::Type(issue_type, negated) => {
+            let equal = issue.issue_type == *issue_type;
+            if *negated {
+                !equal
+            } else {
+                equal
+            }
+        }
+        QueryTerm::Dead => false,
+    }
+}
+
+/// Does `issue` pass the whole query? Every term must match (AND).
+pub fn issue_matches_query(issue: &Issue, query: &SearchQuery) -> bool {
+    query.terms.iter().all(|term| term_matches(issue, term))
+}
+
 /// Build the browser tree: epics (children by sort_key, with progress) then
-/// orphaned pebbles. With a status filter, a flat leaf list of matching
-/// issues instead. Node identifiers are issue UUID strings.
+/// orphaned pebbles. With a status filter and/or a non-empty search query, a
+/// flat leaf list of the matching issues instead. Node identifiers are issue
+/// UUID strings.
 pub fn tree_items(
     issues: &[Issue],
     counts: &HashMap<Uuid, (usize, usize)>,
     filter: Option<Status>,
+    search: &str,
 ) -> std::io::Result<Vec<TreeItem<'static, String>>> {
-    if let Some(status) = filter {
-        let mut matching: Vec<&Issue> = issues.iter().filter(|i| i.status == status).collect();
+    let query = parse_search_query(search);
+    let search_active = !query.terms.is_empty();
+    if filter.is_some() || search_active {
+        let mut matching: Vec<&Issue>;
+        if let Some(status) = filter {
+            matching = issues
+                .iter()
+                .filter(|i| i.status == status && issue_matches_query(i, &query))
+                .collect();
+        } else {
+            matching = issues
+                .iter()
+                .filter(|i| issue_matches_query(i, &query))
+                .collect();
+        }
         matching.sort_by_key(|i| sort_key(i));
         return Ok(matching
             .into_iter()
@@ -139,14 +332,16 @@ pub fn tree_items(
             .iter()
             .filter(|i| {
                 i.issue_type != IssueType::Epic
-                    && i.relationships
-                        .iter()
-                        .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == epic.id)
+                    && i.relationships.iter().any(|rel| {
+                        rel.relation_type == RelationType::PartOf && rel.target_id == epic.id
+                    })
             })
             .collect();
         children.sort_by_key(|i| sort_key(i));
-        let children: Vec<TreeItem<'static, String>> =
-            children.into_iter().map(|c| TreeItem::new_leaf(c.id.to_string(), leaf_line(c))).collect();
+        let children: Vec<TreeItem<'static, String>> = children
+            .into_iter()
+            .map(|c| TreeItem::new_leaf(c.id.to_string(), leaf_line(c)))
+            .collect();
         items.push(TreeItem::new(
             epic.id.to_string(),
             epic_line(epic, counts),
@@ -231,7 +426,9 @@ pub fn detail_lines(
                     RelationType::ScheduledBefore => "scheduled after",
                 };
                 let id_display = source_id.to_string()[..8].to_string();
-                lines.push(Line::raw(format!("  {rel_str} {id_display} ({source_title})")));
+                lines.push(Line::raw(format!(
+                    "  {rel_str} {id_display} ({source_title})"
+                )));
             }
         }
     }
@@ -257,15 +454,19 @@ pub struct ProjectData {
     pub index_mtime: Option<std::time::SystemTime>,
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mode {
     Browser,
+    /// A search query is being typed at the message line (`/`).
+    Search,
     Help,
 }
 
 pub struct App {
     pub mode: Mode,
     pub filter: Option<Status>,
+    /// Raw search line; non-empty means the search filter is active.
+    pub search: String,
     pub projects: Vec<ProjectData>,
     pub ops_map: HashMap<PathBuf, Operations>,
     pub items: Vec<TreeItem<'static, String>>,
@@ -331,8 +532,7 @@ pub fn project_detail_lines(pd: &ProjectData) -> Vec<Line<'static>> {
 /// Recursively check whether any node in the tree carries `identifier`.
 pub fn items_contain(items: &[TreeItem<'static, String>], identifier: &str) -> bool {
     items.iter().any(|item| {
-        item.identifier().as_str() == identifier
-            || items_contain(item.children(), identifier)
+        item.identifier().as_str() == identifier || items_contain(item.children(), identifier)
     })
 }
 
@@ -341,6 +541,7 @@ impl App {
         App {
             mode: Mode::Browser,
             filter: None,
+            search: String::new(),
             projects: Vec::new(),
             ops_map: HashMap::new(),
             items: Vec::new(),
@@ -368,12 +569,13 @@ impl App {
     }
 
     pub fn rebuild_items(&mut self) {
+        let search_active = !self.search.is_empty();
         let mut items = Vec::new();
         for pd in &self.projects {
             let counts = build_epic_counts(&pd.issues);
-            let children = tree_items(&pd.issues, &counts, self.filter)
+            let children = tree_items(&pd.issues, &counts, self.filter, &self.search)
                 .expect("unique identifiers");
-            if self.filter.is_some() && children.is_empty() {
+            if (self.filter.is_some() || search_active) && children.is_empty() {
                 continue; // hide projects without matching issues (r[project-registry])
             }
             let children = match children.is_empty() {
@@ -382,8 +584,12 @@ impl App {
             };
             let _ = children.is_empty();
             items.push(
-                TreeItem::new(pd.root.to_string_lossy().to_string(), project_line(pd), children)
-                    .expect("unique identifiers"),
+                TreeItem::new(
+                    pd.root.to_string_lossy().to_string(),
+                    project_line(pd),
+                    children,
+                )
+                .expect("unique identifiers"),
             );
         }
         self.items = items;
@@ -391,7 +597,10 @@ impl App {
 
     /// Reload a single project after a mutation.
     pub fn reload_project(&mut self, root: &Path) -> Result<()> {
-        let ops = self.ops_map.get(root).context("no operations for project")?;
+        let ops = self
+            .ops_map
+            .get(root)
+            .context("no operations for project")?;
         let pd = load_project_data(root, ops)?;
         if let Some(slot) = self.projects.iter_mut().find(|p| p.root == root) {
             *slot = pd;
@@ -516,6 +725,7 @@ const HELP_LINES: &[&str] = &[
     "Right           unfold (or move to first child)",
     "Left            fold (or move to parent)",
     "Enter or f      toggle fold",
+    "/               search (filter pebbles; Enter accepts, Esc clears)",
     "r               toggle the proposed-issues filter",
     "a               approve selected (in proposed filter)",
     "d then y        close selected = delete (in filter)",
@@ -524,14 +734,22 @@ const HELP_LINES: &[&str] = &[
 ];
 
 pub fn render_app(f: &mut Frame, app: &mut App) {
+    // Clear the whole frame first so cells left behind by previous terminal
+    // contents (or a previous, larger frame) never survive into a draw:
+    // every unpainted cell comes out blank (r[tui-background]).
+    f.render_widget(Clear, f.area());
     match app.mode {
-        Mode::Browser => render_browser(f, app),
+        Mode::Browser | Mode::Search => render_browser(f, app),
         Mode::Help => render_help(f, app),
     }
 }
 
 fn message_paragraph(app: &App) -> Paragraph<'static> {
-    let text = app.message.clone().unwrap_or_default();
+    let text = if app.mode == Mode::Search {
+        format!("search: {}", app.search)
+    } else {
+        app.message.clone().unwrap_or_default()
+    };
     Paragraph::new(Line::from(Span::styled(
         text,
         Style::new().fg(Color::DarkGray),
@@ -539,11 +757,23 @@ fn message_paragraph(app: &App) -> Paragraph<'static> {
 }
 
 fn tree_title(app: &App) -> String {
+    let search_part = if app.search.is_empty() {
+        None
+    } else {
+        Some(format!("search: {}", app.search))
+    };
     match app.filter {
         Some(Status::Proposed) => {
-            "pebbles - proposed (a approve, d+y close, Esc/r clear)".to_string()
+            let filter_part = "proposed (a approve, d+y close, Esc/r clear)".to_string();
+            match search_part {
+                Some(s) => format!("pebbles - {s} | {filter_part}"),
+                None => format!("pebbles - {filter_part}"),
+            }
         }
-        _ => "pebbles - projects".to_string(),
+        _ => match search_part {
+            Some(s) => format!("pebbles - {s}"),
+            None => "pebbles - projects".to_string(),
+        },
     }
 }
 
@@ -583,7 +813,9 @@ fn selected_project(app: &App) -> Option<&ProjectData> {
     if Uuid::parse_str(sel).is_ok() {
         return None; // an issue is selected, not a project node
     }
-    app.projects.iter().find(|pd| pd.root.to_string_lossy().to_string() == *sel)
+    app.projects
+        .iter()
+        .find(|pd| pd.root.to_string_lossy().to_string() == *sel)
 }
 
 fn render_help(f: &mut Frame, app: &mut App) {
@@ -595,14 +827,24 @@ fn render_help(f: &mut Frame, app: &mut App) {
     let block = Block::bordered()
         .title("help (any key to close)")
         .style(Style::new().bg(Color::Black));
-    f.render_widget(Paragraph::new(lines).style(Style::new().bg(Color::Black)).block(block), area);
+    f.render_widget(
+        Paragraph::new(lines)
+            .style(Style::new().bg(Color::Black))
+            .block(block),
+        area,
+    );
 }
 
 fn centered_rect(area: Rect, pct_x: u16, height: u16) -> Rect {
     let w = area.width * pct_x / 100;
     let x = area.x + (area.width - w) / 2;
     let y = area.y + (area.height.saturating_sub(height)) / 2;
-    Rect { x, y, width: w, height: height.min(area.height) }
+    Rect {
+        x,
+        y,
+        width: w,
+        height: height.min(area.height),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -618,17 +860,19 @@ pub fn run() -> Result<()> {
         crate::projects::parse_extra_dirs(std::fs::read_to_string(path).ok().as_deref())
     };
     let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_default();
-    let mut candidates: Vec<(PathBuf, Option<std::time::SystemTime>)> = crate::projects::discover(&home, &extra_dirs)?
-        .into_iter()
-        .map(|p| (p.root.clone(), crate::projects::index_mtime(&p.root)))
-        .collect();
+    let mut candidates: Vec<(PathBuf, Option<std::time::SystemTime>)> =
+        crate::projects::discover(&home, &extra_dirs)?
+            .into_iter()
+            .map(|p| (p.root.clone(), crate::projects::index_mtime(&p.root)))
+            .collect();
     let cwd = std::env::current_dir()?;
     if cwd.join(".pebbles").is_dir() {
         let canon = std::fs::canonicalize(&cwd).unwrap_or_else(|_| cwd.clone());
-        if !candidates
-            .iter()
-            .any(|(root, _)| std::fs::canonicalize(root).map(|c| c == canon).unwrap_or(false))
-        {
+        if !candidates.iter().any(|(root, _)| {
+            std::fs::canonicalize(root)
+                .map(|c| c == canon)
+                .unwrap_or(false)
+        }) {
             candidates.push((cwd.clone(), crate::projects::index_mtime(&cwd)));
         }
     }
@@ -645,6 +889,15 @@ pub fn run() -> Result<()> {
     enable_raw_mode().context("enabling raw mode")?;
     let mut stdout = stdout();
     stdout.execute(EnterAlternateScreen)?;
+    // Entering the alternate screen does not blank it on every terminal, and
+    // ratatui's first frame only repaints cells its widgets touch. Clear the
+    // (alternate) screen outright so cells from previous terminal contents
+    // never show through unpainted areas (r[tui-background]). This uses the
+    // escape-sequence Clear on purpose: Terminal::clear() would query the
+    // cursor position, which blocks when no terminal answers.
+    stdout.execute(crossterm::terminal::Clear(
+        crossterm::terminal::ClearType::All,
+    ))?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
     let result = event_loop(&mut terminal, &mut app);
@@ -656,10 +909,7 @@ pub fn run() -> Result<()> {
     result
 }
 
-fn event_loop(
-    terminal: &mut Terminal<CrosstermBackend<Stdout>>,
-    app: &mut App,
-) -> Result<()> {
+fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) -> Result<()> {
     loop {
         // TreeState.select_first() needs identifiers from a previous render,
         // so re-select when empty and let the next draw pick it up.
@@ -673,6 +923,7 @@ fn event_loop(
             }
             match app.mode {
                 Mode::Browser => browser_key(app, key.code)?,
+                Mode::Search => search_key(app, key.code)?,
                 Mode::Help => app.mode = Mode::Browser,
             }
         }
@@ -701,12 +952,18 @@ fn browser_key(app: &mut App, code: KeyCode) -> Result<()> {
             app.tree_state.toggle_selected();
         }
         KeyCode::Char('?') => app.mode = Mode::Help,
-        KeyCode::Char('r') | KeyCode::Esc => {
-            app.filter = if app.filter.is_some() { None } else { Some(Status::Proposed) };
-            app.confirm_delete = false;
-            app.rebuild_items();
-            app.reset_selection_to_first();
+        KeyCode::Char('/') => app.mode = Mode::Search,
+        KeyCode::Esc => {
+            if !app.search.is_empty() {
+                app.search = String::new();
+                app.confirm_delete = false;
+                app.rebuild_items();
+                app.reset_selection_to_first();
+            } else {
+                toggle_review_filter(app);
+            }
         }
+        KeyCode::Char('r') => toggle_review_filter(app),
         KeyCode::Char('a') => {
             if app.filter.is_some() {
                 approve_selected(app)?;
@@ -731,6 +988,51 @@ fn browser_key(app: &mut App, code: KeyCode) -> Result<()> {
             delete_selected(app)?;
         }
         _ => app.confirm_delete = false,
+    }
+    Ok(())
+}
+
+fn toggle_review_filter(app: &mut App) {
+    app.filter = if app.filter.is_some() {
+        None
+    } else {
+        Some(Status::Proposed)
+    };
+    app.confirm_delete = false;
+    app.rebuild_items();
+    app.reset_selection_to_first();
+}
+
+/// Keys while the search line is active (`/`). The filter applies live on
+/// every keystroke; Enter accepts it, Esc clears it and exits.
+fn search_key(app: &mut App, code: KeyCode) -> Result<()> {
+    match code {
+        KeyCode::Enter => {
+            app.mode = Mode::Browser;
+        }
+        KeyCode::Esc => {
+            app.search = String::new();
+            app.mode = Mode::Browser;
+            app.confirm_delete = false;
+            app.rebuild_items();
+            app.reset_selection_to_first();
+        }
+        KeyCode::Backspace | KeyCode::Delete => {
+            if app.search.pop().is_some() {
+                app.rebuild_items();
+                if !app.selection_visible() {
+                    app.reset_selection_to_first();
+                }
+            }
+        }
+        KeyCode::Char(c) => {
+            app.search.push(c);
+            app.rebuild_items();
+            if !app.selection_visible() {
+                app.reset_selection_to_first();
+            }
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -797,7 +1099,10 @@ mod tests {
     }
 
     fn rel(source: &mut Issue, relation_type: RelationType, target: Uuid) {
-        source.relationships.push(Relationship { relation_type, target_id: target });
+        source.relationships.push(Relationship {
+            relation_type,
+            target_id: target,
+        });
     }
 
     fn pd(root: &str, issues: Vec<Issue>) -> ProjectData {
@@ -874,8 +1179,13 @@ mod tests {
     fn epic_progress_line() {
         let issues = project_a_issues();
         let counts = build_epic_counts(&issues);
-        let epic = issues.iter().find(|i| i.issue_type == IssueType::Epic).unwrap();
-        assert!(epic_line(epic, &counts).to_string().contains("The epic (0/1)"));
+        let epic = issues
+            .iter()
+            .find(|i| i.issue_type == IssueType::Epic)
+            .unwrap();
+        assert!(epic_line(epic, &counts)
+            .to_string()
+            .contains("The epic (0/1)"));
     }
 
     #[test]
@@ -886,14 +1196,20 @@ mod tests {
             .iter()
             .map(|l| l.to_string())
             .collect::<Vec<_>>();
-        let first = lines.iter().position(|l| l.contains("Description: first line")).expect("first");
+        let first = lines
+            .iter()
+            .position(|l| l.contains("Description: first line"))
+            .expect("first");
         assert!(lines[first + 1].contains("second line"), "{lines:?}");
     }
 
     #[test]
     fn detail_lines_show_relationships_both_ways() {
         let issues = project_a_issues();
-        let epic = issues.iter().find(|i| i.issue_type == IssueType::Epic).unwrap();
+        let epic = issues
+            .iter()
+            .find(|i| i.issue_type == IssueType::Epic)
+            .unwrap();
         let related: HashMap<Uuid, String> =
             issues.iter().map(|i| (i.id, i.title.clone())).collect();
         let incoming = build_incoming_relationships_map(&issues)
@@ -907,9 +1223,17 @@ mod tests {
                 )
             })
             .collect();
-        let lines = detail_lines(epic, &related, &incoming).iter().map(|l| l.to_string()).collect::<Vec<_>>();
+        let lines = detail_lines(epic, &related, &incoming)
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>();
         assert!(lines.iter().any(|l| l.contains("ID:")), "has id line");
-        assert!(lines.iter().any(|l| l.contains("part of") || l.contains("has part")), "has relationship");
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("part of") || l.contains("has part")),
+            "has relationship"
+        );
     }
 
     // ---- multi-project tree (r[project-registry]) ----
@@ -917,17 +1241,28 @@ mod tests {
     #[test]
     fn tree_nests_projects_above_epics() {
         let a = pd("/repos/alpha", project_a_issues());
-        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let b = pd(
+            "/repos/beta",
+            vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
+        );
         let app = app_with(vec![a, b]);
         assert_eq!(app.items.len(), 2, "two project nodes");
-        assert_eq!(app.items[0].children().len(), 1, "alpha subtree top level: one epic");
+        assert_eq!(
+            app.items[0].children().len(),
+            1,
+            "alpha subtree top level: one epic"
+        );
         assert_eq!(app.items[1].children().len(), 1, "beta: one orphan leaf");
     }
 
     #[test]
     fn project_line_shows_name_and_total() {
         let a = pd("/repos/alpha", project_a_issues());
-        assert!(project_line(&a).to_string().contains("alpha"), "name: {:?}", project_line(&a).to_string());
+        assert!(
+            project_line(&a).to_string().contains("alpha"),
+            "name: {:?}",
+            project_line(&a).to_string()
+        );
         assert!(project_line(&a).to_string().contains("(2)"), "total count");
     }
 
@@ -935,17 +1270,37 @@ mod tests {
     fn project_detail_lines_show_path_counts_and_mtime() {
         let mut a = pd("/repos/alpha", project_a_issues());
         a.index_mtime = Some(UNIX_EPOCH + Duration::from_secs(1_700_000_000));
-        let lines = project_detail_lines(&a).iter().map(|l| l.to_string()).collect::<Vec<_>>();
-        assert!(lines.iter().any(|l| l.contains("/repos/alpha")), "path: {lines:?}");
-        assert!(lines.iter().any(|l| l.contains("Issues: 2")), "total: {lines:?}");
-        assert!(lines.iter().any(|l| l.contains("todo 2")), "per-status counts: {lines:?}");
-        assert!(lines.iter().any(|l| l.contains("Last index update") || l.contains("unknown")), "mtime line");
+        let lines = project_detail_lines(&a)
+            .iter()
+            .map(|l| l.to_string())
+            .collect::<Vec<_>>();
+        assert!(
+            lines.iter().any(|l| l.contains("/repos/alpha")),
+            "path: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("Issues: 2")),
+            "total: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("todo 2")),
+            "per-status counts: {lines:?}"
+        );
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains("Last index update") || l.contains("unknown")),
+            "mtime line"
+        );
     }
 
     #[test]
     fn selection_across_projects_routes_to_own_project() {
         let a = pd("/repos/alpha", project_a_issues());
-        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let b = pd(
+            "/repos/beta",
+            vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
+        );
         let app = app_with(vec![a, b]);
         let b_uuid = Uuid::from_u128(0x3333);
         let (issue, pd_b) = {
@@ -964,8 +1319,15 @@ mod tests {
             (issue, project.root.clone())
         };
         assert_eq!(issue, "Orphan");
-        assert_eq!(pd_b, PathBuf::from("/repos/beta"), "mutations route to the issue's project");
-        assert!(app.project_of(&Uuid::from_u128(0x4444)).is_some(), "alpha issue found too");
+        assert_eq!(
+            pd_b,
+            PathBuf::from("/repos/beta"),
+            "mutations route to the issue's project"
+        );
+        assert!(
+            app.project_of(&Uuid::from_u128(0x4444)).is_some(),
+            "alpha issue found too"
+        );
     }
 
     #[test]
@@ -979,7 +1341,10 @@ mod tests {
             Uuid::from_u128(0x4444).to_string(),
             child_uuid.clone(),
         ]);
-        assert!(items_contain(&app.items, &child_uuid), "recursive containment");
+        assert!(
+            items_contain(&app.items, &child_uuid),
+            "recursive containment"
+        );
         assert!(app.selection_visible());
         app.tree_state.select(vec!["/repos/nowhere".to_string()]);
         assert!(!app.selection_visible(), "unknown root not visible");
@@ -988,15 +1353,27 @@ mod tests {
     #[test]
     fn proposed_filter_lists_per_project_and_hides_empty_projects() {
         let a = pd("/repos/alpha", project_a_issues()); // nothing proposed
-        let b = pd("/repos/beta", vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)]);
+        let b = pd(
+            "/repos/beta",
+            vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
+        );
         let mut app = app_with(vec![a, b]);
         app.filter = Some(Status::Proposed);
         app.rebuild_items();
         app.tree_state.open(vec!["/repos/beta".to_string()]);
         let rows = draw(&mut app);
-        assert!(rows.iter().any(|r| r.contains("beta")), "project with matches shown");
-        assert!(!rows.iter().any(|r| r.contains("alpha")), "empty project hidden under filter");
-        assert!(rows.iter().any(|r| r.contains("Orphan")), "proposed leaf visible");
+        assert!(
+            rows.iter().any(|r| r.contains("beta")),
+            "project with matches shown"
+        );
+        assert!(
+            !rows.iter().any(|r| r.contains("alpha")),
+            "empty project hidden under filter"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("Orphan")),
+            "proposed leaf visible"
+        );
     }
 
     #[test]
@@ -1033,9 +1410,18 @@ mod tests {
             Uuid::from_u128(0x4444).to_string(),
         ]);
         let rows = draw(&mut app);
-        assert!(rows.iter().any(|r| r.contains("alpha")), "project node: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("The epic")), "epic under project: {rows:?}");
-        assert!(rows.iter().any(|r| r.contains("Status:")), "detail fields: {rows:?}");
+        assert!(
+            rows.iter().any(|r| r.contains("alpha")),
+            "project node: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("The epic")),
+            "epic under project: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("Status:")),
+            "detail fields: {rows:?}"
+        );
     }
 
     #[test]
@@ -1049,16 +1435,28 @@ mod tests {
         };
         // Startup auto-opens down to the first issue (selection visible).
         let rows_open = tree_side(&draw(&mut app));
-        assert!(rows_open.iter().any(|r| r.contains("The epic")), "project auto-opened: {rows_open:?}");
-        assert!(rows_open.iter().any(|r| r.contains("Todo child")), "first issue selected & visible");
+        assert!(
+            rows_open.iter().any(|r| r.contains("The epic")),
+            "project auto-opened: {rows_open:?}"
+        );
+        assert!(
+            rows_open.iter().any(|r| r.contains("Todo child")),
+            "first issue selected & visible"
+        );
         app.tree_state.key_up(); // move onto the epic
         let _ = draw(&mut app);
         app.tree_state.key_left(); // fold the (selected, open) epic
         let rows_folded = tree_side(&draw(&mut app));
-        assert!(!rows_folded.iter().any(|r| r.contains("Todo child")), "Left folds epic");
+        assert!(
+            !rows_folded.iter().any(|r| r.contains("Todo child")),
+            "Left folds epic"
+        );
         app.tree_state.key_right(); // Right re-unfolds the epic
         let rows_unfolded = tree_side(&draw(&mut app));
-        assert!(rows_unfolded.iter().any(|r| r.contains("Todo child")), "Right unfolds epic");
+        assert!(
+            rows_unfolded.iter().any(|r| r.contains("Todo child")),
+            "Right unfolds epic"
+        );
     }
 
     #[test]
@@ -1068,9 +1466,263 @@ mod tests {
         app.mode = Mode::Help;
         let rows = draw(&mut app);
         let joined = rows.join("\n");
-        assert!(joined.contains("help (any key to close)"), "help shown: {joined}");
-        let under: Vec<&String> = rows.iter().enumerate().filter(|(i, _)| (7..=16).contains(i)).map(|(_, r)| r).collect();
-        assert!(under.iter().any(|r| r.contains("move")), "help body: {under:?}");
-        assert!(!under.iter().any(|r| r.contains("No selection") || r.contains("Status:")), "browser leaked through: {under:?}");
+        assert!(
+            joined.contains("help (any key to close)"),
+            "help shown: {joined}"
+        );
+        let under: Vec<&String> = rows
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| (7..=16).contains(i))
+            .map(|(_, r)| r)
+            .collect();
+        assert!(
+            under.iter().any(|r| r.contains("move")),
+            "help body: {under:?}"
+        );
+        assert!(
+            !under
+                .iter()
+                .any(|r| r.contains("No selection") || r.contains("Status:")),
+            "browser leaked through: {under:?}"
+        );
+    }
+
+    // ---- search query (r[tui-search]) ----
+
+    #[test]
+    fn parse_search_query_splits_terms_and_classifies_prefixes() {
+        let q = parse_search_query("pane edit s:t t:bug s:!d");
+        assert_eq!(
+            q.terms,
+            vec![
+                QueryTerm::Text("pane".to_string()),
+                QueryTerm::Text("edit".to_string()),
+                QueryTerm::Status(Status::Todo, false),
+                QueryTerm::Type(IssueType::Bug, false),
+                QueryTerm::Status(Status::Done, true),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_search_query_handles_case_aliases_runs_and_dead_terms() {
+        assert_eq!(
+            parse_search_query("S:T t:UX").terms,
+            vec![
+                QueryTerm::Status(Status::Todo, false),
+                QueryTerm::Type(IssueType::UxProblem, false),
+            ]
+        );
+        // Non-alphanumerics split a bare term into independent words.
+        assert_eq!(
+            parse_search_query("pane-edit").terms,
+            vec![
+                QueryTerm::Text("pane".to_string()),
+                QueryTerm::Text("edit".to_string())
+            ]
+        );
+        // Full status and type names work too.
+        assert_eq!(
+            parse_search_query("s:in_progress t:milestone").terms,
+            vec![
+                QueryTerm::Status(Status::InProgress, false),
+                QueryTerm::Type(IssueType::Milestone, false),
+            ]
+        );
+        // Unparseable specs and bare punctuation match nothing.
+        assert_eq!(parse_search_query("s:xyz").terms, vec![QueryTerm::Dead]);
+        assert_eq!(
+            parse_search_query("t:9 s:!").terms,
+            vec![QueryTerm::Dead, QueryTerm::Dead]
+        );
+        assert_eq!(parse_search_query("---").terms, vec![QueryTerm::Dead]);
+        // Empty and whitespace-only queries compile to no terms (unfiltered).
+        assert_eq!(parse_search_query("").terms, vec![]);
+        assert_eq!(parse_search_query("   ").terms, vec![]);
+    }
+
+    #[test]
+    fn text_term_matches_whole_words_case_insensitively() {
+        assert!(text_matches("pane", "Edit pane"));
+        assert!(text_matches("edit", "Edit pane"));
+        assert!(!text_matches("pan", "Edit pane"), "no substring matching");
+        assert!(text_matches("bug", "Login bug (mobile)"));
+        assert!(text_matches("bug", "Login bug/mobile"));
+        assert!(!text_matches("", "anything"), "empty term never matches");
+    }
+
+    #[test]
+    fn text_term_matches_short_id_by_prefix() {
+        let short_id = "cb08a6e4";
+        assert!(short_id_matches(short_id, "cb"));
+        assert!(short_id_matches(short_id, "cb0"));
+        assert!(
+            short_id_matches(short_id, "CB08A6E4"),
+            "case-insensitive id match"
+        );
+        assert!(!short_id_matches(short_id, "ab"));
+        assert!(!short_id_matches(short_id, ""));
+    }
+
+    fn issue_with_id(title: &str, description: Option<&str>) -> Issue {
+        let mut i = issue(0x2222, title, Status::Todo, IssueType::Bug);
+        i.id = Uuid::parse_str("cb08a6e4-1111-4222-8333-000000000001").unwrap();
+        i.description = description.map(|d| d.to_string());
+        i
+    }
+
+    #[test]
+    fn issue_matches_query_ands_all_terms() {
+        let i = issue_with_id("Edit pane", Some("Run the linter"));
+        assert!(issue_matches_query(&i, &parse_search_query("pane edit")));
+        assert!(
+            issue_matches_query(&i, &parse_search_query("edit pane")),
+            "term order irrelevant"
+        );
+        assert!(!issue_matches_query(
+            &i,
+            &parse_search_query("pane linter nosuch")
+        ));
+        assert!(
+            issue_matches_query(&i, &parse_search_query("cb0")),
+            "short-id prefix"
+        );
+        assert!(
+            issue_matches_query(&i, &parse_search_query("linter")),
+            "description word"
+        );
+        assert!(issue_matches_query(&i, &parse_search_query("s:t cb0")));
+        assert!(!issue_matches_query(&i, &parse_search_query("s:done")));
+        assert!(issue_matches_query(&i, &parse_search_query("s:!done")));
+        assert!(issue_matches_query(&i, &parse_search_query("t:bug")));
+        assert!(!issue_matches_query(&i, &parse_search_query("t:epic")));
+        assert!(issue_matches_query(&i, &parse_search_query("t:!epic")));
+        assert!(
+            !issue_matches_query(&i, &parse_search_query("s:x")),
+            "dead term matches nothing"
+        );
+        // A term may match different fields than another term.
+        assert!(issue_matches_query(
+            &i,
+            &parse_search_query("linter t:bug s:todo")
+        ));
+        // No terms: every issue matches (no filter).
+        assert!(issue_matches_query(&i, &parse_search_query("")));
+    }
+
+    #[test]
+    fn tree_items_flattens_matching_issues_under_search() {
+        let issues = project_a_issues(); // "Todo child" (bug, todo) + "The epic" (epic, todo)
+        let counts = build_epic_counts(&issues);
+        // A text term matches only the child: "The epic" has no "todo" word.
+        let flat = tree_items(&issues, &counts, None, "todo").unwrap();
+        assert_eq!(flat.len(), 1, "only 'Todo child' contains the word 'todo'");
+        assert!(
+            flat.iter().all(|c| c.children().is_empty()),
+            "flat leaves under search"
+        );
+        // A status term matches both issues.
+        let by_status = tree_items(&issues, &counts, None, "s:todo").unwrap();
+        assert_eq!(by_status.len(), 2, "both issues are todo: {by_status:?}");
+        let none = tree_items(&issues, &counts, None, "zzz").unwrap();
+        assert!(none.is_empty(), "no match, no rows");
+        let tree = tree_items(&issues, &counts, None, "").unwrap();
+        assert!(
+            tree.iter().any(|c| !c.children().is_empty()),
+            "empty query keeps the tree"
+        );
+        // The review filter still combines with search (AND).
+        let combined = tree_items(&issues, &counts, Some(Status::Proposed), "s:todo").unwrap();
+        assert!(
+            combined.is_empty(),
+            "proposed AND todo matches nothing here"
+        );
+    }
+
+    #[test]
+    fn search_mode_shows_prompt_and_applies_live() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
+        app.mode = Mode::Search;
+        app.search = "todo".to_string();
+        app.rebuild_items();
+        let rows = draw(&mut app);
+        assert!(
+            rows.iter().any(|r| r.contains("search: todo")),
+            "prompt shown: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("Todo child")),
+            "match listed: {rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("The epic")),
+            "second match listed: {rows:?}"
+        );
+        // Empty search drops the filter: tree shape returns.
+        app.search = "zzz".to_string();
+        app.rebuild_items();
+        assert!(app.items.is_empty(), "no matches anywhere");
+    }
+
+    #[test]
+    fn search_key_enter_keeps_filter_esc_clears() {
+        let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
+        app.mode = Mode::Search;
+        app.search = "todo".to_string();
+        app.rebuild_items();
+        search_key(&mut app, KeyCode::Enter).unwrap();
+        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.search, "todo", "Enter keeps the active filter");
+        // Esc clears the search and restores the tree.
+        app.mode = Mode::Search;
+        search_key(&mut app, KeyCode::Esc).unwrap();
+        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.search, "");
+        assert_eq!(
+            app.items[0].children().len(),
+            1,
+            "project node back to one epic subtree"
+        );
+        // Backspace edits the query.
+        app.mode = Mode::Search;
+        app.search = "todo".to_string();
+        search_key(&mut app, KeyCode::Backspace).unwrap();
+        assert_eq!(app.search, "tod");
+    }
+
+    // ---- stale background cells (r[tui-background]) ----
+
+    #[test]
+    fn first_frame_does_not_leak_previous_terminal_contents() {
+        // Simulate a terminal whose alternate screen still shows earlier
+        // content: seed the backend with "Z" before the app's first draw.
+        let issues = vec![
+            issue(0x1111, "Alpha", Status::Todo, IssueType::Bug),
+            issue(0x2222, "Beta", Status::Todo, IssueType::Bug),
+            issue(0x3333, "Gamma", Status::Todo, IssueType::Bug),
+        ];
+        let mut app = app_with(vec![pd("/repos/alpha", issues)]);
+        let z_wall: Vec<String> = (0..24).map(|_| "Z".repeat(90)).collect();
+        let backend = TestBackend::with_lines(z_wall);
+        let mut terminal = Terminal::new(backend).unwrap();
+        // run() clears the screen once after Terminal::new; without this the
+        // first frame only repaints cells its widgets touch, and unpainted
+        // cells would still show whatever the terminal held before the TUI.
+        terminal.clear().unwrap();
+        if !app.selection_visible() {
+            app.reset_selection_to_first();
+        }
+        terminal.draw(|f| render_app(f, &mut app)).unwrap();
+        let buf = terminal.backend().buffer().clone();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                assert!(
+                    buf[(x, y)].symbol() != "Z",
+                    "stale previous-terminal cell at ({x},{y})"
+                );
+            }
+        }
     }
 }

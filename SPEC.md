@@ -324,7 +324,8 @@ r[tui]
 **Browser (`pebbles tui`):**
 - Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp); multi-line descriptions render as separate lines and long lines word-wrap.
 - Tree and filter lists sort by status (proposed, todo, in progress, blocked, done), then by type (bug, design, others), newest first within the same status+type: users read from the top.
-- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; `?` toggles an opaque help overlay; `/` opens the search line (r[tui-search]); `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Every draw clears the full frame and the (alternate) screen is cleared once at startup: cells left behind by previous terminal contents never show through unpainted areas (r[tui-background]).
 - Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
 
 r[tui-review]
@@ -333,6 +334,19 @@ r[tui-review]
 - `a` approves the selected proposed issue (r[approve-command]); `d` then `y` closes it by deleting it (r[no-broken-links] guards apply and surface as error messages). Outside the filter, `a`/`d` only hint at the filter.
 - After any mutation the issue set reloads and the selection moves to the first visible item, so `a`/`d` always act on what is listed.
 - Open question: whether closing a proposal should become a dedicated rejected status instead of delete (tracked in the review-queue issue).
+
+r[tui-background]
+**Clean background:** the (alternate) screen is cleared once at startup (escape-sequence clear, so it never waits on a cursor-position query that no terminal answers) and every rendered frame clears the whole frame first. Unpainted cells therefore always come out blank instead of showing whatever the terminal displayed before the TUI started.
+
+Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](src/tui.rs), [tui e2e](tests/tui_e2e.rs)
+
+r[tui-search]
+**Quick search (key `/` opens the search line; search applies live as you type):**
+- Enter accepts the query and leaves the search line; the tree title then shows the active query. Esc (in the search line or with an active search) clears it. Backspace edits the query while typing.
+- The query is a list of whitespace-separated terms; every term must match (AND). While active, the left pane lists matching issues flat per project (like the review filter), and projects with no matches are hidden. An empty query shows the full tree.
+- A bare term is an exact-match filter against the issue's short id, title, and description: case-insensitive prefix match against the 8-char short id, whole-word (alphanumeric run) match against title and description. Non-alphanumerics inside a bare term split it into independent words, so `pane edit` matches a title of "Edit pane" (terms are order-independent words, not substrings).
+- `s:` filters by status, `t:` by issue type, using one-letter codes or full names: status `p`/proposed, `t`/todo, `i`/in_progress (also `inprogress`, `in-progress`), `b`/blocked, `d`/done; type `bug`, `ux` (also `ux_problem`), `uc` (also `usecase`), `des` (also `design`), `val` (also `validation`), `epic`, `mile` (also `milestone`). A leading `!` negates: `s:!d` shows anything but done, `t:!bug` anything but bugs. Prefixes are case-insensitive (`S:T` equals `s:t`).
+- An unparseable spec (`s:x`, `t:9`) or a bare punctuation-only term matches no issue.
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit + TestBackend tests](src/tui.rs)
 
@@ -345,7 +359,7 @@ r[project-registry]
 - Ordering: projects sort by the modification time of their `.pebbles/index.json`, most recent first; a project without an index sorts last; ties order by directory name.
 - The TUI tree shows projects as the top level, above epics. A project node carries its total issue count and unfolds into that project's epic/orphan structure. The detail pane for a project node shows its path, per-status issue counts, and the last index modification time.
 - Mutations (approve, close) route to the issue's own project: each project keeps its own jj repo and per-operation commits (or `.no_jj` skips them in tests).
-- With a status filter active, only projects that have matching issues are listed.
+- With a filter active (status review filter or a search query), only projects that have matching issues are listed.
 - Implementation: [`projects::discover()`](src/projects.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit tests](src/projects.rs)
 
 ### Timestamp Updates

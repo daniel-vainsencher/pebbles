@@ -1,6 +1,6 @@
 //! TUI end-to-end tests via termlens (pebble: termlens evaluation).
 //! Real binary in a PTY against a throwaway tracker (PEBBLES_DB_PATH + .no_jj).
-use termlens::{Key, Terminal};
+use termlens::{Key, Screen, Terminal};
 
 use std::fs;
 use std::path::PathBuf;
@@ -36,10 +36,38 @@ fn fixture_with_issues() -> (tempfile::TempDir, PathBuf) {
         fs::write(pebbles.join("issues").join(&file), issue).expect("issue file");
         format!("{{\"id\":\"{id}\",\"file_name\":\"{file}\"}},")
     };
-    index.push_str(&mk("auth-epic", 0x44444444, "epic", "todo", "Auth epic", ""));
-    index.push_str(&mk("login-bug", 0x22222222, "bug", "todo", "Login bug", "part"));
-    index.push_str(&mk("proposed-idea", 0x33333333, "usecase", "proposed", "Fresh idea", ""));
-    index.push_str(&mk("other-idea", 0x55555555, "design", "proposed", "Other idea", ""));
+    index.push_str(&mk(
+        "auth-epic",
+        0x44444444,
+        "epic",
+        "todo",
+        "Auth epic",
+        "",
+    ));
+    index.push_str(&mk(
+        "login-bug",
+        0x22222222,
+        "bug",
+        "todo",
+        "Login bug",
+        "part",
+    ));
+    index.push_str(&mk(
+        "proposed-idea",
+        0x33333333,
+        "usecase",
+        "proposed",
+        "Fresh idea",
+        "",
+    ));
+    index.push_str(&mk(
+        "other-idea",
+        0x55555555,
+        "design",
+        "proposed",
+        "Other idea",
+        "",
+    ));
     index.pop(); // trailing comma
     index.push_str("]}");
     fs::write(pebbles.join("index.json"), index).expect("index");
@@ -105,17 +133,26 @@ fn tui_browse_approve_quit() -> termlens::Result<()> {
         .find(|f| f.contains("other-idea"))
         .expect("approved issue file exists");
     let content = fs::read_to_string(root.join(".pebbles/issues").join(approved)).unwrap();
-    assert!(content.contains("\"status\": \"todo\""), "approved: {content}");
+    assert!(
+        content.contains("\"status\": \"todo\""),
+        "approved: {content}"
+    );
 
     // The closed (deleted) proposal is gone from disk and the index.
-    assert!(!files.iter().any(|f| f.contains("proposed-idea")), "closed issue deleted: {files:?}");
+    assert!(
+        !files.iter().any(|f| f.contains("proposed-idea")),
+        "closed issue deleted: {files:?}"
+    );
     let index = fs::read_to_string(root.join(".pebbles/index.json")).unwrap();
-    assert!(!index.contains("33333333-"), "index no longer lists the deleted issue: {index}");
+    assert!(
+        !index.contains("33333333-"),
+        "index no longer lists the deleted issue: {index}"
+    );
     Ok(())
 }
 
 /// Build a project (`.pebbles` + `.no_jj`) from (name, id, type, status, title, part_of_epic) rows.
-fn build_project(root: &PathBuf, rows: &[( &str, u128, &str, &str, &str, bool)]) {
+fn build_project(root: &PathBuf, rows: &[(&str, u128, &str, &str, &str, bool)]) {
     let pebbles = root.join(".pebbles");
     fs::create_dir_all(pebbles.join("issues")).expect("issues dir");
     fs::write(pebbles.join(".no_jj"), "").expect("no_jj marker");
@@ -158,18 +195,30 @@ fn build_project(root: &PathBuf, rows: &[( &str, u128, &str, &str, &str, bool)])
 
 #[test]
 fn tui_multi_project_lists_and_mutates_in_own_project() -> termlens::Result<()> {
-    let tempdir = tempfile::Builder::new().prefix("pebbles-tui-mp-").tempdir().expect("tempdir");
+    let tempdir = tempfile::Builder::new()
+        .prefix("pebbles-tui-mp-")
+        .tempdir()
+        .expect("tempdir");
     let home = tempdir.path().to_path_buf();
 
     // Older project: epic + todo child. Written first, so its index mtime is older.
-    build_project(&home.join("repos/older-proj"), &[
-        ("todo-child", 0x22222222, "bug", "todo", "Login bug", true),
-    ]);
+    build_project(
+        &home.join("repos/older-proj"),
+        &[("todo-child", 0x22222222, "bug", "todo", "Login bug", true)],
+    );
     std::thread::sleep(std::time::Duration::from_millis(50));
     // Newer project: one proposed issue. Its index mtime is newest -> listed first.
-    build_project(&home.join("repos/newer-proj"), &[
-        ("proposed-idea", 0x33333333, "usecase", "proposed", "Fresh idea", false),
-    ]);
+    build_project(
+        &home.join("repos/newer-proj"),
+        &[(
+            "proposed-idea",
+            0x33333333,
+            "usecase",
+            "proposed",
+            "Fresh idea",
+            false,
+        )],
+    );
 
     let mut t = Terminal::builder()
         .size(90, 24)
@@ -211,10 +260,184 @@ fn tui_multi_project_lists_and_mutates_in_own_project() -> termlens::Result<()> 
         .iter()
         .find(|f| f.contains("fresh-idea"))
         .unwrap_or_else(|| panic!("newer-proj files: {files:?}"));
-    let content = fs::read_to_string(home.join("repos/newer-proj/.pebbles/issues").join(approved)).unwrap();
-    assert!(content.contains("\"status\": \"todo\""), "approved in newer-proj: {content}");
+    let content =
+        fs::read_to_string(home.join("repos/newer-proj/.pebbles/issues").join(approved)).unwrap();
+    assert!(
+        content.contains("\"status\": \"todo\""),
+        "approved in newer-proj: {content}"
+    );
 
-    let older_index = fs::read_to_string(home.join("repos/older-proj/.pebbles/index.json")).unwrap();
-    assert!(older_index.contains("22222222"), "older project untouched: {older_index}");
+    let older_index =
+        fs::read_to_string(home.join("repos/older-proj/.pebbles/index.json")).unwrap();
+    assert!(
+        older_index.contains("22222222"),
+        "older project untouched: {older_index}"
+    );
+    Ok(())
+}
+
+#[test]
+fn tui_search_filters_and_clears() -> termlens::Result<()> {
+    let (_tempdir, root) = fixture_with_issues();
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&root)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    t.wait_until(|s| s.contains("Auth epic"))?;
+
+    // Multi-word terms are independent and order-insensitive: "idea fresh"
+    // (words in the reverse order of the title) still finds Fresh idea.
+    t.send(Key::Char('/'))?;
+    t.wait_until(|s| s.row_text(23).trim_end() == "search:")?;
+    for c in "idea fresh".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    t.wait_until(|s| {
+        s.contains("search: idea fresh")
+            && !s.contains("Other idea")
+            && !s.contains("Login bug")
+            && s.row_text(23).trim_end().is_empty()
+    })?;
+
+    // Esc clears the search and restores everything.
+    t.send(Key::Char('/'))?;
+    t.wait_until(|s| s.row_text(23).contains("search: idea fresh"))?;
+    t.send(Key::Esc)?;
+    t.wait_until(|s| s.contains("Fresh idea") && s.contains("Other idea"))?;
+
+    // s:t keeps only todo issues (Login bug + Auth epic).
+    t.send(Key::Char('/'))?;
+    t.wait_until(|s| s.row_text(23).trim_end() == "search:")?;
+    for c in "s:t".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    t.wait_until(|s| {
+        s.contains("Login bug")
+            && s.contains("Auth epic")
+            && !s.contains("Fresh idea")
+            && s.row_text(23).trim_end().is_empty()
+    })?;
+
+    // Quit, terminal restored.
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
+    Ok(())
+}
+
+/// Poll `pred` on the live screen for a few seconds; returns whether it ever
+/// held, printing the screen (with `label`) on failure. termlens's PTY
+/// delivers rapid key bursts unreliably, so bursts stay short and every state
+/// transition is polled instead of assumed.
+fn settled(t: &mut Terminal, label: &str, mut predicate: impl FnMut(&Screen) -> bool) -> bool {
+    for _ in 0..60 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if predicate(&t.screen()) {
+            return true;
+        }
+    }
+    eprintln!("{label} did not settle:\n{}", t.screen());
+    false
+}
+
+/// The left tree pane (rows 1..22, first 40 columns) as text, so filter
+/// assertions check the list and not the detail pane (which may reference
+/// hidden issues in relationship lines).
+fn tree_text(s: &Screen) -> String {
+    let mut out = String::new();
+    for y in 1..=22 {
+        out.push_str(&s.row_text(y).chars().take(40).collect::<String>());
+        out.push('\n');
+    }
+    out
+}
+
+#[test]
+fn tui_search_type_prefixes_and_negation() -> termlens::Result<()> {
+    let (_tempdir, root) = fixture_with_issues();
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&root)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    t.wait_until(|s| s.contains("Auth epic"))?;
+
+    // t:bug narrows to just the bug.
+    t.send(Key::Char('/'))?;
+    t.wait_until(|s| s.row_text(23).trim_end() == "search:")?;
+    for c in "t:bug".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "t:bug committed", |s| {
+            s.contains("search: t:bug")
+                && tree_text(s).contains("Login bug")
+                && !tree_text(s).contains("Auth epic")
+                && !tree_text(s).contains("Fresh idea")
+                && !tree_text(s).contains("Other idea")
+                && s.row_text(23).trim_end().is_empty()
+        }),
+        "t:bug committed"
+    );
+
+    // Backspace removes the committed query, then s:!d excludes done
+    // (nothing here is done, so everything comes back).
+    t.send(Key::Char('/'))?;
+    assert!(
+        settled(&mut t, "edit-t:bug prompt", |s| s
+            .row_text(23)
+            .contains("search: t:bug")),
+        "edit-t:bug prompt"
+    );
+    for _ in 0..6 {
+        t.send(Key::Backspace)?;
+        std::thread::sleep(std::time::Duration::from_millis(400));
+    }
+    assert!(
+        settled(&mut t, "query cleared", |s| s.row_text(23).trim_end()
+            == "search:"),
+        "query cleared"
+    );
+    for c in "s:!d".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "s:!d committed", |s| {
+            s.contains("search: s:!d")
+                && s.contains("Auth epic")
+                && s.contains("Login bug")
+                && s.contains("Fresh idea")
+                && s.contains("Other idea")
+                && s.row_text(23).trim_end().is_empty()
+        }),
+        "s:!d committed"
+    );
+
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
     Ok(())
 }
