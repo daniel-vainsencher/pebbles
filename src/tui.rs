@@ -120,14 +120,14 @@ fn is_orphan(issue: &Issue) -> bool {
 /// when every term in the query matches.
 #[derive(Clone, Debug, PartialEq)]
 pub enum QueryTerm {
-    /// Bare alphanumerics: whole-word match against title/description, or
-    /// case-insensitive prefix match against the issue's short id.
-    Text(String),
+    /// Bare alphanumerics: case-insensitive exact-substring match against the
+    /// short id, title, or description; the bool negates (`!pane` = no pane).
+    Text(String, bool),
     /// `s:` status filter; the bool negates (`s:!d` = anything but done).
     Status(Status, bool),
     /// `t:` type filter; the bool negates (`t:!bug` = anything but bugs).
     Type(IssueType, bool),
-    /// Unparseable spec (`s:x`, `t:9`, bare punctuation): matches nothing.
+    /// Unparseable spec (`s:x`, `t:9`, bare `!`): matches nothing.
     Dead,
 }
 
@@ -163,24 +163,6 @@ fn parse_type_code(s: &str) -> Option<IssueType> {
     }
 }
 
-/// Split a token into maximal alphanumeric runs: "pane-edit" -> ["pane", "edit"].
-fn text_runs(token: &str) -> Vec<String> {
-    let mut runs: Vec<String> = Vec::new();
-    let mut run: String = String::new();
-    for c in token.chars() {
-        if c.is_alphanumeric() {
-            run.push(c);
-        } else if !run.is_empty() {
-            runs.push(run);
-            run = String::new();
-        }
-    }
-    if !run.is_empty() {
-        runs.push(run);
-    }
-    runs
-}
-
 /// Split a `s:`/`t:` value into an optional `!` negation and the code.
 fn split_negation(value: &str) -> (bool, &str) {
     if let Some(rest) = value.strip_prefix("!") {
@@ -207,61 +189,52 @@ pub fn parse_search_query(raw: &str) -> SearchQuery {
                 Some(issue_type) => terms.push(QueryTerm::Type(issue_type, negated)),
                 None => terms.push(QueryTerm::Dead),
             }
-        } else {
-            let runs = text_runs(token);
-            if runs.is_empty() {
-                terms.push(QueryTerm::Dead); // bare punctuation matches nothing
+        } else if let Some(rest) = token.strip_prefix("!") {
+            // A bare `!` with nothing after it matches nothing (like s:x).
+            if rest.is_empty() {
+                terms.push(QueryTerm::Dead);
             } else {
-                for run in runs {
-                    terms.push(QueryTerm::Text(run));
-                }
+                terms.push(QueryTerm::Text(rest.to_string(), true));
             }
+        } else {
+            terms.push(QueryTerm::Text(token.to_string(), false));
         }
     }
     SearchQuery { terms }
 }
 
-/// Whole-word, case-insensitive match of `term` inside `text`: the term must
-/// appear as a maximal alphanumeric run, so "pan" never matches "pane".
+/// Case-insensitive exact-substring match of `term` inside `text`: "pan"
+/// finds "pane"; "pane edit" is two independent terms which the title
+/// "Edit pane" contains in either order.
 fn text_matches(term: &str, text: &str) -> bool {
-    if term.is_empty() {
-        return false;
-    }
-    let term_lower = term.to_lowercase();
-    let mut word: String = String::new();
-    for c in text.chars() {
-        if c.is_alphanumeric() {
-            word.push(c);
-        } else if !word.is_empty() {
-            if word.to_lowercase() == term_lower {
-                return true;
-            }
-            word = String::new();
-        }
-    }
-    !word.is_empty() && word.to_lowercase() == term_lower
+    !term.is_empty() && text.to_lowercase().contains(term.to_lowercase().as_str())
 }
 
-/// Case-insensitive prefix match against the 8-char short id: "cb" finds cb08a6e4.
+/// Case-insensitive exact-substring match against the 8-char short id.
 fn short_id_matches(short_id: &str, term: &str) -> bool {
     !term.is_empty()
         && short_id
             .to_lowercase()
-            .starts_with(term.to_lowercase().as_str())
+            .contains(term.to_lowercase().as_str())
 }
 
 fn term_matches(issue: &Issue, term: &QueryTerm) -> bool {
     match term {
-        QueryTerm::Text(text) => {
+        QueryTerm::Text(text, negated) => {
             let description_matches = if let Some(d) = &issue.description {
                 text_matches(text.as_str(), d.as_str())
             } else {
                 false
             };
-            !text.is_empty()
+            let hit = !text.is_empty()
                 && (short_id_matches(&issue.short_id(), text.as_str())
                     || text_matches(text.as_str(), issue.title.as_str())
-                    || description_matches)
+                    || description_matches);
+            if *negated {
+                !hit
+            } else {
+                hit
+            }
         }
         QueryTerm::Status(status, negated) => {
             let equal = issue.status == *status;
@@ -457,13 +430,26 @@ pub struct ProjectData {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mode {
     Browser,
-    /// A search query is being typed at the message line (`/`).
-    Search,
     Help,
+}
+
+/// Which browser pane currently owns the keyboard (Tab / BackTab cycle).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Focus {
+    /// The left tree: move/select, `r` review filter, `a`/`d` mutations.
+    Tree,
+    /// The search line at the bottom: keys edit the query (`/`).
+    Search,
+    /// The right detail pane: `j`/`k` scroll, `Esc` returns to the tree.
+    Detail,
 }
 
 pub struct App {
     pub mode: Mode,
+    /// Which pane owns the keyboard while browsing (r[tui-focus]).
+    pub focus: Focus,
+    /// Scroll offset of the detail pane while it has focus.
+    pub detail_offset: usize,
     pub filter: Option<Status>,
     /// Raw search line; non-empty means the search filter is active.
     pub search: String,
@@ -540,6 +526,8 @@ impl App {
     pub fn new() -> Self {
         App {
             mode: Mode::Browser,
+            focus: Focus::Tree,
+            detail_offset: 0,
             filter: None,
             search: String::new(),
             projects: Vec::new(),
@@ -721,11 +709,15 @@ fn full_path_leaf(leaf: Option<String>, prefix: &[String]) -> Vec<String> {
 // ---------------------------------------------------------------------------
 
 const HELP_LINES: &[&str] = &[
-    "j/k or Up/Down  move",
+    "j/k or Up/Down  tree: move; detail: scroll",
+    "Tab/BackTab     switch focus: tree / search / detail",
     "Right           unfold (or move to first child)",
     "Left            fold (or move to parent)",
-    "Enter or f      toggle fold",
-    "/               search (filter pebbles; Enter accepts, Esc clears)",
+    "Enter or f      toggle fold (tree)",
+    "/               focus the search line; live filter",
+    "                typing: Enter accepts, Esc clears,",
+    "                Backspace edits; s:!d = status not done,",
+    "                t:bug = type bug, !term = not term",
     "r               toggle the proposed-issues filter",
     "a               approve selected (in proposed filter)",
     "d then y        close selected = delete (in filter)",
@@ -739,13 +731,13 @@ pub fn render_app(f: &mut Frame, app: &mut App) {
     // every unpainted cell comes out blank (r[tui-background]).
     f.render_widget(Clear, f.area());
     match app.mode {
-        Mode::Browser | Mode::Search => render_browser(f, app),
+        Mode::Browser => render_browser(f, app),
         Mode::Help => render_help(f, app),
     }
 }
 
 fn message_paragraph(app: &App) -> Paragraph<'static> {
-    let text = if app.mode == Mode::Search {
+    let text = if app.focus == Focus::Search {
         format!("search: {}", app.search)
     } else {
         app.message.clone().unwrap_or_default()
@@ -784,14 +776,28 @@ fn render_browser(f: &mut Frame, app: &mut App) {
         Layout::horizontal([Constraint::Percentage(40), Constraint::Percentage(60)])
             .areas(main_area);
 
+    // The focused pane's border is cyan; the other stays neutral. The search
+    // line is indicated by the prompt shown in the message row instead.
+    let focus_style = Style::new().fg(Color::Cyan);
+    let tree_block = match app.focus {
+        Focus::Tree => Block::bordered()
+            .title(tree_title(app))
+            .border_style(focus_style),
+        _ => Block::bordered().title(tree_title(app)),
+    };
+    let detail_block = match app.focus {
+        Focus::Detail => Block::bordered().border_style(focus_style),
+        _ => Block::bordered(),
+    };
+
     let tree = Tree::new(&app.items)
         .expect("unique identifiers")
-        .block(Block::bordered().title(tree_title(app)))
+        .block(tree_block)
         .highlight_symbol("> ")
         .highlight_style(Style::new().bg(Color::Rgb(60, 60, 60)));
     f.render_stateful_widget(tree, tree_area, &mut app.tree_state);
 
-    let (detail_lines, title) = if let Some((issue, pd)) = app.selected_with_project() {
+    let (all_lines, title) = if let Some((issue, pd)) = app.selected_with_project() {
         (
             detail_lines(issue, &pd.related_titles, &pd.incoming),
             issue.title.clone(),
@@ -801,9 +807,19 @@ fn render_browser(f: &mut Frame, app: &mut App) {
     } else {
         (vec![Line::raw("No selection")], "detail".to_string())
     };
-    let detail = Paragraph::new(detail_lines)
+    // The detail pane scrolls while it has focus (j/k): render a window of
+    // the lines instead of always showing the head.
+    let visible = detail_area.height.saturating_sub(2) as usize; // borders
+    let offset = app.detail_offset.min(all_lines.len().saturating_sub(1));
+    let window: Vec<Line<'static>> = all_lines
+        .iter()
+        .skip(offset)
+        .take(visible.max(1))
+        .cloned()
+        .collect();
+    let detail = Paragraph::new(window)
         .wrap(ratatui::widgets::Wrap { trim: false })
-        .block(Block::bordered().title(title));
+        .block(detail_block.title(title));
     f.render_widget(detail, detail_area);
     f.render_widget(message_paragraph(app), message_area);
 }
@@ -922,8 +938,11 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) 
                 continue;
             }
             match app.mode {
-                Mode::Browser => browser_key(app, key.code)?,
-                Mode::Search => search_key(app, key.code)?,
+                Mode::Browser => match app.focus {
+                    Focus::Tree => tree_key(app, key.code)?,
+                    Focus::Search => search_key(app, key.code)?,
+                    Focus::Detail => detail_key(app, key.code)?,
+                },
                 Mode::Help => app.mode = Mode::Browser,
             }
         }
@@ -933,26 +952,34 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) 
     }
 }
 
-fn browser_key(app: &mut App, code: KeyCode) -> Result<()> {
+/// Keys while the tree pane has focus (r[tui-focus]).
+fn tree_key(app: &mut App, code: KeyCode) -> Result<()> {
     match code {
         KeyCode::Char('q') => app.should_quit = true,
         KeyCode::Char('j') | KeyCode::Down => {
+            app.detail_offset = 0;
             app.tree_state.key_down();
         }
         KeyCode::Char('k') | KeyCode::Up => {
+            app.detail_offset = 0;
             app.tree_state.key_up();
         }
         KeyCode::Right => {
+            app.detail_offset = 0;
             app.tree_state.key_right();
         }
         KeyCode::Left => {
+            app.detail_offset = 0;
             app.tree_state.key_left();
         }
         KeyCode::Enter | KeyCode::Char('f') => {
+            app.detail_offset = 0;
             app.tree_state.toggle_selected();
         }
+        KeyCode::Tab => app.focus = Focus::Search,
+        KeyCode::BackTab => app.focus = Focus::Detail,
         KeyCode::Char('?') => app.mode = Mode::Help,
-        KeyCode::Char('/') => app.mode = Mode::Search,
+        KeyCode::Char('/') => app.focus = Focus::Search,
         KeyCode::Esc => {
             if !app.search.is_empty() {
                 app.search = String::new();
@@ -1003,20 +1030,23 @@ fn toggle_review_filter(app: &mut App) {
     app.reset_selection_to_first();
 }
 
-/// Keys while the search line is active (`/`). The filter applies live on
-/// every keystroke; Enter accepts it, Esc clears it and exits.
+/// Keys while the search line has focus (`/` or Tab). The filter applies
+/// live on every keystroke; Enter accepts it, Esc clears it and returns to
+/// the tree, Tab moves focus elsewhere without closing the search.
 fn search_key(app: &mut App, code: KeyCode) -> Result<()> {
     match code {
         KeyCode::Enter => {
-            app.mode = Mode::Browser;
+            app.focus = Focus::Tree;
         }
         KeyCode::Esc => {
             app.search = String::new();
-            app.mode = Mode::Browser;
+            app.focus = Focus::Tree;
             app.confirm_delete = false;
             app.rebuild_items();
             app.reset_selection_to_first();
         }
+        KeyCode::Tab => app.focus = Focus::Detail,
+        KeyCode::BackTab => app.focus = Focus::Tree,
         KeyCode::Backspace | KeyCode::Delete => {
             if app.search.pop().is_some() {
                 app.rebuild_items();
@@ -1033,6 +1063,29 @@ fn search_key(app: &mut App, code: KeyCode) -> Result<()> {
             }
         }
         _ => {}
+    }
+    Ok(())
+}
+
+/// Keys while the detail pane has focus (r[tui-focus]): j/k scroll the
+/// detail, Esc returns to the tree, `/` jumps to the search line.
+fn detail_key(app: &mut App, code: KeyCode) -> Result<()> {
+    match code {
+        KeyCode::Char('q') => app.should_quit = true,
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::PageDown => {
+            app.detail_offset += 1;
+        }
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::PageUp => {
+            app.detail_offset = app.detail_offset.saturating_sub(1);
+        }
+        KeyCode::Tab => app.focus = Focus::Tree,
+        KeyCode::BackTab => app.focus = Focus::Search,
+        KeyCode::Char('/') => {
+            app.detail_offset = 0;
+            app.focus = Focus::Search;
+        }
+        KeyCode::Esc => app.focus = Focus::Tree,
+        _ => app.confirm_delete = false,
     }
     Ok(())
 }
@@ -1496,8 +1549,8 @@ mod tests {
         assert_eq!(
             q.terms,
             vec![
-                QueryTerm::Text("pane".to_string()),
-                QueryTerm::Text("edit".to_string()),
+                QueryTerm::Text("pane".to_string(), false),
+                QueryTerm::Text("edit".to_string(), false),
                 QueryTerm::Status(Status::Todo, false),
                 QueryTerm::Type(IssueType::Bug, false),
                 QueryTerm::Status(Status::Done, true),
@@ -1506,7 +1559,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_search_query_handles_case_aliases_runs_and_dead_terms() {
+    fn parse_search_query_handles_case_aliases_negation_and_dead_terms() {
         assert_eq!(
             parse_search_query("S:T t:UX").terms,
             vec![
@@ -1514,12 +1567,17 @@ mod tests {
                 QueryTerm::Type(IssueType::UxProblem, false),
             ]
         );
-        // Non-alphanumerics split a bare term into independent words.
+        // A bare term matches its exact substring: split on spaces only.
         assert_eq!(
             parse_search_query("pane-edit").terms,
+            vec![QueryTerm::Text("pane-edit".to_string(), false)]
+        );
+        // `!` negates a bare term, and terms combine with AND.
+        assert_eq!(
+            parse_search_query("!pane edit").terms,
             vec![
-                QueryTerm::Text("pane".to_string()),
-                QueryTerm::Text("edit".to_string())
+                QueryTerm::Text("pane".to_string(), true),
+                QueryTerm::Text("edit".to_string(), false),
             ]
         );
         // Full status and type names work too.
@@ -1536,27 +1594,34 @@ mod tests {
             parse_search_query("t:9 s:!").terms,
             vec![QueryTerm::Dead, QueryTerm::Dead]
         );
-        assert_eq!(parse_search_query("---").terms, vec![QueryTerm::Dead]);
+        // Punctuation no longer forces a dead term: it matches literally.
+        assert_eq!(
+            parse_search_query("---").terms,
+            vec![QueryTerm::Text("---".to_string(), false)]
+        );
         // Empty and whitespace-only queries compile to no terms (unfiltered).
         assert_eq!(parse_search_query("").terms, vec![]);
         assert_eq!(parse_search_query("   ").terms, vec![]);
     }
 
     #[test]
-    fn text_term_matches_whole_words_case_insensitively() {
+    fn text_term_matches_exact_substrings_case_insensitively() {
         assert!(text_matches("pane", "Edit pane"));
         assert!(text_matches("edit", "Edit pane"));
-        assert!(!text_matches("pan", "Edit pane"), "no substring matching");
-        assert!(text_matches("bug", "Login bug (mobile)"));
-        assert!(text_matches("bug", "Login bug/mobile"));
+        assert!(text_matches("e", "Edit pane"), "substring anywhere");
+        assert!(!text_matches("xyz", "Edit pane"));
         assert!(!text_matches("", "anything"), "empty term never matches");
     }
 
     #[test]
-    fn text_term_matches_short_id_by_prefix() {
+    fn text_term_matches_short_id_by_substring() {
         let short_id = "cb08a6e4";
         assert!(short_id_matches(short_id, "cb"));
         assert!(short_id_matches(short_id, "cb0"));
+        assert!(
+            short_id_matches(short_id, "08a"),
+            "substring, not just prefix"
+        );
         assert!(
             short_id_matches(short_id, "CB08A6E4"),
             "case-insensitive id match"
@@ -1580,17 +1645,21 @@ mod tests {
             issue_matches_query(&i, &parse_search_query("edit pane")),
             "term order irrelevant"
         );
+        assert!(
+            issue_matches_query(&i, &parse_search_query("pan")),
+            "exact substring: pan matches pane"
+        );
         assert!(!issue_matches_query(
             &i,
             &parse_search_query("pane linter nosuch")
         ));
         assert!(
             issue_matches_query(&i, &parse_search_query("cb0")),
-            "short-id prefix"
+            "short-id substring"
         );
         assert!(
             issue_matches_query(&i, &parse_search_query("linter")),
-            "description word"
+            "description substring"
         );
         assert!(issue_matches_query(&i, &parse_search_query("s:t cb0")));
         assert!(!issue_matches_query(&i, &parse_search_query("s:done")));
@@ -1598,9 +1667,22 @@ mod tests {
         assert!(issue_matches_query(&i, &parse_search_query("t:bug")));
         assert!(!issue_matches_query(&i, &parse_search_query("t:epic")));
         assert!(issue_matches_query(&i, &parse_search_query("t:!epic")));
+        // `!` negates a bare term too.
+        assert!(!issue_matches_query(&i, &parse_search_query("!pane")));
+        assert!(issue_matches_query(&i, &parse_search_query("!xyz")));
+        assert!(
+            !issue_matches_query(&i, &parse_search_query("!pane xyz")),
+            "!pane (false here) AND xyz stays false"
+        );
+        assert!(issue_matches_query(&i, &parse_search_query("!xyz !nope")));
+        assert!(!issue_matches_query(&i, &parse_search_query("!linter pan")));
         assert!(
             !issue_matches_query(&i, &parse_search_query("s:x")),
             "dead term matches nothing"
+        );
+        assert!(
+            !issue_matches_query(&i, &parse_search_query("!")),
+            "bare bang matches nothing"
         );
         // A term may match different fields than another term.
         assert!(issue_matches_query(
@@ -1615,7 +1697,7 @@ mod tests {
     fn tree_items_flattens_matching_issues_under_search() {
         let issues = project_a_issues(); // "Todo child" (bug, todo) + "The epic" (epic, todo)
         let counts = build_epic_counts(&issues);
-        // A text term matches only the child: "The epic" has no "todo" word.
+        // A text term matches only the child: "The epic" has no "todo" substring.
         let flat = tree_items(&issues, &counts, None, "todo").unwrap();
         assert_eq!(flat.len(), 1, "only 'Todo child' contains the word 'todo'");
         assert!(
@@ -1641,10 +1723,10 @@ mod tests {
     }
 
     #[test]
-    fn search_mode_shows_prompt_and_applies_live() {
+    fn search_focus_shows_prompt_and_applies_live() {
         let a = pd("/repos/alpha", project_a_issues());
         let mut app = app_with(vec![a]);
-        app.mode = Mode::Search;
+        app.focus = Focus::Search;
         app.search = "todo".to_string();
         app.rebuild_items();
         let rows = draw(&mut app);
@@ -1669,27 +1751,71 @@ mod tests {
     #[test]
     fn search_key_enter_keeps_filter_esc_clears() {
         let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
-        app.mode = Mode::Search;
+        app.focus = Focus::Search;
         app.search = "todo".to_string();
         app.rebuild_items();
         search_key(&mut app, KeyCode::Enter).unwrap();
-        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.focus, Focus::Tree);
         assert_eq!(app.search, "todo", "Enter keeps the active filter");
         // Esc clears the search and restores the tree.
-        app.mode = Mode::Search;
+        app.focus = Focus::Search;
         search_key(&mut app, KeyCode::Esc).unwrap();
-        assert_eq!(app.mode, Mode::Browser);
+        assert_eq!(app.focus, Focus::Tree);
         assert_eq!(app.search, "");
         assert_eq!(
             app.items[0].children().len(),
             1,
             "project node back to one epic subtree"
         );
-        // Backspace edits the query.
-        app.mode = Mode::Search;
+        // Tab moves focus away without closing the search; Backspace edits.
+        app.focus = Focus::Search;
         app.search = "todo".to_string();
+        search_key(&mut app, KeyCode::Tab).unwrap();
+        assert_eq!(app.focus, Focus::Detail, "Tab cycles to the detail pane");
+        assert_eq!(app.search, "todo", "the query survives a focus switch");
+        app.focus = Focus::Search;
         search_key(&mut app, KeyCode::Backspace).unwrap();
         assert_eq!(app.search, "tod");
+    }
+
+    #[test]
+    fn tab_cycles_focus_and_slash_jumps_to_search() {
+        let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
+        assert_eq!(app.focus, Focus::Tree);
+        tree_key(&mut app, KeyCode::Tab).unwrap();
+        assert_eq!(app.focus, Focus::Search);
+        search_key(&mut app, KeyCode::Tab).unwrap();
+        assert_eq!(app.focus, Focus::Detail);
+        detail_key(&mut app, KeyCode::Tab).unwrap();
+        assert_eq!(app.focus, Focus::Tree);
+        // BackTab reverses; '/' jumps to the search from tree or detail.
+        detail_key(&mut app, KeyCode::Char('/')).unwrap();
+        assert_eq!(app.focus, Focus::Search);
+        search_key(&mut app, KeyCode::BackTab).unwrap();
+        assert_eq!(app.focus, Focus::Tree);
+        tree_key(&mut app, KeyCode::BackTab).unwrap();
+        assert_eq!(app.focus, Focus::Detail);
+        // Esc in the detail pane returns to the tree.
+        detail_key(&mut app, KeyCode::Esc).unwrap();
+        assert_eq!(app.focus, Focus::Tree);
+    }
+
+    #[test]
+    fn detail_keys_scroll_within_limits_and_quit() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
+        app.focus = Focus::Detail;
+        app.detail_offset = 0;
+        detail_key(&mut app, KeyCode::Char('j')).unwrap();
+        assert_eq!(app.detail_offset, 1, "j scrolls down");
+        detail_key(&mut app, KeyCode::Char('k')).unwrap();
+        assert_eq!(app.detail_offset, 0, "k scrolls back up");
+        // The render clamps the offset to the line count; no underflow.
+        detail_key(&mut app, KeyCode::Char('k')).unwrap();
+        assert_eq!(app.detail_offset, 0, "offset clamps at zero");
+        // q still quits from the detail pane.
+        detail_key(&mut app, KeyCode::Char('q')).unwrap();
+        assert!(app.should_quit);
     }
 
     // ---- stale background cells (r[tui-background]) ----

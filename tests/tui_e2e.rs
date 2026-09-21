@@ -307,11 +307,19 @@ fn tui_search_filters_and_clears() -> termlens::Result<()> {
             && s.row_text(23).trim_end().is_empty()
     })?;
 
-    // Esc clears the search and restores everything.
+    // Tab leaves the search line without closing it: keys stop editing the
+    // query (the prompt disappears), and '/' re-focuses it from anywhere.
+    t.send(Key::Char('/'))?;
+    t.wait_until(|s| s.row_text(23).contains("search: idea fresh"))?;
+    t.send(Key::Tab)?;
+    t.wait_until(|s| s.row_text(23).trim_end().is_empty())?;
     t.send(Key::Char('/'))?;
     t.wait_until(|s| s.row_text(23).contains("search: idea fresh"))?;
     t.send(Key::Esc)?;
     t.wait_until(|s| s.contains("Fresh idea") && s.contains("Other idea"))?;
+
+    // Esc (already above) cleared the search; re-run the clear cycle for the
+    // s:t phase below.
 
     // s:t keeps only todo issues (Login bug + Auth epic).
     t.send(Key::Char('/'))?;

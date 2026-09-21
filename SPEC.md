@@ -324,7 +324,7 @@ r[tui]
 **Browser (`pebbles tui`):**
 - Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp); multi-line descriptions render as separate lines and long lines word-wrap.
 - Tree and filter lists sort by status (proposed, todo, in progress, blocked, done), then by type (bug, design, others), newest first within the same status+type: users read from the top.
-- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; `?` toggles an opaque help overlay; `/` opens the search line (r[tui-search]); `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; Tab/BackTab switch which pane owns the keyboard (r[tui-focus]); `/` jumps to the search line (r[tui-search]); `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
 - Every draw clears the full frame and the (alternate) screen is cleared once at startup: cells left behind by previous terminal contents never show through unpainted areas (r[tui-background]).
 - Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
 
@@ -340,13 +340,22 @@ r[tui-background]
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](src/tui.rs), [tui e2e](tests/tui_e2e.rs)
 
+r[tui-focus]
+**Pane focus (key Tab/BackTab cycles, `/` jumps to search):**
+- The browser has three panes that can own the keyboard: the tree (move/select, `r` filter, `a`/`d` mutations), the search line (query editing, r[tui-search]), and the detail pane (`j`/`k` scroll its content). Tab and BackTab cycle focus; the focused pane's border is highlighted, and the search line additionally shows the `search: <query>` prompt while focused.
+- Enter in the search line accepts the query and returns focus to the tree; Esc clears the query and returns to the tree; Tab leaves the search open while focus moves on, so browsing and the query can coexist.
+- `/` jumps to the search line from the tree or the detail pane. `q` quits from the tree and the detail pane.
+
+Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](src/tui.rs), [tui e2e](tests/tui_e2e.rs)
+
 r[tui-search]
 **Quick search (key `/` opens the search line; search applies live as you type):**
-- Enter accepts the query and leaves the search line; the tree title then shows the active query. Esc (in the search line or with an active search) clears it. Backspace edits the query while typing.
+- Enter accepts the query and leaves the search line; the tree title then shows the active query. Esc (in the search line or with an active search) clears it. Backspace edits the query while typing, and Tab moves focus elsewhere without closing the search (r[tui-focus]).
 - The query is a list of whitespace-separated terms; every term must match (AND). While active, the left pane lists matching issues flat per project (like the review filter), and projects with no matches are hidden. An empty query shows the full tree.
-- A bare term is an exact-match filter against the issue's short id, title, and description: case-insensitive prefix match against the 8-char short id, whole-word (alphanumeric run) match against title and description. Non-alphanumerics inside a bare term split it into independent words, so `pane edit` matches a title of "Edit pane" (terms are order-independent words, not substrings).
-- `s:` filters by status, `t:` by issue type, using one-letter codes or full names: status `p`/proposed, `t`/todo, `i`/in_progress (also `inprogress`, `in-progress`), `b`/blocked, `d`/done; type `bug`, `ux` (also `ux_problem`), `uc` (also `usecase`), `des` (also `design`), `val` (also `validation`), `epic`, `mile` (also `milestone`). A leading `!` negates: `s:!d` shows anything but done, `t:!bug` anything but bugs. Prefixes are case-insensitive (`S:T` equals `s:t`).
-- An unparseable spec (`s:x`, `t:9`) or a bare punctuation-only term matches no issue.
+- A bare term is an exact-substring filter against the issue's short id, title, and description: case-insensitive, literal (no regex or wildcards). Terms are split on spaces only, so `pane edit` matches a title of "Edit pane" (each term matches somewhere in the issue, in any order).
+- `s:` filters by status, `t:` by issue type, using one-letter codes or full names: status `p`/proposed, `t`/todo, `i`/in_progress (also `inprogress`, `in-progress`), `b`/blocked, `d`/done; type `bug`, `ux` (also `ux_problem`), `uc` (also `usecase`), `des` (also `design`), `val` (also `validation`), `epic`, `mile` (also `milestone`). Prefixes are case-insensitive (`S:T` equals `s:t`).
+- A leading `!` negates a term everywhere: `s:!d` anything but done, `t:!bug` anything but bugs, `!pane` an issue whose fields do not contain "pane".
+- An unparseable spec (`s:x`, `t:9`) or a bare `!` matches no issue.
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [tui e2e](tests/tui_e2e.rs), [unit + TestBackend tests](src/tui.rs)
 
