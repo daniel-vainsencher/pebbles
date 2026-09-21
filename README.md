@@ -220,8 +220,11 @@ pebbles show a1b2
 
 # Example output shows:
 # Relationships:
-#   part of e5f6g7h8
-#   required for i9j0k1l2
+#   part of e5f (Login form design)
+#   required for i9j (JWT implementation)
+#
+# Incoming references (issues that link to this one) are shown
+# below a "Referenced by:" heading.
 ```
 
 ### Using Short IDs
