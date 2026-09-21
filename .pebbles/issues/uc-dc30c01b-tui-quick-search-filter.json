@@ -1,7 +1,7 @@
 {
   "id": "dc30c01b-60a1-4be8-8e43-ae08fa52bd3f",
   "title": "TUI: quick search filter (/)",
-  "description": "Goal: / opens a search line that filters the visible pebbles across all projects. Bare alphanumeric terms are exact-match filters against short id, title, and description; space-separated terms are independent (all must match), so 'pane edit' finds a pebble whose title is 'Edit pane'. s: filters by status (s:t = todo, s:!d = anything but done); t: filters by issue type (t:bug). Enter accepts, Esc clears. Design: flat leaf list per project (like the r filter); projects with no matches are hidden. Land with a SPEC r[tui-search] rule, unit tests on the pure query parser/matcher, and termlens e2e coverage.",
+  "description": "Goal: / opens a search line that filters the visible pebbles across all projects. A query is whitespace-separated terms, all must match (AND). A bare term is a case-insensitive EXACT SUBSTRING match against short id, title, or description, so 'pane edit' finds a pebble whose title is 'Edit pane' (terms match anywhere, in any order). s: filters by status, t: by type (p/t/i/b/d statuses, bug/ux/uc/des/val/epic/mile types, full names too); a leading ! negates any term (s:!d = anything but done, !pane = no pane). Tab/BackTab switch focus between the tree, the search line, and the details pane (r[tui-focus]); Enter accepts the search, Esc clears it, backspace edits. Land with SPEC r[tui-search] + r[tui-focus] rules, unit tests on the pure query parser/matcher, and termlens e2e coverage.",
   "status": "done",
   "issue_type": "usecase",
   "tags": [],
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-21T20:07:15.077644787Z",
-  "updated_at": "2026-09-21T21:19:49.211606687Z"
+  "updated_at": "2026-09-21T22:26:28.236630270Z"
 }
