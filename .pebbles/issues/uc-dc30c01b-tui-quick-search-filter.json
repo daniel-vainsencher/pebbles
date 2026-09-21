@@ -1,0 +1,12 @@
+{
+  "id": "dc30c01b-60a1-4be8-8e43-ae08fa52bd3f",
+  "title": "TUI: quick search filter (/)",
+  "description": "Goal: / opens a search line that filters the visible pebbles across all projects. Bare alphanumeric terms are exact-match filters against short id, title, and description; space-separated terms are independent (all must match), so 'pane edit' finds a pebble whose title is 'Edit pane'. s: filters by status (s:t = todo, s:!d = anything but done); t: filters by issue type (t:bug). Enter accepts, Esc clears. Design: flat leaf list per project (like the r filter); projects with no matches are hidden. Land with a SPEC r[tui-search] rule, unit tests on the pure query parser/matcher, and termlens e2e coverage.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-21T20:07:15.077644787Z",
+  "updated_at": "2026-09-21T20:07:15.077644787Z"
+}

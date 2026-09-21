@@ -321,6 +321,10 @@
       "file_name": "des-6392b7d1-tui-spec-integration-r-tui-rules-and-spe.json"
     },
     {
+      "id": "dc30c01b-60a1-4be8-8e43-ae08fa52bd3f",
+      "file_name": "uc-dc30c01b-tui-quick-search-filter.json"
+    },
+    {
       "id": "b931c524-9143-4413-a14a-4810aa4adb3f",
       "file_name": "des-b931c524-no-write-serialization-concurrent-mutati.json"
     },
