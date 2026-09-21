@@ -2,7 +2,7 @@
   "id": "af9d07ed-2f7f-4dfb-b9ab-51079cc027e9",
   "title": "TUI: two-pane view leaves stale terminal background",
   "description": "The browser's two-pane view does not clear the whole frame each draw, so characters from previous terminal contents (or a previous larger frame after resize) can linger in cells the widgets do not repaint. The ? help overlay already fixes this for its own area by rendering a Clear widget and a solid background first; apply the same full-frame clear to the two-pane view (and the search line).",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-21T20:07:17.353673453Z",
-  "updated_at": "2026-09-21T20:07:18.798313169Z"
+  "updated_at": "2026-09-21T21:19:49.317987063Z"
 }
