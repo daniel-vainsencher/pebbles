@@ -232,8 +232,24 @@ The complete CLI specification is defined in [`src/cli.rs`](src/cli.rs).
 
 ### Commands
 
-- `init` - Initialize pebbles repository  
+r[init-lost-index]
+- `init [--force]` - Initialize pebbles repository
+
+  `init` distinguishes the **empty store** from a **lost index** before
+  writing an index:
+  - **Empty store** - no `.pebbles/index.json` and no issue files under
+    `.pebbles/issues/` (the directory may not exist yet). `init` proceeds:
+    it creates the store and writes a fresh empty index.
+  - **Lost index** - no `.pebbles/index.json`, but `.pebbles/issues/`
+    contains issue files (e.g. after a bad `index.json` conflict
+    resolution). A fresh empty index would silently orphan every issue, so
+    `init` refuses with an error that names the rebuild-from-files path
+    (`pebbles reindex`) and the number of orphaned files. `--force`
+    overrides the refusal and writes the fresh empty index anyway; the
+    orphan is then explicit, not silent.
+
   Example: [Quick Start](README.md#initialize)
+  Implementation: [`Storage::issue_file_count()`](src/storage.rs), [`Operations::init()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs) t26, t27
 
 r[new-issues-default-proposed]
 - `new <title>` - Create new issue with optional `--issue-type` and `-d` for description  

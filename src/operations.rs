@@ -63,9 +63,28 @@ impl Operations {
         Ok(Self { storage, jj })
     }
 
-    pub fn init(&self) -> Result<()> {
+    // r[impl init-lost-index]
+    pub fn init(&self, force: bool) -> Result<()> {
         if self.storage.exists() {
             bail!("Pebbles is already initialized in this repository");
+        }
+
+        // Distinguish the empty store from a lost index: a store whose
+        // issues directory holds files while index.json is missing would be
+        // left with every issue silently orphaned by a fresh empty index.
+        // Refuse unless --force makes the orphan explicit.
+        if !force {
+            if let Some(count) = self.storage.issue_file_count()? {
+                if count > 0 {
+                    bail!(
+                        ".pebbles/index.json is missing but .pebbles/issues/ contains {} issue file(s); \
+                         initializing now would write a fresh empty index and silently orphan every \
+                         issue. Rebuild the index from the issue files with 'pebbles reindex', or \
+                         pass --force to create a fresh empty index anyway.",
+                        count
+                    );
+                }
+            }
         }
 
         if !self.jj.is_repo() {

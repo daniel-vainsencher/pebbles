@@ -22,7 +22,13 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     #[command(about = "Initialize pebbles in the current repository")]
-    Init,
+    Init {
+        #[arg(
+            long,
+            help = "Initialize anyway when issue files exist but index.json is missing (orphans them into a fresh empty index)"
+        )]
+        force: bool,
+    },
 
     #[command(about = "Create a new issue")]
     New {

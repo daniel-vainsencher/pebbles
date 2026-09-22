@@ -56,8 +56,32 @@ impl Storage {
         Ok(())
     }
 
+    /// Whether the store is "already initialized": the index exists. This
+    /// check is deliberately not the whole story for `init`, which must also
+    /// distinguish the empty store from a lost index (r[init-lost-index]).
     pub fn exists(&self) -> bool {
         self.pebbles_dir.exists() && self.index_path.exists()
+    }
+
+    /// Count `*.json` files under `.pebbles/issues/`, used to distinguish the
+    /// empty-store and lost-index cases before `init` (SPEC r[init-lost-index]).
+    ///
+    /// Returns `None` when the issues directory does not exist at all
+    /// (nothing can be orphaned); `Some(n)` otherwise.
+    pub fn issue_file_count(&self) -> Result<Option<usize>> {
+        if !self.issues_dir.exists() {
+            return Ok(None);
+        }
+        let entries =
+            fs::read_dir(&self.issues_dir).context("Failed to list .pebbles/issues directory")?;
+        let mut count = 0;
+        for entry in entries {
+            let entry = entry.context("Failed to read .pebbles/issues directory entry")?;
+            if entry.file_name().to_string_lossy().ends_with(".json") {
+                count += 1;
+            }
+        }
+        Ok(Some(count))
     }
 
     pub fn issue_path(&self, file_name: &str) -> PathBuf {

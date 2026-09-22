@@ -29,8 +29,8 @@ fn main() -> Result<()> {
     let ops = Operations::new(&current_dir)?;
 
     match cli.command {
-        Commands::Init => {
-            ops.init()?;
+        Commands::Init { force } => {
+            ops.init(force)?;
         }
 
         Commands::New {

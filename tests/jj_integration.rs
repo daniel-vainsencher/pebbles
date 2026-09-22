@@ -891,3 +891,104 @@ fn t25_new_self_heals_missing_issues_dir() {
         "checkout reverted the seed index entry"
     );
 }
+
+/// T26: init must not silently orphan a store whose index.json is missing
+/// while issue files remain (the lost-index case). Without --force it
+/// refuses and points at the rebuild-from-files path (`pebbles reindex`);
+/// `--force` writes a fresh empty index anyway, orphaning the issues by
+/// explicit choice (SPEC r[init-lost-index]).
+// r[verify init-lost-index]
+#[test]
+fn t26_init_refuses_lost_index_without_force() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+    repo.pebbles(&["new", "Beta", "-t", "bug", "--approved"]);
+    assert_eq!(repo.read_index().len(), 2, "two issues indexed");
+
+    // Simulate a lost index (e.g. a bad conflict resolution of index.json):
+    // the issue files remain, index.json is gone.
+    std::fs::remove_file(repo.root.join(".pebbles/index.json")).expect("remove index");
+
+    // Without --force, init must refuse, write nothing, and point at the
+    // rebuild-from-files path.
+    let err = repo.pebbles_fail(&["init"]);
+    assert!(
+        err.contains("index.json") && err.contains("orphan"),
+        "refusal should explain the lost-index state, got: {:?}",
+        err
+    );
+    assert!(
+        err.contains("reindex"),
+        "refusal should point at the rebuild-from-files path, got: {:?}",
+        err
+    );
+    assert!(
+        err.contains("2 issue file"),
+        "refusal should name the orphan count, got: {:?}",
+        err
+    );
+    assert!(
+        !repo.root.join(".pebbles/index.json").exists(),
+        "refused init must not write an index"
+    );
+    assert_eq!(
+        issue_file_count(&repo.root),
+        2,
+        "refused init must not touch the issue files"
+    );
+
+    // The store is still in the lost-index state: list stays unusable.
+    let err = repo.pebbles_fail(&["list"]);
+    assert!(err.contains("not initialized"), "got: {:?}", err);
+
+    // --force writes the fresh empty index (explicit orphan).
+    repo.pebbles(&["init", "--force"]);
+    repo.assert_clean_wc("after forced init");
+    repo.assert_last_commit_paths("forced init", &p(&[INDEX_PATH]));
+    repo.assert_no_paths_outside_pebbles("forced init");
+    assert_eq!(repo.read_index().len(), 0, "fresh empty index");
+    assert_eq!(
+        issue_file_count(&repo.root),
+        2,
+        "the issue files are orphaned, not deleted"
+    );
+    let out = repo.pebbles(&["list"]);
+    assert!(
+        out.contains("No issues found."),
+        "orphaned issues are invisible, got: {:?}",
+        out
+    );
+}
+
+/// T27: init on an empty store (no index, issues directory empty or absent)
+/// still succeeds: the empty-store and lost-index cases are distinguishable
+/// (SPEC r[init-lost-index]).
+#[test]
+fn t27_init_empty_store_succeeds() {
+    // Fresh repo: nothing exists yet.
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.assert_clean_wc("after fresh init");
+    repo.assert_last_commit_paths("fresh init", &p(&[INDEX_PATH]));
+
+    // Re-init is refused: an existing index means already initialized.
+    let err = repo.pebbles_fail(&["init"]);
+    assert!(err.contains("already initialized"), "got: {:?}", err);
+
+    // A store with an issues directory but no files is still an empty store.
+    let repo = TestRepo::new();
+    std::fs::create_dir_all(repo.root.join(".pebbles/issues")).expect("issues dir");
+    repo.pebbles(&["init"]);
+    repo.assert_clean_wc("after init with empty issues dir");
+}
+
+/// Count `*.json` files under `<root>/.pebbles/issues/`.
+fn issue_file_count(root: &std::path::Path) -> usize {
+    let dir = root.join(".pebbles/issues");
+    std::fs::read_dir(&dir)
+        .expect("read issues dir")
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().ends_with(".json"))
+        .count()
+}
