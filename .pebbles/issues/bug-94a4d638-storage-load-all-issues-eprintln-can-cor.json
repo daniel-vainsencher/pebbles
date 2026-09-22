@@ -1,0 +1,12 @@
+{
+  "id": "94a4d638-75b1-45e5-8907-8844878e0d9a",
+  "title": "storage load_all_issues eprintln! can corrupt the TUI raw-mode display; return load warnings as data",
+  "description": "Storage::load_all_issues (storage.rs:190-212) converts per-file parse/read failure into eprintln! and silently drops the issue; it has 9 call sites incl. every TUI load/reload (tui::load_project_data -> Operations::list -> load_all_issues). The TUI runs in raw mode in an alternate screen; a stray stderr write mid-session (e.g. a crew agent writing a malformed issue file concurrently - see b93/390/558) lands under/around the alternate screen and can corrupt the display, bypassing the TUI's own message line (app.message). Violates parse-don't-validate and pure-core/display-as-data, AND is a novel TUI-rendering failure none of the filed concurrency issues mention. Fix: load_all_issues returns per-item outcomes as data (Vec<Issue>, Vec<LoadWarning>); main.rs prints via CLI conventions; tui::load_project_data folds warnings into app.message / a warning line. From sonnet-latest design review 2026-09-22.",
+  "status": "proposed",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-22T12:32:25.785809366Z",
+  "updated_at": "2026-09-22T12:32:25.785809366Z"
+}
