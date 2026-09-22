@@ -1,0 +1,12 @@
+{
+  "id": "a545a071-f205-4279-800b-0b8b81e98f90",
+  "title": "pebbles repo is not rustfmt-clean under current toolchains",
+  "description": "cargo fmt -- --check fails on the current base (rustfmt 1.97): pre-existing diffs in src/display.rs, src/main.rs, src/projects.rs that the a52 worker did not touch. Worker gates now incorrectly trip on fmt unless they know it is pre-existing. Decide: pin a rustfmt version (rust-toolchain or CI-managed format step), or run a format pass and record which rustfmt the repo targets. Observed 2026-09-22 while landing pebble a525f10c.",
+  "status": "proposed",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-22T02:56:48.864483968Z",
+  "updated_at": "2026-09-22T02:56:48.864483968Z"
+}
