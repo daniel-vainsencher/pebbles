@@ -693,21 +693,50 @@ impl App {
         self.items = items;
     }
 
-    /// Reload a single project after a mutation.
+    /// Reload a single project after a mutation and re-settle the selection
+    /// (r[tui-review]): keep the highlight on the same item while it is
+    /// still visible, otherwise move it by exactly one position - to the
+    /// item that followed it before the reload, or to the new last item when
+    /// the removed one was last. Never teleport to the first item.
     pub fn reload_project(&mut self, root: &Path) -> Result<()> {
         let ops = self
             .ops_map
             .get(root)
             .context("no operations for project")?;
         let pd = load_project_data(root, ops)?;
+        let (same, next) = self.selection_targets();
         if let Some(slot) = self.projects.iter_mut().find(|p| p.root == root) {
             *slot = pd;
         }
         self.rebuild_items();
-        if !self.selection_visible() {
+        if let Some(same) = same {
+            if select_item(self, &same) {
+                return Ok(());
+            }
+            if let Some(next) = next {
+                if select_item(self, &next) {
+                    return Ok(());
+                }
+            }
+            self.reset_selection_to_last();
+        } else if !self.selection_visible() {
+            // No selection before the reload (startup edge): keep the old
+            // fallback instead of guessing at a neighbor.
             self.reset_selection_to_first();
         }
         Ok(())
+    }
+
+    /// The pre-reload selection targets: the currently selected identifier,
+    /// and the identifier of the item that follows it in tree order.
+    fn selection_targets(&self) -> (Option<String>, Option<String>) {
+        let Some(current) = self.tree_state.selected().last().cloned() else {
+            return (None, None);
+        };
+        let order = tree_order(&self.items);
+        let pos = order.iter().position(|id| id == &current);
+        let next = pos.and_then(|i| order.get(i + 1)).cloned();
+        (Some(current), next)
     }
 
     /// The project owning `uuid` (mutations route here).
@@ -738,6 +767,24 @@ impl App {
             Some(mut full_path) => {
                 let leaf = full_path.pop();
                 // Open every ancestor so the whole path is visible.
+                for len in 1..=full_path.len() {
+                    self.tree_state.open(full_path[..len].to_vec());
+                }
+                self.tree_state.select(full_path_leaf(leaf, &full_path));
+            }
+            None => {
+                self.tree_state.select(Vec::new());
+            }
+        }
+    }
+
+    /// Select the last visible leaf (the mirror of reset_selection_to_first):
+    /// the new last item after the previously last one was removed
+    /// (r[tui-review]). Falls back to no selection when the tree is empty.
+    fn reset_selection_to_last(&mut self) {
+        match last_leaf_path(&self.items, &mut Vec::new()) {
+            Some(mut full_path) => {
+                let leaf = full_path.pop();
                 for len in 1..=full_path.len() {
                     self.tree_state.open(full_path[..len].to_vec());
                 }
@@ -812,6 +859,43 @@ fn full_path_leaf(leaf: Option<String>, prefix: &[String]) -> Vec<String> {
         full.push(leaf);
     }
     full
+}
+
+/// Deep-last search for the last leaf node path (an issue, not a container):
+/// the mirror of `first_leaf_path`, for re-selecting the new last item after
+/// the previously last one was removed (r[tui-review]).
+fn last_leaf_path(
+    items: &[TreeItem<'static, String>],
+    prefix: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    for item in items.iter().rev() {
+        prefix.push(item.identifier().clone());
+        if item.children().is_empty() {
+            return Some(prefix.clone());
+        }
+        if let Some(found) = last_leaf_path(item.children(), prefix) {
+            return Some(found);
+        }
+        prefix.pop();
+    }
+    None
+}
+
+/// The identifiers of every node in pre-order traversal (`j`/`k` move
+/// through an unfolded tree in this order; the proposed-issues filter, where
+/// mutations happen, is a flat leaf list so pre-order is exactly the
+/// rendered order). Used to find the item that follows the current selection
+/// when a mutation rebuilds the tree (r[tui-review]).
+fn tree_order(items: &[TreeItem<'static, String>]) -> Vec<String> {
+    fn walk(items: &[TreeItem<'static, String>], out: &mut Vec<String>) {
+        for item in items {
+            out.push(item.identifier().clone());
+            walk(item.children(), out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(items, &mut out);
+    out
 }
 
 // ---------------------------------------------------------------------------
@@ -1355,9 +1439,12 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
         EditField::Description => ops
             .update(&id, None, Some(edit.buffer.clone()))
             .map(|changed| (changed, "\u{2713} Updated description".to_string())),
-        EditField::Type => ops
-            .convert(&id, edit.pending_type.clone())
-            .map(|changed| (changed, format!("\u{2713} Converted to {}", edit.pending_type))),
+        EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|changed| {
+            (
+                changed,
+                format!("\u{2713} Converted to {}", edit.pending_type),
+            )
+        }),
         EditField::Status => ops
             .update_status(&id, edit.pending_status.clone())
             .map(|changed| (changed, format!("\u{2713} Status: {}", edit.pending_status))),
@@ -1417,7 +1504,9 @@ fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
             edit.editing = true;
             match edit.field {
                 EditField::Title => edit.buffer = issue.title.clone(),
-                EditField::Description => edit.buffer = issue.description.clone().unwrap_or_default(),
+                EditField::Description => {
+                    edit.buffer = issue.description.clone().unwrap_or_default()
+                }
                 EditField::Type | EditField::Status => {}
             }
         }
@@ -1487,12 +1576,7 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
                     format!("{}{}", edit.buffer, EDIT_CURSOR)
                 } else {
                     issue
-                        .map(|i| {
-                            i.description
-                                .clone()
-                                .unwrap_or_default()
-                                .replace('\n', " ")
-                        })
+                        .map(|i| i.description.clone().unwrap_or_default().replace('\n', " "))
                         .unwrap_or_default()
                 }
             }
@@ -1500,7 +1584,9 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
                 let value = if edit.field == EditField::Type {
                     edit.pending_type.clone()
                 } else {
-                    issue.map(|i| i.issue_type.clone()).unwrap_or_else(|| edit.pending_type.clone())
+                    issue
+                        .map(|i| i.issue_type.clone())
+                        .unwrap_or_else(|| edit.pending_type.clone())
                 };
                 value.to_string()
             }
@@ -1508,7 +1594,9 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
                 let value = if edit.field == EditField::Status {
                     edit.pending_status.clone()
                 } else {
-                    issue.map(|i| i.status.clone()).unwrap_or_else(|| edit.pending_status.clone())
+                    issue
+                        .map(|i| i.status.clone())
+                        .unwrap_or_else(|| edit.pending_status.clone())
                 };
                 value.to_string()
             }
@@ -1811,6 +1899,92 @@ mod tests {
         assert!(app.selection_visible());
         app.tree_state.select(vec!["/repos/nowhere".to_string()]);
         assert!(!app.selection_visible(), "unknown root not visible");
+    }
+
+    // ---- selection re-settle after a mutation (r[tui-review]) ----
+
+    #[test]
+    fn tree_order_flattens_pre_order() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let app = app_with(vec![a]);
+        let order = tree_order(&app.items);
+        assert_eq!(
+            order,
+            vec![
+                "/repos/alpha".to_string(),
+                Uuid::from_u128(0x4444).to_string(),
+                Uuid::from_u128(0x2222).to_string(),
+            ],
+            "project > epic > child in key_down order"
+        );
+    }
+
+    #[test]
+    fn last_leaf_path_is_the_deep_last_issue() {
+        let a = pd("/repos/alpha", project_a_issues());
+        let app = app_with(vec![a]);
+        let path = last_leaf_path(&app.items, &mut Vec::new()).unwrap();
+        assert_eq!(
+            path,
+            vec![
+                "/repos/alpha".to_string(),
+                Uuid::from_u128(0x4444).to_string(),
+                Uuid::from_u128(0x2222).to_string(),
+            ],
+            "deep-last leaf under project > epic"
+        );
+    }
+
+    #[test]
+    fn selection_targets_next_follows_in_tree_order() {
+        let b = pd(
+            "/repos/beta",
+            vec![
+                issue(0x3333, "Alpha", Status::Proposed, IssueType::Bug),
+                issue(0x4444, "Beta", Status::Proposed, IssueType::Design),
+                issue(0x5555, "Gamma", Status::Proposed, IssueType::Usecase),
+            ],
+        );
+        let mut app = app_with(vec![b]);
+        app.filter = Some(Status::Proposed);
+        app.rebuild_items();
+        app.reset_selection_to_first();
+        let (same, next) = app.selection_targets();
+        assert_eq!(same, Some(Uuid::from_u128(0x3333).to_string()));
+        assert_eq!(
+            next,
+            Some(Uuid::from_u128(0x4444).to_string()),
+            "the item after the selection in tree order"
+        );
+        // Move to the last item: no successor.
+        app.tree_state.select(vec![
+            "/repos/beta".to_string(),
+            Uuid::from_u128(0x5555).to_string(),
+        ]);
+        let (same, next) = app.selection_targets();
+        assert_eq!(same, Some(Uuid::from_u128(0x5555).to_string()));
+        assert_eq!(next, None, "last visible item has no successor");
+    }
+
+    #[test]
+    fn reset_selection_to_last_picks_the_last_visible_issue() {
+        let b = pd(
+            "/repos/beta",
+            vec![
+                issue(0x3333, "Alpha", Status::Proposed, IssueType::Bug),
+                issue(0x4444, "Beta", Status::Proposed, IssueType::Design),
+            ],
+        );
+        let mut app = app_with(vec![b]);
+        app.filter = Some(Status::Proposed);
+        app.rebuild_items();
+        app.reset_selection_to_last();
+        assert_eq!(
+            app.tree_state.selected().last(),
+            Some(&Uuid::from_u128(0x4444).to_string()),
+            "new last item selected"
+        );
+        assert!(app.selection_visible());
     }
 
     #[test]
@@ -2267,10 +2441,8 @@ mod tests {
     fn edit_app() -> (App, Uuid) {
         let epic_id = Uuid::from_u128(0x4444);
         let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
-        app.tree_state.select(vec![
-            "/repos/alpha".to_string(),
-            epic_id.to_string(),
-        ]);
+        app.tree_state
+            .select(vec!["/repos/alpha".to_string(), epic_id.to_string()]);
         open_edit(&mut app).unwrap();
         (app, epic_id)
     }
@@ -2356,7 +2528,8 @@ mod tests {
         let edit = app.edit.as_ref().unwrap();
         assert!(!edit.editing, "Esc leaves the field edit");
         assert_eq!(
-            edit.pending_status, Status::Todo,
+            edit.pending_status,
+            Status::Todo,
             "Esc cancels the uncommitted cycle"
         );
         // Esc in navigation closes the pane without writing.
@@ -2388,7 +2561,8 @@ mod tests {
             "{rows:?}"
         );
         assert!(
-            rows.iter().any(|r| r.contains("Enter applies, Esc cancels")),
+            rows.iter()
+                .any(|r| r.contains("Enter applies, Esc cancels")),
             "typing hint: {rows:?}"
         );
         // Esc discards the pending edit: no operation ran, the buffer is

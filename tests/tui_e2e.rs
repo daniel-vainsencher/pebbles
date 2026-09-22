@@ -103,6 +103,9 @@ fn tui_browse_approve_quit() -> termlens::Result<()> {
     t.send(Key::Char('a'))?;
     t.wait_until(|s| s.contains("Approved"))?;
 
+    // The highlight stays on the next item (Fresh idea), not the top.
+    t.wait_until(|s| highlighted_row_text(s).contains("Fresh idea"))?;
+
     // Selection moves to the remaining proposal: close it with d then y.
     t.send(Key::Char('d'))?;
     t.wait_until(|s| s.contains("Press y to confirm"))?;
@@ -148,6 +151,139 @@ fn tui_browse_approve_quit() -> termlens::Result<()> {
         !index.contains("33333333-"),
         "index no longer lists the deleted issue: {index}"
     );
+    Ok(())
+}
+
+/// Approving keeps the highlight on the next item instead of teleporting to
+/// the first one (r[tui-review]).
+#[test]
+fn tui_approve_keeps_selection_on_next_item() -> termlens::Result<()> {
+    let tempdir = tempfile::Builder::new()
+        .prefix("pebbles-tui-keep-")
+        .tempdir()
+        .expect("tempdir");
+    let root = tempdir.path().to_path_buf();
+    build_project(
+        &root,
+        &[
+            (
+                "alpha-bug",
+                0x11111111,
+                "bug",
+                "proposed",
+                "Alpha idea",
+                false,
+            ),
+            (
+                "beta-design",
+                0x22222222,
+                "design",
+                "proposed",
+                "Beta idea",
+                false,
+            ),
+            (
+                "gamma-usecase",
+                0x33333333,
+                "usecase",
+                "proposed",
+                "Gamma idea",
+                false,
+            ),
+        ],
+    );
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&root)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    t.wait_until(|s| {
+        s.contains("Alpha idea") && s.contains("Beta idea") && s.contains("Gamma idea")
+    })?;
+
+    // Review filter lists only proposed issues; Alpha (bug) sorts first.
+    t.send(Key::Char('r'))?;
+    assert!(
+        settled(&mut t, "filter with Alpha selected", |s| {
+            highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "Alpha selected first"
+    );
+
+    // Approve the first issue: the highlight moves to the next item (Beta),
+    // not back to the top of the list.
+    t.send(Key::Char('a'))?;
+    assert!(
+        settled(&mut t, "approve Alpha", |s| {
+            s.contains("Approved") && highlighted_row_text(s).contains("Beta idea")
+        }),
+        "selection follows to the next item"
+    );
+
+    // Move to the last item and approve it: the highlight lands on the new
+    // last item (Beta), not the first.
+    t.send(Key::Char('j'))?;
+    assert!(
+        settled(&mut t, "Gamma selected", |s| {
+            highlighted_row_text(s).contains("Gamma idea")
+        }),
+        "j moves to the last item"
+    );
+    t.send(Key::Char('a'))?;
+    assert!(
+        settled(&mut t, "approve Gamma", |s| {
+            s.contains("Approved") && highlighted_row_text(s).contains("Beta idea")
+        }),
+        "last approved: highlight moves to the new last item"
+    );
+
+    // Approving the last remaining item clears the list: no selection.
+    t.send(Key::Char('a'))?;
+    assert!(
+        settled(&mut t, "approve Beta", |s| {
+            s.contains("Approved") && s.contains("No selection")
+        }),
+        "last remaining approved: selection cleared"
+    );
+
+    // All three approved on disk; nothing proposed remains.
+    let files: Vec<String> = root
+        .join(".pebbles/issues")
+        .read_dir()
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    assert_eq!(files.len(), 3, "three issue files remain: {files:?}");
+    for (needle, id) in [
+        ("alpha-idea", "11111111"),
+        ("beta-idea", "22222222"),
+        ("gamma-idea", "33333333"),
+    ] {
+        let file = files
+            .iter()
+            .find(|f| f.contains(needle) && f.contains(id))
+            .unwrap_or_else(|| panic!("{needle} file missing: {files:?}"));
+        let content = fs::read_to_string(root.join(".pebbles/issues").join(file)).unwrap();
+        assert!(
+            content.contains("\"status\": \"todo\""),
+            "{needle}: {content}"
+        );
+    }
+
+    // Quit, terminal restored.
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
     Ok(())
 }
 
@@ -372,6 +508,20 @@ fn tree_text(s: &Screen) -> String {
     out
 }
 
+/// The text of the highlighted tree row, limited to the tree pane (columns
+/// 0..40): the row whose line starts with the "> " selection marker (the
+/// focus background style is not observable through termlens's text
+/// snapshot). Panics when nothing is highlighted.
+fn highlighted_row_text(s: &Screen) -> String {
+    for y in 1..=22 {
+        let row: String = s.row_text(y).chars().take(40).collect();
+        if row.chars().nth(1) == Some('>') {
+            return row;
+        }
+    }
+    panic!("no highlighted row");
+}
+
 #[test]
 fn tui_search_type_prefixes_and_negation() -> termlens::Result<()> {
     let (_tempdir, root) = fixture_with_issues();
@@ -483,7 +633,8 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     // Title: edit in place; Enter applies through the operations layer.
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "title edit", |s| s.contains("Enter applies, Esc cancels")
+        settled(&mut t, "title edit", |s| s
+            .contains("Enter applies, Esc cancels")
             && s.contains("Login bug")),
         "title edit"
     );
@@ -499,13 +650,21 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
 
     // Status: step to the field, start editing, cycle todo -> done, apply.
-    for (needle, _label) in [("> Description:", "desc"), ("> Type:", "type"), ("> Status:", "status")] {
+    for (needle, _label) in [
+        ("> Description:", "desc"),
+        ("> Type:", "type"),
+        ("> Status:", "status"),
+    ] {
         t.send(Key::Char('j'))?;
-        assert!(settled(&mut t, "field", |s| s.contains(needle)), "step to {needle}");
+        assert!(
+            settled(&mut t, "field", |s| s.contains(needle)),
+            "step to {needle}"
+        );
     }
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "status edit", |s| s.contains("Left/Right cycles, Enter applies, Esc cancels")),
+        settled(&mut t, "status edit", |s| s
+            .contains("Left/Right cycles, Enter applies, Esc cancels")),
         "status edit"
     );
     t.send(Key::Right)?;
@@ -516,7 +675,9 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "status applied", |s| s.row_text(23).contains("Status: done")),
+        settled(&mut t, "status applied", |s| s
+            .row_text(23)
+            .contains("Status: done")),
         "status applied"
     );
 
@@ -528,7 +689,8 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "type edit", |s| s.contains("Left/Right cycles, Enter applies, Esc cancels")),
+        settled(&mut t, "type edit", |s| s
+            .contains("Left/Right cycles, Enter applies, Esc cancels")),
         "type edit"
     );
     t.send(Key::Right)?;
@@ -539,19 +701,23 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "type applied", |s| s.row_text(23).contains("Converted to usecase")),
+        settled(&mut t, "type applied", |s| s
+            .row_text(23)
+            .contains("Converted to usecase")),
         "type applied"
     );
 
     // Description: back up one field, type a value, apply.
     t.send(Key::Char('k'))?;
     assert!(
-        settled(&mut t, "back to description", |s| s.contains("> Description:")),
+        settled(&mut t, "back to description", |s| s
+            .contains("> Description:")),
         "back to description"
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "description edit", |s| s.contains("Enter applies, Esc cancels")),
+        settled(&mut t, "description edit", |s| s
+            .contains("Enter applies, Esc cancels")),
         "description edit"
     );
     for c in "Fixes login".chars() {
@@ -580,12 +746,14 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "title edit again", |s| s.contains("Enter applies, Esc cancels")),
+        settled(&mut t, "title edit again", |s| s
+            .contains("Enter applies, Esc cancels")),
         "title edit again"
     );
     t.send(Key::Char('!'))?;
     assert!(
-        settled(&mut t, "buffer shows", |s| s.contains("Title: Login bug fixed!")),
+        settled(&mut t, "buffer shows", |s| s
+            .contains("Title: Login bug fixed!")),
         "buffer shows"
     );
     t.send(Key::Esc)?;
@@ -597,7 +765,8 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     );
     t.send(Key::Esc)?;
     assert!(
-        settled(&mut t, "pane closed again", |s| !s.contains("edit: 22222222")),
+        settled(&mut t, "pane closed again", |s| !s
+            .contains("edit: 22222222")),
         "pane closed again"
     );
 
@@ -624,9 +793,11 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
         edited.contains("login-bug-fixed"),
         "file renamed by the title change: {files:?}"
     );
-    let content =
-        fs::read_to_string(root.join(".pebbles/issues").join(edited)).unwrap();
-    assert!(content.contains("\"title\": \"Login bug fixed\""), "{content}");
+    let content = fs::read_to_string(root.join(".pebbles/issues").join(edited)).unwrap();
+    assert!(
+        content.contains("\"title\": \"Login bug fixed\""),
+        "{content}"
+    );
     assert!(content.contains("\"status\": \"done\""), "{content}");
     assert!(content.contains("\"issue_type\": \"usecase\""), "{content}");
     assert!(

@@ -353,7 +353,7 @@ r[tui-review]
 **Review filter (key `r` toggles it, `Esc`/`r` clears it):**
 - A quick status filter on the main two-pane UI, not a separate mode: the left pane lists only proposed issues and its title shows the filter; the right pane keeps showing the selected issue's detail.
 - `a` approves the selected proposed issue (r[approve-command]); `d` then `y` closes it by deleting it (r[no-broken-links] guards apply and surface as error messages). Outside the filter, `a`/`d` only hint at the filter.
-- After any mutation the issue set reloads and the selection moves to the first visible item, so `a`/`d` always act on what is listed.
+- After any mutation the issue set reloads and the selection re-settles in place: the highlight stays on the same item while it is still visible, otherwise it moves by exactly one position - to the item that followed it, or to the new last visible item when the removed one was last - so `a`/`d` keep acting on what is listed instead of teleporting to the top.
 - Open question: whether closing a proposal should become a dedicated rejected status instead of delete (tracked in the review-queue issue).
 
 r[tui-background]
