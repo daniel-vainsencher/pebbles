@@ -2,7 +2,7 @@
   "id": "1875abac-e0b2-4158-871d-812330067af0",
   "title": "graph layer: load issue set once per invocation",
   "description": "Operations currently reloads all issues multiple times per command (list, next, summary, show all re-read files). The repository graph layer should read all files once per invocation and serve every query (counts, incoming relationships, id resolution, dependency checks) from that in-memory graph.\n\nRelationships:\n  part of 0ac66588 (Repository graph integrity layer)\n\nNOTE 2026-09-22 (manager): the multi-project layer loads each project once per TUI invocation; CLI commands still re-read files per invocation. Decide whether the remaining ask is CLI-side caching or the issue is satisfied. Reverted to proposed for owner review.",
-  "status": "todo",
+  "status": "proposed",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-06T13:31:32.150899089Z",
-  "updated_at": "2026-09-22T18:34:33.557582635Z"
+  "updated_at": "2026-09-22T18:34:33.634150605Z"
 }
