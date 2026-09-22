@@ -2,7 +2,7 @@
   "id": "0c580f95-df85-4fd6-af4e-ded0963e6588",
   "title": "Implement bulk operations",
   "description": "Enable Unix-style bulk operations by making commands accept multiple IDs from stdin or as arguments. Example: pebbles list --status todo | pebbles status in_progress. Commands to support: status, delete, link, unlink, update. Allows composition with any filtering/search mechanism. NOTE 2026-09-19: standalone CLI work - unlinked from the TUI epic 9af4ad05 (the TUI mutates via its own selection, not via this primitive). Not urgent.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T01:56:13.805582486Z",
-  "updated_at": "2026-09-20T02:54:20.264635557Z"
+  "updated_at": "2026-09-22T06:32:58.950274086Z"
 }
