@@ -2,11 +2,11 @@
   "id": "0c959454-3fd1-4494-9076-39704d22640b",
   "title": "pebbles tui: refresh projects when pebble state changes externally",
   "description": "The TUI loads each project's issue set once per invocation (uc-1875abac) and reloads only after its own mutations (reload_project). External state changes - another pebble process, an agent session, a manual edit, a jj checkout, or a different project in the registry - stay invisible until restart. Ask (owner question 2026-09-22): pick an update mechanism. Recommended: keystroke mtime-poll - before each frame, stat each project's .pebbles/index.json (and re-run the registry scan periodically) and reload any changed project; selection preservation from pebble 34ec799a keeps reloads non-disruptive; add a manual refresh key (r) as an escape hatch. Dependency-free and single-threaded; upgrade to an OS file watcher (notify crate) only if polling ever feels stale. Doc: update SPEC r[tui] and the load-once-per-invocation rule to describe refresh-on-change.\n\nDECISION (owner, 2026-09-22): approved the manual refresh key (option C) only; per-keypress polling (option A) is rejected. Rationale: the project count grows without bound, so a per-frame stat would slow the interactive hot path by definition and checking multiple times per second is wasteful; the load-once-per-invocation design (uc-1875abac) deliberately avoids that. Binding: `r` is already the review-filter toggle (toggle_review_filter, src/tui.rs), so use `p` (mnemonic: poll/refresh); `p` is currently free. Behavior: `p` re-runs project discovery and reloads every changed project, preserving the current selection (pebble 34ec799a); in the browser/detail tree mode. Update SPEC r[tui] to describe refresh-on-demand and keep the load-once-per-invocation rule. Possible later, non-blocking extension (NOT now): an idle-debounced refresh (after N seconds without a key) so the view catches up during pauses at zero per-keystroke cost.",
-  "status": "proposed",
+  "status": "todo",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-22T11:56:27.356945974Z",
-  "updated_at": "2026-09-22T12:17:45.774647198Z"
+  "updated_at": "2026-09-22T14:27:26.395912506Z"
 }
