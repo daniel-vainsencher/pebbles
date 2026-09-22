@@ -2,11 +2,11 @@
   "id": "df0a1f51-8164-4f82-aac4-59c9adf1767e",
   "title": "README: group CLI overview for readability",
   "description": "From the docs/UX review round: README documents commands in 9 flat Quick-Start sections, but the CLI exposes 17 subcommands (init new list show status approve update delete link unlink review epic next convert tui summary flow) and 6 of them are absent from README entirely (epic next convert summary + experimental tui flow). Question: restructure the command guide for readability, e.g. group into 'Flat issues' (new/list/show/update/status/approve/delete), 'Project management' (epic/next/link/unlink/convert), 'Other views' (review/summary/tui/flow). Decide grouping + which experimental commands get documented, then update README (and cross-check --help grouping stays coherent).",
-  "status": "proposed",
+  "status": "todo",
   "issue_type": "design",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-21T20:16:20.253781224Z",
-  "updated_at": "2026-09-21T20:16:20.253781224Z"
+  "updated_at": "2026-09-22T01:29:24.342783889Z"
 }
