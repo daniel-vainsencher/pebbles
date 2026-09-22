@@ -1,0 +1,12 @@
+{
+  "id": "34ec799a-a7d8-43c3-8417-c9103b5066bf",
+  "title": "TUI: approve/close keeps the selection in place (or moves by one) instead of jumping to the first item",
+  "description": "After a mutation (approve, close, or any operation that reloads the issue set) the TUI selection teleports to the first visible item. SPEC.md r[tui] (line ~335) documents this: 'After any mutation the issue set reloads and the selection moves to the first visible item'. The teleport forces navigation work: approving a pebble near the bottom of a long list drops the user back at the top.\n\nAsk: after a mutation that removes or changes the current item, keep the highlight at the same item if it is still visible, or move it by exactly one position (e.g. the next item; when the last item is approved, move to the new last item). Update the r[tui] SPEC rule to describe the new behavior and add termlens e2e coverage. Related: cb08a6e4 (inline edit pane) reloads the same way.",
+  "status": "todo",
+  "issue_type": "ux_problem",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-22T02:32:13.905095734Z",
+  "updated_at": "2026-09-22T02:32:13.905095734Z"
+}
