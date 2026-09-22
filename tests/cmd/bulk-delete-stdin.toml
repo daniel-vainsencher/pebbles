@@ -1,0 +1,11 @@
+bin.name = "pebbles"
+env.add = { PEBBLES_DB_PATH = ".pebbles", NO_COLOR = "1" }
+args = ["delete"]
+stdin = """
+11111111
+22222222
+"""
+stdout = """
+✓ Deleted issue 111
+✓ Deleted issue 222
+"""

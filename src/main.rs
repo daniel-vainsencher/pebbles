@@ -4,19 +4,22 @@ mod flow;
 mod jj;
 mod models;
 mod operations;
-mod storage;
 mod projects;
+mod storage;
 mod tui;
 
-use crate::models::Status;
-use anyhow::Result;
+use crate::models::{Issue, Status};
+use anyhow::{bail, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
 use display::{
     print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary,
 };
 use operations::Operations;
+use std::collections::HashMap;
 use std::env;
+use std::io::{BufRead, IsTerminal};
+use uuid::Uuid;
 
 fn main() -> Result<()> {
     // Rust ignores SIGPIPE by default, which makes any piped consumer that
@@ -95,16 +98,43 @@ fn main() -> Result<()> {
             print_issue_detail(&issue, &related_titles, &incoming);
         }
 
-        Commands::Status { id, status } => {
-            let new_status = status.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            if ops.update_status(&id, new_status)? {
-                let issue = ops.show(&id)?;
-                let related_titles = ops.get_related_titles(&issue);
-                let incoming = ops.get_incoming_relationships(&issue.id)?;
-                println!("✓ Updated issue status");
-                print_issue_detail(&issue, &related_titles, &incoming);
-            } else {
-                println!("No changes: issue already has this status");
+        Commands::Status { args } => {
+            // The last positional argument is the status; everything before
+            // it is an issue ID. With only a status given, IDs come from
+            // stdin (Unix composition: `pebbles list | pebbles status done`).
+            let (status_token, explicit_ids) =
+                args.split_last().expect("clap requires >= 1 argument");
+            let new_status: Status = status_token.parse().map_err(|_e: String| {
+                if explicit_ids.is_empty() {
+                    anyhow::anyhow!(concat!(
+                        "Missing status: expected a status (proposed, todo, in_progress, ",
+                        "done, blocked) as the last argument. Example: 'pebbles status ",
+                        "<id> <status>' or 'pebbles list --status todo | pebbles status ",
+                        "in_progress'"
+                    ))
+                } else {
+                    anyhow::anyhow!("Invalid status: {}", status_token)
+                }
+            })?;
+            let ids = collect_id_inputs(explicit_ids)?;
+            let uuids = resolve_to_uuids(&ops, &ids)?;
+            let bulk = uuids.len() > 1;
+            let prefixes = ops.id_prefixes()?;
+            for uuid in &uuids {
+                let id = uuid.to_string();
+                if ops.update_status(&id, new_status)? {
+                    let issue = ops.show(&id)?;
+                    if bulk {
+                        println!("✓ Updated {}", bulk_row(&issue, &prefixes));
+                    } else {
+                        println!("✓ Updated issue status");
+                        let related_titles = ops.get_related_titles(&issue);
+                        let incoming = ops.get_incoming_relationships(&issue.id)?;
+                        print_issue_detail(&issue, &related_titles, &incoming);
+                    }
+                } else if !bulk {
+                    println!("No changes: issue already has this status");
+                }
             }
         }
 
@@ -118,47 +148,92 @@ fn main() -> Result<()> {
         }
 
         Commands::Update {
-            id,
+            ids,
             title,
             description,
         } => {
-            if ops.update(&id, title, description)? {
-                let issue = ops.show(&id)?;
-                let related_titles = ops.get_related_titles(&issue);
-                let incoming = ops.get_incoming_relationships(&issue.id)?;
-                println!("✓ Updated issue");
-                print_issue_detail(&issue, &related_titles, &incoming);
-            } else {
-                println!("No changes: nothing to update");
+            let ids = collect_id_inputs(&ids)?;
+            let uuids = resolve_to_uuids(&ops, &ids)?;
+            let bulk = uuids.len() > 1;
+            let prefixes = ops.id_prefixes()?;
+            for uuid in &uuids {
+                let id = uuid.to_string();
+                if ops.update(&id, title.clone(), description.clone())? {
+                    let issue = ops.show(&id)?;
+                    if bulk {
+                        println!("✓ Updated {}", bulk_row(&issue, &prefixes));
+                    } else {
+                        println!("✓ Updated issue");
+                        let related_titles = ops.get_related_titles(&issue);
+                        let incoming = ops.get_incoming_relationships(&issue.id)?;
+                        print_issue_detail(&issue, &related_titles, &incoming);
+                    }
+                } else if !bulk {
+                    println!("No changes: nothing to update");
+                }
             }
         }
 
         Commands::Delete {
-            id,
+            ids,
             delete_links_too,
         } => {
-            let short = ops.delete(&id, delete_links_too)?;
-            println!("✓ Deleted issue {}", short);
+            let ids = collect_id_inputs(&ids)?;
+            let uuids = resolve_to_uuids(&ops, &ids)?;
+            for uuid in &uuids {
+                let short = ops.delete(&uuid.to_string(), delete_links_too)?;
+                println!("✓ Deleted issue {}", short);
+            }
         }
 
-        Commands::Link {
-            source,
-            relation,
-            target,
-        } => {
-            let relation_type = relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            ops.add_relationship(&source, relation_type, &target)?;
-            println!("✓ Added relationship");
+        Commands::Link { args } => {
+            let (sources, relation, target) = split_source_args(&args);
+            let relation_type: crate::models::RelationType =
+                relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            let ids = collect_id_inputs(&sources)?;
+            let uuids = resolve_to_uuids(&ops, &ids)?;
+            let bulk = uuids.len() > 1;
+            let target_uuid = ops.resolve_ids(&[target])?[0];
+            let prefixes = ops.id_prefixes()?;
+            let target_short = display_uuid(&target_uuid, &prefixes);
+            for uuid in &uuids {
+                ops.add_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                if bulk {
+                    println!(
+                        "✓ Added relationship: {} {} {}",
+                        display_uuid(uuid, &prefixes),
+                        relation_type,
+                        target_short
+                    );
+                } else {
+                    println!("✓ Added relationship");
+                }
+            }
         }
 
-        Commands::Unlink {
-            source,
-            relation,
-            target,
-        } => {
-            let relation_type = relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            ops.remove_relationship(&source, relation_type, &target)?;
-            println!("✓ Removed relationship");
+        Commands::Unlink { args } => {
+            let (sources, relation, target) = split_source_args(&args);
+            let relation_type: crate::models::RelationType =
+                relation.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+            let ids = collect_id_inputs(&sources)?;
+            let uuids = resolve_to_uuids(&ops, &ids)?;
+            let bulk = uuids.len() > 1;
+            let target_uuid = ops.resolve_ids(&[target])?[0];
+            let prefixes = ops.id_prefixes()?;
+            let target_short = display_uuid(&target_uuid, &prefixes);
+            for uuid in &uuids {
+                ops.remove_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                if bulk {
+                    println!(
+                        "✓ Removed relationship: {} {} {}",
+                        display_uuid(uuid, &prefixes),
+                        relation_type,
+                        target_short
+                    );
+                } else {
+                    println!("✓ Removed relationship");
+                }
+            }
         }
 
         Commands::Epic { id } => {
@@ -204,7 +279,6 @@ fn main() -> Result<()> {
             }
         }
 
-
         Commands::Tui => {
             tui::run()?;
         }
@@ -242,4 +316,81 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Collect issue ID inputs for a bulk command: the positional IDs, or —
+/// when none were given — IDs read from stdin. Stdin input accepts the
+/// output of a listing command (`pebbles list`, `next`, `review`, `epic`)
+/// as well as bare IDs (see `operations::parse_id_input_line`). Errors
+/// when nothing is available, without blocking on an interactive terminal.
+fn collect_id_inputs(ids: &[String]) -> Result<Vec<String>> {
+    if !ids.is_empty() {
+        return Ok(ids.to_vec());
+    }
+    if std::io::stdin().is_terminal() {
+        bail!(concat!(
+            "No issue IDs given. Pass IDs as arguments or pipe them via stdin ",
+            "(e.g. 'pebbles list --status todo | pebbles status in_progress')."
+        ));
+    }
+    let stdin = std::io::stdin();
+    let mut out = Vec::new();
+    for line in stdin.lock().lines() {
+        let line = line?;
+        out.extend(
+            operations::parse_id_input_line(&line)
+                .into_iter()
+                .map(String::from),
+        );
+    }
+    if out.is_empty() {
+        bail!("No issue IDs found on stdin.");
+    }
+    Ok(out)
+}
+
+/// Resolve a batch of ID inputs to UUIDs (order preserved, duplicates
+/// dropped; fails fast on the first unresolvable input).
+fn resolve_to_uuids(ops: &Operations, ids: &[String]) -> Result<Vec<Uuid>> {
+    let refs: Vec<&str> = ids.iter().map(String::as_str).collect();
+    ops.resolve_ids(&refs)
+}
+
+/// Split `link`/`unlink` positional args into (source IDs, relation,
+/// target): the last two args are the relationship type and the target;
+/// everything before them is a source ID. clap guarantees >= 2 args.
+fn split_source_args(args: &[String]) -> (Vec<String>, &str, &str) {
+    let (sources, tail) = args.split_at(args.len() - 2);
+    (sources.to_vec(), &tail[0], &tail[1])
+}
+
+/// Appropriate-length ID for a UUID, looked up in a precomputed prefix map.
+fn display_uuid(uuid: &Uuid, prefixes: &HashMap<Uuid, String>) -> String {
+    prefixes
+        .get(uuid)
+        .cloned()
+        .unwrap_or_else(|| uuid.to_string())
+}
+
+/// One-line issue summary in the `pebbles list` format
+/// (`{short} [{type}] [{STATUS}] {title}`), used for bulk-operation output.
+fn bulk_row(issue: &Issue, prefixes: &HashMap<Uuid, String>) -> String {
+    format!(
+        "{} [{}] [{}] {}",
+        display_uuid(&issue.id, prefixes),
+        issue.issue_type.short_code(),
+        status_label(&issue.status),
+        issue.title
+    )
+}
+
+/// Uppercase human label for a status, matching `pebbles list` output.
+fn status_label(status: &Status) -> &'static str {
+    match status {
+        Status::Proposed => "PROPOSED",
+        Status::Todo => "TODO",
+        Status::InProgress => "IN PROGRESS",
+        Status::Done => "DONE",
+        Status::Blocked => "BLOCKED",
+    }
 }

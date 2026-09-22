@@ -1,0 +1,11 @@
+bin.name = "pebbles"
+env.add = { PEBBLES_DB_PATH = ".pebbles", NO_COLOR = "1" }
+args = ["status", "in_progress"]
+stdin = """
+222 [bug] [TODO] Second bug
+111 [bug] [TODO] Login bug
+"""
+stdout = """
+✓ Updated 222 [bug] [IN PROGRESS] Second bug
+✓ Updated 111 [bug] [IN PROGRESS] Login bug
+"""

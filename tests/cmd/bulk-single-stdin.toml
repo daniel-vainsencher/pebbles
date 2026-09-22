@@ -1,0 +1,19 @@
+bin.name = "pebbles"
+env.add = { PEBBLES_DB_PATH = ".pebbles", NO_COLOR = "1" }
+args = ["status", "done"]
+stdin = """
+11111111
+"""
+stdout = """
+✓ Updated issue status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login bug
+Type: Bug
+Status: DONE
+
+Created: 2026-01-10 12:00:00
+Updated: [..]
+File: bug-11111111-login-bug.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""

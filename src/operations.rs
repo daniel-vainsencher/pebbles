@@ -1,5 +1,5 @@
 use anyhow::{bail, Context, Result};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -27,6 +27,34 @@ fn validate_title(title: &str) -> Result<()> {
         bail!("Issue title cannot be empty");
     }
     Ok(())
+}
+
+/// Extract candidate issue IDs from one line of stdin bulk input.
+///
+/// Bulk input is designed for Unix composition: it accepts the output of
+/// the listing commands (`pebbles list`, `next`, `review`, `epic` — one
+/// issue per line, ID as the first field) as well as bare IDs.
+///
+/// Rule per line:
+/// - Blank lines contribute nothing.
+/// - A line whose whitespace-separated fields are all ID-like (hex digits,
+///   plus the dashes of a full UUID — e.g. `333 444` or two UUIDs) is
+///   treated as several ID inputs.
+/// - Any other line contributes only its first field, so a list row like
+///   `333 [des] [TODO] JWT token authentication system` yields `333`.
+pub fn parse_id_input_line(line: &str) -> Vec<&str> {
+    let fields: Vec<&str> = line.split_whitespace().collect();
+    if fields.is_empty() {
+        return Vec::new();
+    }
+    let all_id_like = fields
+        .iter()
+        .all(|f| f.chars().all(|c| c.is_ascii_hexdigit() || c == '-'));
+    if all_id_like {
+        fields
+    } else {
+        vec![fields[0]]
+    }
 }
 
 pub struct Operations {
@@ -776,5 +804,83 @@ impl Operations {
             1 => Ok(*matches[0]),
             _ => bail!("Ambiguous ID '{}'. Multiple issues match.", id_str),
         }
+    }
+
+    /// Resolve a batch of ID inputs (full UUIDs or unambiguous prefixes)
+    /// to their UUIDs, preserving order and dropping duplicates. Fails on
+    /// the first unresolvable input, matching per-issue resolution
+    /// semantics: a bulk command aborts with the same error the single
+    /// command would have produced for that ID.
+    pub fn resolve_ids(&self, ids: &[&str]) -> Result<Vec<Uuid>> {
+        let mut seen = HashSet::new();
+        let mut out = Vec::new();
+        for id in ids {
+            let uuid = self.resolve_id(id)?;
+            if seen.insert(uuid) {
+                out.push(uuid);
+            }
+        }
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_id_input_line_list_row() {
+        assert_eq!(
+            parse_id_input_line("333 [des] [TODO] JWT token authentication system"),
+            vec!["333"]
+        );
+    }
+
+    #[test]
+    fn parse_id_input_line_bare_id() {
+        assert_eq!(parse_id_input_line("333"), vec!["333"]);
+        assert_eq!(parse_id_input_line("333 "), vec!["333"]);
+    }
+
+    #[test]
+    fn parse_id_input_line_multiple_hex_tokens() {
+        assert_eq!(
+            parse_id_input_line("333 444 555"),
+            vec!["333", "444", "555"]
+        );
+    }
+
+    #[test]
+    fn parse_id_input_line_full_uuids() {
+        let uuid = "33333333-3333-3333-3333-333333333333";
+        assert_eq!(parse_id_input_line(uuid), vec![uuid]);
+        assert_eq!(
+            parse_id_input_line(&format!(
+                "{} {}",
+                uuid, "11111111-1111-1111-1111-111111111111"
+            )),
+            vec![uuid, "11111111-1111-1111-1111-111111111111"]
+        );
+    }
+
+    #[test]
+    fn parse_id_input_line_mixed_line_takes_first_field() {
+        assert_eq!(parse_id_input_line("333 444 [des] [TODO] JWT"), vec!["333"]);
+    }
+
+    #[test]
+    fn parse_id_input_line_blank() {
+        assert_eq!(parse_id_input_line(""), Vec::<&str>::new());
+        assert_eq!(parse_id_input_line("   "), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn parse_id_input_line_issue_with_hex_title_word() {
+        // "Fix" starts with a hex letter but is not all-hex; only the ID
+        // field is taken.
+        assert_eq!(
+            parse_id_input_line("111 [bug] [DONE] Fix mobile login"),
+            vec!["111"]
+        );
     }
 }

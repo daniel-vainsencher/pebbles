@@ -1,0 +1,8 @@
+bin.name = "pebbles"
+env.add = { PEBBLES_DB_PATH = ".pebbles", NO_COLOR = "1" }
+args = ["delete"]
+stdin = ""
+status = "failed"
+stderr = """
+Error: No issue IDs found on stdin.
+"""

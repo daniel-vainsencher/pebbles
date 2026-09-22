@@ -1,0 +1,136 @@
+# Bulk Operations Test
+
+This test demonstrates Unix-style bulk operations: the `status`, `delete`,
+`link`, `unlink`, and `update` commands accept multiple issue IDs as
+arguments. Each issue in a batch keeps its per-issue semantics and its own
+jj commit; only the output is condensed to one line per changed issue. A
+batch with a single issue prints exactly what the per-issue command prints.
+Stdin input (the documented `pebbles list | pebbles status in_progress`
+composition) is covered by the `bulk-*-stdin` cases next to this file.
+
+## Setup state
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles list
+444 [epic] [TODO] Bulk epic (0/0)
+333 [des] [TODO] Design task
+222 [bug] [TODO] Second bug
+111 [bug] [TODO] Login bug
+
+```
+
+## Bulk status update with multiple IDs as arguments
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles status 11111111 22222222 in_progress
+✓ Updated 111 [bug] [IN PROGRESS] Login bug
+✓ Updated 222 [bug] [IN PROGRESS] Second bug
+
+```
+
+## Bulk all-no-op prints nothing
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles status 11111111 22222222 in_progress
+
+```
+
+## Duplicate IDs collapse to one operation
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles status 22222222 22222222 blocked
+✓ Updated issue status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 22222222-2222-2222-2222-222222222222
+Title: Second bug
+Type: Bug
+Status: BLOCKED
+
+Created: 2026-01-10 12:01:00
+Updated: [..]
+File: bug-22222222-second-bug.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## An unresolvable ID aborts the batch before any change
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles status 11111111 99999999 todo
+? failed
+Error: No issue found with ID starting with '99999999'
+
+```
+
+## Bulk update with --title
+
+Renaming updates each issue file and the index, one commit per issue.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles update 11111111 22222222 --title "Renamed in bulk"
+✓ Updated 111 [bug] [IN PROGRESS] Renamed in bulk
+✓ Updated 222 [bug] [BLOCKED] Renamed in bulk
+
+```
+
+## Bulk link with multiple source IDs
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles link 11111111 22222222 part_of 44444444
+✓ Added relationship: 111 part_of 444
+✓ Added relationship: 222 part_of 444
+
+```
+
+## Bulk unlink
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles unlink 11111111 22222222 part_of 44444444
+✓ Removed relationship: 111 part_of 444
+✓ Removed relationship: 222 part_of 444
+
+```
+
+## An unresolvable target aborts the batch
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles link 11111111 part_of 99999999
+? failed
+Error: No issue found with ID starting with '99999999'
+
+```
+
+## Bulk delete with multiple IDs
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles delete 11111111 22222222
+✓ Deleted issue 111
+✓ Deleted issue 222
+
+```
+
+## A single argument that is not a status is a missing-status error
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles status 11111111
+? failed
+Error: Missing status: expected a status (proposed, todo, in_progress, done, blocked) as the last argument. Example: 'pebbles status <id> <status>' or 'pebbles list --status todo | pebbles status in_progress'
+
+```
+
+## Deleting the rest as arguments
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles delete 33333333 44444444
+✓ Deleted issue 333
+✓ Deleted issue 444
+
+```
+
+## Empty list after deleting everything
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles list
+No issues found.
+
+```

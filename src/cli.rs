@@ -83,11 +83,13 @@ pub enum Commands {
 
     #[command(about = "Update issue status")]
     Status {
-        #[arg(help = "Issue ID (full UUID or prefix)")]
-        id: String,
-
-        #[arg(help = "New status (proposed, todo, in_progress, done, blocked)")]
-        status: String,
+        #[arg(
+            value_name = "ID or STATUS",
+            num_args = 1..,
+            required = true,
+            help = "Issue ID(s) (full UUID or prefix), followed by the new status as the last argument. When only a status is given, issue IDs are read from stdin (one per line, as printed by 'pebbles list')."
+        )]
+        args: Vec<String>,
     },
 
     #[command(about = "Approve a proposed issue (status proposed -> todo)")]
@@ -96,10 +98,14 @@ pub enum Commands {
         id: String,
     },
 
-    #[command(about = "Update issue details")]
+    #[command(about = "Update one or more issues")]
     Update {
-        #[arg(help = "Issue ID (full UUID or prefix)")]
-        id: String,
+        #[arg(
+            value_name = "ID",
+            num_args = 0..,
+            help = "Issue ID(s) (full UUID or prefix). When none are given, IDs are read from stdin (one per line, as printed by 'pebbles list')."
+        )]
+        ids: Vec<String>,
 
         #[arg(short, long, help = "New title")]
         title: Option<String>,
@@ -108,10 +114,14 @@ pub enum Commands {
         description: Option<String>,
     },
 
-    #[command(about = "Delete an issue")]
+    #[command(about = "Delete one or more issues")]
     Delete {
-        #[arg(help = "Issue ID (full UUID or prefix)")]
-        id: String,
+        #[arg(
+            value_name = "ID",
+            num_args = 0..,
+            help = "Issue ID(s) (full UUID or prefix). When none are given, IDs are read from stdin (one per line, as printed by 'pebbles list')."
+        )]
+        ids: Vec<String>,
 
         #[arg(
             long,
@@ -122,26 +132,24 @@ pub enum Commands {
 
     #[command(about = "Add a relationship between issues")]
     Link {
-        #[arg(help = "Source issue ID")]
-        source: String,
-
-        #[arg(help = "Relationship type (part_of, required_for, scheduled_before)")]
-        relation: String,
-
-        #[arg(help = "Target issue ID")]
-        target: String,
+        #[arg(
+            value_name = "SOURCE RELATION TARGET",
+            num_args = 2..,
+            required = true,
+            help = "Source issue ID(s), the relationship type, and the target issue ID. The last two arguments are the relationship type (part_of, required_for, scheduled_before) and the target; everything before them is a source ID. When only RELATION and TARGET are given, source IDs are read from stdin."
+        )]
+        args: Vec<String>,
     },
 
     #[command(about = "Remove a relationship between issues")]
     Unlink {
-        #[arg(help = "Source issue ID")]
-        source: String,
-
-        #[arg(help = "Relationship type (part_of, required_for, scheduled_before)")]
-        relation: String,
-
-        #[arg(help = "Target issue ID")]
-        target: String,
+        #[arg(
+            value_name = "SOURCE RELATION TARGET",
+            num_args = 2..,
+            required = true,
+            help = "Source issue ID(s), the relationship type, and the target issue ID. The last two arguments are the relationship type (part_of, required_for, scheduled_before) and the target; everything before them is a source ID. When only RELATION and TARGET are given, source IDs are read from stdin."
+        )]
+        args: Vec<String>,
     },
 
     #[command(about = "Show an epic with all its child issues")]

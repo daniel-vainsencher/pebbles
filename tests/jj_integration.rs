@@ -983,6 +983,60 @@ fn t27_init_empty_store_succeeds() {
     repo.assert_clean_wc("after init with empty issues dir");
 }
 
+/// T28: a bulk `status` makes one commit per issue, each touching exactly
+/// that issue's file, and leaves the working copy clean.
+#[test]
+fn t28_bulk_status_commits_per_issue() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+    let a_id = repo.find_id(|_| true);
+    let a_file = repo.find_file_name(|_| true);
+    repo.pebbles(&["new", "Beta", "-t", "bug", "--approved"]);
+    let b_id = repo.find_id(|e| e.id != a_id);
+    let b_file = repo.find_file_name(|e| e.id != a_id);
+
+    // Both IDs in one invocation: two commits, one per issue, in input order.
+    repo.pebbles(&["status", &a_id, &b_id, "in_progress"]);
+    repo.assert_clean_wc("after bulk status");
+
+    // The last commit is the second issue processed (Beta).
+    repo.assert_last_commit_paths("bulk status: Beta", &p(&[&issue_path(&b_file)]));
+    // The commit before it is the first issue processed (Alpha).
+    let alpha_commit =
+        parse_summary_paths(&repo.jj(&["diff", "--from", "@---", "--to", "@--", "--summary"]));
+    assert_eq!(
+        alpha_commit,
+        p(&[&issue_path(&a_file)]),
+        "bulk status must commit one path set per issue"
+    );
+    repo.assert_no_paths_outside_pebbles("bulk status");
+}
+
+/// T29: a bulk `link` (multiple sources, one target) makes one commit per
+/// source, each touching exactly that source's file.
+#[test]
+fn t29_bulk_link_commits_per_source() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+    let a_id = repo.find_id(|_| true);
+    let a_file = repo.find_file_name(|_| true);
+    repo.pebbles(&["new", "Beta", "-t", "bug", "--approved"]);
+    let b_id = repo.find_id(|e| e.id != a_id);
+    let b_file = repo.find_file_name(|e| e.id != a_id);
+    repo.pebbles(&["new", "Epic", "-t", "epic", "--approved"]);
+    let epic_id = repo.find_id(|e| e.id != a_id && e.id != b_id);
+
+    repo.pebbles(&["link", &a_id, &b_id, "part_of", &epic_id]);
+    repo.assert_clean_wc("after bulk link");
+    repo.assert_last_commit_paths("bulk link: Beta", &p(&[&issue_path(&b_file)]));
+    let alpha_commit =
+        parse_summary_paths(&repo.jj(&["diff", "--from", "@---", "--to", "@--", "--summary"]));
+    assert_eq!(alpha_commit, p(&[&issue_path(&a_file)]));
+    repo.assert_no_paths_outside_pebbles("bulk link");
+}
+
 /// Count `*.json` files under `<root>/.pebbles/issues/`.
 fn issue_file_count(root: &std::path::Path) -> usize {
     let dir = root.join(".pebbles/issues");
