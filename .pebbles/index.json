@@ -355,6 +355,10 @@
     {
       "id": "34ec799a-a7d8-43c3-8417-c9103b5066bf",
       "file_name": "ux-34ec799a-tui-approve-close-keeps-the-selection-in.json"
+    },
+    {
+      "id": "2931fdf7-57ae-4221-acc8-70336322de57",
+      "file_name": "ux-2931fdf7-tui-edit-pane-first-enter-should-not-bla.json"
     }
   ]
 }
