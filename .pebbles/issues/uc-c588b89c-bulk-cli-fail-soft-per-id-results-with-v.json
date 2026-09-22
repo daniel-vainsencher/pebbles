@@ -3,10 +3,10 @@
   "title": "bulk CLI: fail-soft per-ID results with verbose failure summary, minimal happy path",
   "description": "0c5 (bulk operations, DONE) introduced one shared shape in main.rs: resolve all IDs up front, then loop and apply per UUID with '?' - each iteration its own jj commit. If iteration k of n fails (e.g. a crew agent deleted the issue between resolution and application), the process exits with only that error; iterations 1..k-1 already committed; no summary of what succeeded, no rollback, exit code does not tell which subset applied. None of the three design principles (pure core, parse-don't-validate, continuity) covers multi-step batch atomicity or partial-success reporting - a genuine gap, independent of the index-write races (b93/390). Fix options: (a) fail-soft - apply what applies, collect per-ID Results as data, print per-ID summary + 'N/M succeeded', non-zero exit if any failed; or (b) pre-flight the whole batch before mutating. (a) fits the Unix-composition design of bulk input and is cheap. From sonnet-latest design review 2026-09-22.\n\nDecision (owner, 2026-09-22): fail-soft batch semantics. Apply what can be applied; on FAILURE be sufficiently verbose that it is clear exactly what happened and what did not: per-ID outcome lines (applied vs failed with the reason), a final 'N/M succeeded' summary, and a non-zero exit code when any failed. On the HAPPY PATH stay minimalistic: the current one compact line per changed issue, no noise. Rationale: partial success is the batch model for concurrent use; the summary makes the state auditable.",
   "status": "todo",
-  "issue_type": "design",
+  "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-22T12:32:25.638815681Z",
-  "updated_at": "2026-09-22T17:52:36.492889880Z"
+  "updated_at": "2026-09-22T17:52:36.581114668Z"
 }
