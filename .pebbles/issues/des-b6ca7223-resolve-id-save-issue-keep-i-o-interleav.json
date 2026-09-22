@@ -2,11 +2,11 @@
   "id": "b6ca7223-c001-4046-bef9-2671e291e440",
   "title": "resolve_id / save_issue keep I/O interleaved with pure logic - ARCHITECTURE's match_id_prefix example was never implemented",
   "description": "ARCHITECTURE.md 'Testing Functional Core vs Imperative Shell' uses resolve_id as the textbook counterexample and prescribes extracting pure match_id_prefix(id_str, known_ids) -> Result<Uuid> (ARCHITECTURE.md:290). That extraction was never done: Operations::resolve_id (operations.rs:784-807) still loads the index and prefix-matches in one function; Storage::save_issue (storage.rs:138-172) interleaves the rename/index-dirty decision with fs::remove_file/fs::write. rg 'match_id_prefix' finds nothing. Consequence: ambiguous/unknown-prefix resolution and rename-vs-no-rename branch logic have no unit tests (operations.rs has 7 tests, all parse_id_input_line; storage.rs has 0). Fix: extract the pure decision functions per ARCHITECTURE.md's own example and add unit tests for ambiguous/unknown prefixes, case-insensitivity boundaries, rename vs no-rename. From sonnet-latest design review 2026-09-22.",
-  "status": "proposed",
+  "status": "todo",
   "issue_type": "design",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-22T12:32:25.928998968Z",
-  "updated_at": "2026-09-22T12:32:25.928998968Z"
+  "updated_at": "2026-09-22T13:31:33.252545671Z"
 }
