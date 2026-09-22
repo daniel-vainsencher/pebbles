@@ -88,6 +88,11 @@ The index maps issue IDs to their current filenames. See [`Index` struct](src/mo
     └── ...
 ```
 
+r[issues-dir-created-on-demand]
+**Issues directory created on demand:**
+- `.pebbles/issues/` is recreated on demand whenever an issue file is written, so a missing directory never aborts a mutation. The directory can disappear on its own: jj (like other VCSs) tracks files, not directories, so removing the last issue file deletes the directory, and so does checking out a commit from before issues existed.
+- Implementation: [`Storage::save_issue()`](src/storage.rs) | Test: [jj-integration](tests/jj_integration.rs)
+
 ### Index File
 
 **Path:** `.pebbles/index.json`

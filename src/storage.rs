@@ -99,8 +99,21 @@ impl Storage {
         Ok(issue)
     }
 
+    /// Create `.pebbles/issues/` when it is missing. Mutations call this
+    /// before writing an issue file: the directory can vanish on its own
+    /// (jj tracks files, not directories, so removing the last issue file
+    /// deletes the directory) and must not abort later writes.
+    // r[impl issues-dir-created-on-demand]
+    fn ensure_issues_dir(&self) -> Result<()> {
+        fs::create_dir_all(&self.issues_dir)
+            .context("Failed to create .pebbles/issues directory")?;
+        Ok(())
+    }
+
     // r[impl rename-commits-all-paths]
     pub fn save_issue(&self, issue: &Issue, index: &mut Index) -> Result<SaveOutcome> {
+        self.ensure_issues_dir()?;
+
         let new_file_name = issue.file_name();
         let old_file_name = index.get_file_name(&issue.id).map(|s| s.to_string());
 

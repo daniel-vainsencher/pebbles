@@ -844,3 +844,50 @@ fn t17_flow_rejects_unknown_format() {
         err
     );
 }
+
+/// T25: `pebbles new` recreates a missing `.pebbles/issues/` directory
+/// (r[issues-dir-created-on-demand]). Checking out a commit that predates
+/// the issue files removes the directory together with its last file,
+/// because jj tracks files, not directories.
+// r[verify issues-dir-created-on-demand]
+#[test]
+fn t25_new_self_heals_missing_issues_dir() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Seed issue", "-t", "bug", "--approved"]);
+    let seed_id = repo.find_id(|_| true);
+
+    // Move the working copy to the commit before the seed issue: jj removes
+    // the issue file and, with it, the now-empty issues directory.
+    repo.jj(&["new", "@--"]);
+    assert!(
+        !repo.root.join(".pebbles/issues").exists(),
+        "setup: issues dir should be absent after checking out the earlier commit"
+    );
+
+    // The mutation must self-heal: recreate the directory and write the file.
+    repo.pebbles(&["new", "Second issue", "-t", "bug", "--approved"]);
+    let second_file = repo.find_file_name(|e| e.id != seed_id);
+
+    repo.assert_clean_wc("after self-healing new");
+    repo.assert_last_commit_paths(
+        "self-healing new",
+        &p(&[&issue_path(&second_file), INDEX_PATH]),
+    );
+    repo.assert_no_paths_outside_pebbles("self-healing new");
+
+    // The directory exists again and holds the new issue file; the index
+    // only knows the new issue, since the checkout reverted the seed entry.
+    assert!(
+        repo.root
+            .join(".pebbles/issues")
+            .join(&second_file)
+            .exists(),
+        "recreated issues dir must contain the new issue file"
+    );
+    assert_eq!(
+        repo.read_index().len(),
+        1,
+        "checkout reverted the seed index entry"
+    );
+}
