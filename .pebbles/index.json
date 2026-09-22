@@ -363,6 +363,10 @@
     {
       "id": "0c959454-3fd1-4494-9076-39704d22640b",
       "file_name": "uc-0c959454-pebbles-tui-refresh-projects-when-pebble.json"
+    },
+    {
+      "id": "c588b89c-c122-469f-b7b1-4aa0bc7a38e9",
+      "file_name": "des-c588b89c-bulk-cli-commands-are-not-atomic-partial.json"
     }
   ]
 }
