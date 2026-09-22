@@ -208,6 +208,33 @@ impl TestRepo {
         std::fs::read_to_string(self.root.join(".pebbles/issues").join(file_name))
             .expect("read issue file")
     }
+
+    /// Run `pebbles <args>` with `stdin` on its stdin, returning the raw
+    /// stdout/stderr and exit status. Used by the fail-soft batch tests,
+    /// which need to assert both the applied lines (stdout) and the failure
+    /// summary (stderr) of a single invocation.
+    fn pebbles_io(&self, args: &[&str], stdin: &str) -> std::process::Output {
+        use std::io::Write;
+        let mut child = Command::new(PEBBLES_BIN)
+            .args(args)
+            .current_dir(&self.root)
+            .env("PEBBLES_DB_PATH", ".pebbles")
+            .env("NO_COLOR", "1")
+            .env_remove("CLICOLOR_FORCE")
+            .env_remove("FORCE_COLOR")
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("spawn pebbles");
+        child
+            .stdin
+            .take()
+            .expect("stdin pipe")
+            .write_all(stdin.as_bytes())
+            .expect("write stdin");
+        child.wait_with_output().expect("wait for pebbles")
+    }
 }
 
 // --- Index parsing ----------------------------------------------------------
@@ -1037,77 +1064,76 @@ fn t29_bulk_link_commits_per_source() {
     repo.assert_no_paths_outside_pebbles("bulk link");
 }
 
-
 /// T30: `pebbles reindex` rebuilds a conflicted (unparsable) index from the
 /// issue files and verifies with a load; the rebuilt index is left in the
 /// working copy, uncommitted (the command never runs jj - a conflicted
 /// index is exactly the repair context where committing makes no sense).
 #[test]
 fn t30_reindex_repairs_conflicted_index() {
-    let repo = TestRepo::new();
-    repo.pebbles(&["init"]);
-    repo.pebbles(&["new", "Alpha bug", "-t", "bug"]);
-    repo.pebbles(&["new", "Beta idea", "-t", "design"]);
-    let before_commits = repo.commit_count();
-    assert_eq!(repo.read_index().len(), 2, "two issues indexed");
+   let repo = TestRepo::new();
+   repo.pebbles(&["init"]);
+   repo.pebbles(&["new", "Alpha bug", "-t", "bug"]);
+   repo.pebbles(&["new", "Beta idea", "-t", "design"]);
+   let before_commits = repo.commit_count();
+   assert_eq!(repo.read_index().len(), 2, "two issues indexed");
 
-    // Simulate a conflicted index file: every command fails to parse it and
-    // no repair path exists other than reindex.
-    std::fs::write(
-        repo.root.join(".pebbles/index.json"),
-        "conflicted <<<<<<< garbage",
-    ).expect("corrupt index");
-    let err = repo.pebbles_fail(&["list"]);
-    assert!(err.contains("Failed to parse index file"), "got: {:?}", err);
+   // Simulate a conflicted index file: every command fails to parse it and
+   // no repair path exists other than reindex.
+   std::fs::write(
+       repo.root.join(".pebbles/index.json"),
+       "conflicted <<<<<<< garbage",
+   ).expect("corrupt index");
+   let err = repo.pebbles_fail(&["list"]);
+   assert!(err.contains("Failed to parse index file"), "got: {:?}", err);
 
-    // A concurrent agent left a hand-written issue file too: reindex must
-    // adopt it (the files are the truth).
-    let new_file = "bug-55555555-hand-written-issue.json";
-    std::fs::write(
-        repo.root.join(".pebbles/issues").join(&new_file),
-        r#"{
-            "id": "55555555-5555-5555-5555-555555555555",
-            "title": "Hand written issue",
-            "description": null,
-            "status": "proposed",
-            "issue_type": "bug",
-            "tags": [],
-            "relationships": [],
-            "metadata": {},
-            "created_at": "2026-01-10T12:01:00Z",
-            "updated_at": "2026-01-10T12:01:00Z"
-        }
-        "#,
-    ).expect("write hand-written issue");
+   // A concurrent agent left a hand-written issue file too: reindex must
+   // adopt it (the files are the truth).
+   let new_file = "bug-55555555-hand-written-issue.json";
+   std::fs::write(
+       repo.root.join(".pebbles/issues").join(&new_file),
+       r#"{
+           "id": "55555555-5555-5555-5555-555555555555",
+           "title": "Hand written issue",
+           "description": null,
+           "status": "proposed",
+           "issue_type": "bug",
+           "tags": [],
+           "relationships": [],
+           "metadata": {},
+           "created_at": "2026-01-10T12:01:00Z",
+           "updated_at": "2026-01-10T12:01:00Z"
+       }
+       "#,
+   ).expect("write hand-written issue");
 
-    let out = repo.pebbles(&["reindex"]);
-    assert!(out.contains("Rebuilt index: 3"), "got: {:?}", out);
+   let out = repo.pebbles(&["reindex"]);
+   assert!(out.contains("Rebuilt index: 3"), "got: {:?}", out);
 
-    // Verified with a load: the index parses and every issue still lists,
-    // including the hand-written one.
-    assert_eq!(repo.read_index().len(), 3, "index rebuilt from all files");
-    let listed = repo.pebbles(&["list"]);
-    assert!(listed.contains("Hand written issue"), "got: {:?}", listed);
+   // Verified with a load: the index parses and every issue still lists,
+   // including the hand-written one.
+   assert_eq!(repo.read_index().len(), 3, "index rebuilt from all files");
+   let listed = repo.pebbles(&["list"]);
+   assert!(listed.contains("Hand written issue"), "got: {:?}", listed);
 
-    // reindex never commits: the working copy holds exactly the new issue
-    // file and the repaired index, and no new commit appeared.
-    let diff = repo.jj(&["diff", "--summary"]);
-    let paths = parse_summary_paths(&diff);
-    assert_eq!(
-        &paths,
-        &p(&[&issue_path(&new_file), INDEX_PATH]),
-        "reindex leaves only the index change: {:?}",
-        paths
-    );
-    assert_eq!(
-        repo.commit_count(),
-        before_commits,
-        "reindex must not commit (repair context)"
-    );
-    assert!(
-        repo.jj(&["log", "--no-pager", "-r", "@-", "-T", "description"]).contains("Beta idea"),
-        "last commit still the last mutation"
-    );
+   // reindex never commits: the working copy holds exactly the new issue
+   // file and the repaired index, and no new commit appeared.
+   let diff = repo.jj(&["diff", "--summary"]);
+   let paths = parse_summary_paths(&diff);
+   assert_eq!(
+       &paths,
+       &p(&[&issue_path(&new_file), INDEX_PATH]),
+       "reindex leaves only the index change: {:?}",
+       paths
+   );
+   assert_eq!(
+       repo.commit_count(),
+       before_commits,
+       "reindex must not commit (repair context)"
+   );
+   assert!(
+       repo.jj(&["log", "--no-pager", "-r", "@-", "-T", "description"]).contains("Beta idea"),
+       "last commit still the last mutation"
+   );
 }
 
 
@@ -1116,54 +1142,293 @@ fn t30_reindex_repairs_conflicted_index() {
 /// describes the resulting store state, not jj's (r[store-without-jj]).
 #[test]
 fn t31_store_without_jj_repo_writes_and_exits_0() {
-    let repo = TestRepo::new();
-    repo.pebbles(&["init"]);
-    repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+   let repo = TestRepo::new();
+   repo.pebbles(&["init"]);
+   repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
 
-    // Drop the jj repo while the store stays (e.g. someone deleted .jj).
-    remove_dir_all(&repo.root.join(".jj")).expect("remove .jj");
+   // Drop the jj repo while the store stays (e.g. someone deleted .jj).
+   remove_dir_all(&repo.root.join(".jj")).expect("remove .jj");
 
-    let output = Command::new(PEBBLES_BIN)
-        .args(&["new", "Beta", "-t", "bug", "--approved"])
-        .current_dir(&repo.root)
-        .env("PEBBLES_DB_PATH", ".pebbles")
-        .env("NO_COLOR", "1")
-        .env_remove("CLICOLOR_FORCE")
-        .env_remove("FORCE_COLOR")
-        .output()
-        .expect("run pebbles");
-    assert!(
-        output.status.success(),
-        "store write must succeed without a jj repo: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("No jj repository found"),
-        "succeeding without committing must be loud: {:?}",
-        stderr
-    );
+   let output = Command::new(PEBBLES_BIN)
+       .args(&["new", "Beta", "-t", "bug", "--approved"])
+       .current_dir(&repo.root)
+       .env("PEBBLES_DB_PATH", ".pebbles")
+       .env("NO_COLOR", "1")
+       .env_remove("CLICOLOR_FORCE")
+       .env_remove("FORCE_COLOR")
+       .output()
+       .expect("run pebbles");
+   assert!(
+       output.status.success(),
+       "store write must succeed without a jj repo: {}",
+       String::from_utf8_lossy(&output.stderr)
+   );
+   let stderr = String::from_utf8_lossy(&output.stderr);
+   assert!(
+       stderr.contains("No jj repository found"),
+       "succeeding without committing must be loud: {:?}",
+       stderr
+   );
 
-    // The resulting store state is intact: the new issue is written,
-    // indexed, and listed.
-    assert_eq!(repo.read_index().len(), 2, "new issue is indexed");
-    let listed = String::from_utf8_lossy(&output.stdout);
-    assert!(listed.contains("Created bug"), "got: {:?}", listed);
+   // The resulting store state is intact: the new issue is written,
+   // indexed, and listed.
+   assert_eq!(repo.read_index().len(), 2, "new issue is indexed");
+   let listed = String::from_utf8_lossy(&output.stdout);
+   assert!(listed.contains("Created bug"), "got: {:?}", listed);
 }
 
 /// Recursively delete a directory tree (jj tools are not guaranteed present,
 /// so tests remove `.jj` with the std library).
 fn remove_dir_all(path: &std::path::Path) -> std::io::Result<()> {
-    for entry in std::fs::read_dir(path)?.flatten() {
-        if entry.path().is_dir() {
-            remove_dir_all(&entry.path())?;
-        } else {
-            std::fs::remove_file(&entry.path())?;
-        }
-    }
-    std::fs::remove_dir(path)
+   for entry in std::fs::read_dir(path)?.flatten() {
+       if entry.path().is_dir() {
+           remove_dir_all(&entry.path())?;
+       } else {
+           std::fs::remove_file(&entry.path())?;
+       }
+   }
+   std::fs::remove_dir(path)
 }
 
+/// Common setup for the fail-soft bulk link tests: Alpha required_for Beta,
+/// so linking Beta required_for Alpha is a cycle rejection. Returns the
+/// (id, short id, file name) triples for Alpha, Beta, and Gamma.
+struct ThreeBugs {
+    a_id: String,
+    a_short: String,
+    a_file: String,
+    b_id: String,
+    b_short: String,
+    b_file: String,
+    c_id: String,
+    c_short: String,
+    c_file: String,
+}
+
+/// Create three approved bugs; return their ids, display short ids (from the
+/// `Created bug <short>` line), and file names.
+fn three_bugs(repo: &TestRepo) -> ThreeBugs {
+    let a_out = repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+    let a_id = repo.find_id(|_| true);
+    let a_file = repo.find_file_name(|_| true);
+    let b_out = repo.pebbles(&["new", "Beta", "-t", "bug", "--approved"]);
+    let b_id = repo.find_id(|e| e.id != a_id);
+    let b_file = repo.find_file_name(|e| e.id != a_id);
+    let c_out = repo.pebbles(&["new", "Gamma", "-t", "bug", "--approved"]);
+    let c_id = repo.find_id(|e| e.id != a_id && e.id != b_id);
+    let c_file = repo.find_file_name(|e| e.id != a_id && e.id != b_id);
+
+    let short = |out: &str| {
+        out.lines()
+            .next()
+            .unwrap()
+            .strip_prefix("Created bug ")
+            .expect("creation message")
+            .to_string()
+    };
+    ThreeBugs {
+        a_id,
+        a_short: short(&a_out),
+        a_file,
+        b_id,
+        b_short: short(&b_out),
+        b_file,
+        c_id,
+        c_short: short(&c_out),
+        c_file,
+    }
+}
+
+/// T34: a bulk `link` is fail-soft: when one source would close a
+/// dependency cycle, the batch still applies the other sources, prints one
+/// compact line per applied issue, reports each failed ID with its reason,
+/// lists what was NOT applied, prints the `N/M succeeded` summary, and
+/// exits non-zero. Only the applied source gets a jj commit.
+#[test]
+fn t32_bulk_link_partial_failure_applies_rest_and_reports() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let bugs = three_bugs(&repo);
+
+    // Alpha required_for Beta; Beta required_for Alpha would close a cycle.
+    repo.pebbles(&["link", &bugs.a_id, "required_for", &bugs.b_id]);
+    let before = repo.commit_count();
+
+    // Gamma -> Alpha applies; Beta -> Alpha fails per-issue.
+    let out = repo.pebbles_io(
+        &["link", &bugs.c_id, &bugs.b_id, "required_for", &bugs.a_id],
+        "",
+    );
+    assert!(
+        !out.status.success(),
+        "a batch with any failed ID must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    // The applied source keeps its compact line on stdout.
+    assert!(
+        stdout.contains(&format!(
+            "✓ Added relationship: {} required_for {}",
+            bugs.c_short, bugs.a_short
+        )),
+        "applied source should keep its compact line, stdout: {:?}",
+        stdout
+    );
+    assert!(
+        !stdout.contains("Beta"),
+        "no success line for the failed source, stdout: {:?}",
+        stdout
+    );
+
+    // The failure summary names operation, ID, and reason; lists what was
+    // not applied; and closes with the N/M succeeded count, all on stderr.
+    assert!(
+        stderr.contains(&format!(
+            "Link failed for {}: Cannot add relationship Beta required_for Alpha: it would create a dependency cycle",
+            bugs.b_short
+        )),
+        "failure line missing, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains(&format!("Not applied: {}", bugs.b_short)),
+        "not-applied list missing, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains("1/2 succeeded"),
+        "summary line missing, stderr: {:?}",
+        stderr
+    );
+
+    // Exactly one jj commit: Gamma's link. Beta's rejected link must not
+    // touch anything, and the working copy must be clean.
+    assert_eq!(repo.commit_count(), before + 1);
+    repo.assert_clean_wc("after partial-failure bulk link");
+    repo.assert_last_commit_paths(
+        "partial-failure bulk link: Gamma",
+        &p(&[&issue_path(&bugs.c_file)]),
+    );
+    repo.assert_no_paths_outside_pebbles("partial-failure bulk link");
+}
+
+/// T33: the fail-soft batch semantics apply to stdin-driven bulk input too
+/// (`pebbles link required_for <target>` with sources on stdin): applied
+/// sources commit, failed sources are reported per-ID, and the exit code is
+/// non-zero.
+#[test]
+fn t33_bulk_link_stdin_partial_failure() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let bugs = three_bugs(&repo);
+
+    repo.pebbles(&["link", &bugs.a_id, "required_for", &bugs.b_id]);
+    let before = repo.commit_count();
+
+    // Sources read from stdin, Gamma first (applies), Beta second (cycle).
+    let stdin_input = format!(
+        "{}
+{}
+",
+        bugs.c_id, bugs.b_id
+    );
+    let out = repo.pebbles_io(&["link", "required_for", &bugs.a_id], &stdin_input);
+    assert!(
+        !out.status.success(),
+        "a stdin batch with any failed ID must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    assert!(
+        stdout.contains(&format!(
+            "✓ Added relationship: {} required_for {}",
+            bugs.c_short, bugs.a_short
+        )),
+        "applied source should keep its compact line, stdout: {:?}",
+        stdout
+    );
+    assert!(
+        stderr.contains(&format!("Link failed for {}: ", bugs.b_short)) && stderr.contains("cycle"),
+        "failure line missing, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains(&format!("Not applied: {}", bugs.b_short)),
+        "not-applied list missing, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains("1/2 succeeded"),
+        "summary line missing, stderr: {:?}",
+        stderr
+    );
+
+    assert_eq!(repo.commit_count(), before + 1);
+    repo.assert_clean_wc("after stdin partial-failure bulk link");
+    repo.assert_last_commit_paths(
+        "stdin partial-failure bulk link: Gamma",
+        &p(&[&issue_path(&bugs.c_file)]),
+    );
+    repo.assert_no_paths_outside_pebbles("stdin partial-failure bulk link");
+}
+
+/// T34: a bulk `delete` is fail-soft too — deleting the second of two
+/// issues fails when it is referenced by a third issue (r[no-broken-links]);
+/// the first is still deleted (one jj commit), the failed ID is reported
+/// with its reason, and the command exits non-zero.
+#[test]
+fn t34_bulk_delete_partial_failure_reports_guarded_id() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    let bugs = three_bugs(&repo);
+
+    // Gamma references Beta, so deleting Beta is guarded (r[no-broken-links]).
+    repo.pebbles(&["link", &bugs.c_id, "required_for", &bugs.b_id]);
+    let before = repo.commit_count();
+
+    // Alpha deletes; Beta fails because Gamma still references it.
+    let out = repo.pebbles_io(&["delete", &bugs.a_id, &bugs.b_id], "");
+    assert!(
+        !out.status.success(),
+        "a batch with any failed ID must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+
+    assert!(
+        stdout.contains(&format!("✓ Deleted issue {}", bugs.a_short)),
+        "applied source should keep its compact line, stdout: {:?}",
+        stdout
+    );
+    assert!(!stdout.contains("Beta"), "no success line for the failed ID, stdout: {:?}", stdout);
+    assert!(
+        stderr.contains(&format!("Delete failed for {}: ", bugs.b_short))
+            && stderr.contains("--delete-links-too"),
+        "failure line missing its reason, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains(&format!("Not applied: {}", bugs.b_short)),
+        "not-applied list missing, stderr: {:?}",
+        stderr
+    );
+    assert!(
+        stderr.contains("1/2 succeeded"),
+        "summary line missing, stderr: {:?}",
+        stderr
+    );
+
+    // Exactly one jj commit: Alpha's delete (issue file + index).
+    assert_eq!(repo.commit_count(), before + 1);
+    repo.assert_clean_wc("after partial-failure bulk delete");
+    repo.assert_last_commit_paths(
+        "partial-failure bulk delete: Alpha",
+        &p(&[&issue_path(&bugs.a_file), INDEX_PATH]),
+    );
+    repo.assert_no_paths_outside_pebbles("partial-failure bulk delete");
+}
 /// Count `*.json` files under `<root>/.pebbles/issues/`.
 fn issue_file_count(root: &std::path::Path) -> usize {
     let dir = root.join(".pebbles/issues");

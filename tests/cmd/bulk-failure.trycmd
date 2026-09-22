@@ -1,0 +1,35 @@
+# Bulk Failure Summary Test
+
+This test documents the fail-soft batch semantics: when one issue in a
+multi-ID batch fails, the other issues are still applied (each with its own
+jj commit as usual), every failed ID is reported with the operation, the ID,
+and the reason, the IDs that were NOT applied are listed, and the command
+finishes with an `N/M succeeded` summary and a non-zero exit code. On the
+happy path the output remains one compact line per changed issue with no
+summary noise. Single-issue batches print exactly what the per-issue command
+prints.
+
+## Setup: a dependency edge (Login required_for Second)
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles link 11111111 required_for 22222222
+✓ Added relationship
+
+```
+
+## A batch whose second source would close a dependency cycle
+
+Third -> Login applies; Second -> Login would close the
+Login -> Second -> Login cycle and fails per-issue. The applied source keeps
+its compact line; the failure summary names the failed ID with its reason,
+lists what was NOT applied, and finishes with the N/M succeeded count.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles link 33333333 22222222 required_for 11111111
+? failed
+✓ Added relationship: 333 required_for 111
+Link failed for 222: Cannot add relationship Second bug required_for Login bug: it would create a dependency cycle
+Not applied: 222
+1/2 succeeded
+
+```

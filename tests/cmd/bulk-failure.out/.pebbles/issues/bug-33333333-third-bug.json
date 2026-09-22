@@ -1,0 +1,17 @@
+{
+  "id": "33333333-3333-3333-3333-333333333333",
+  "title": "Third bug",
+  "description": null,
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "11111111-1111-1111-1111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-01-10T12:00:00Z",
+  "updated_at": "[..]"
+}

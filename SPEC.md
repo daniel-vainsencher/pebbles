@@ -335,6 +335,44 @@ r[review-command]
 
 See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
+r[bulk-input]
+r[bulk-fail-soft]
+### Bulk Operations (multi-ID and stdin)
+
+`status`, `delete`, `link`, `unlink`, and `update` accept multiple issue
+IDs as arguments, or (when none are given) read them from stdin, one per
+line, as printed by `pebbles list`, `next`, `review`, or `epic` (bare IDs
+and full list rows are both accepted; see `parse_id_input_line`). This
+enables Unix composition such as
+`pebbles list --status todo | pebbles status in_progress`.
+
+Input is resolved up front (r[bulk-input]): every ID is resolved to its
+UUID before anything is written, duplicate IDs collapse to one operation,
+and an unresolvable input (or unresolvable `link`/`unlink` target) aborts
+the whole batch with an error before any change. There is no pre-flight
+phase beyond resolution; each issue is applied as its own operation with
+its own jj commit, in input order.
+
+r[bulk-fail-soft]
+On the happy path (all succeed) the output is the current one compact line
+per changed issue (e.g. `✓ Updated 111 [bug] [TODO] Login bug`) and no
+more; issues for which nothing needed to change print nothing, and the
+exit code is 0. A single-issue batch prints exactly what the per-issue
+command prints, including its error on failure.
+
+Batches are fail-soft: a per-issue failure does not abort the rest of the
+batch, and there is no rollback of issues already applied. Applied issues
+keep their compact line on stdout; each failed ID is then reported on
+stderr as `<operation> failed for <id>: <reason>` (the reason matches the
+per-issue command's error), followed by a `Not applied: <ids>` line listing
+what was NOT applied and a final `N/M succeeded` summary (`M` is the
+resolved batch size, `N` the issues that did not fail). The command exits
+non-zero when any issue failed. These semantics are identical for
+argument-input and stdin-input batches.
+
+Implementation: [`collect_id_inputs()`](src/main.rs), [`run_bulk_batch()`](src/main.rs)
+Test: [jj-integration](tests/jj_integration.rs) t28-t32, [bulk operations](tests/cmd/bulk-operations.trycmd), [bulk failure summary](tests/cmd/bulk-failure.trycmd)
+
 ## Behavior
 
 ### Issue Ordering
@@ -490,9 +528,7 @@ The `tags` field is a `Vec<String>` for categorization. Currently not used by CL
 Features mentioned in historical documentation but not yet implemented:
 - Tag management CLI commands
 - Metadata management CLI commands
-- TUI (Terminal User Interface)
 - Fuzzy search
-- Bulk operations
 - View commands (graph, route)
 - Full-text search
 - Export/import functionality

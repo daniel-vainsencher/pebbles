@@ -81,7 +81,9 @@ pub enum Commands {
         id: String,
     },
 
-    #[command(about = "Update status of one or more issues (multi-ID or stdin)")]
+    #[command(
+        about = "Update status of one or more issues (multi-ID or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
+    )]
     Status {
         #[arg(
             value_name = "ID or STATUS",
@@ -98,7 +100,9 @@ pub enum Commands {
         id: String,
     },
 
-    #[command(about = "Update one or more issues (multi-ID or stdin)")]
+    #[command(
+        about = "Update one or more issues (multi-ID or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
+    )]
     Update {
         #[arg(
             value_name = "ID",
@@ -114,7 +118,9 @@ pub enum Commands {
         description: Option<String>,
     },
 
-    #[command(about = "Delete one or more issues (multi-ID or stdin)")]
+    #[command(
+        about = "Delete one or more issues (multi-ID or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
+    )]
     Delete {
         #[arg(
             value_name = "ID",
@@ -130,7 +136,9 @@ pub enum Commands {
         delete_links_too: bool,
     },
 
-    #[command(about = "Add a relationship (multi-source or stdin)")]
+    #[command(
+        about = "Add a relationship (multi-source or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
+    )]
     Link {
         #[arg(
             value_name = "SOURCE RELATION TARGET",
@@ -141,7 +149,9 @@ pub enum Commands {
         args: Vec<String>,
     },
 
-    #[command(about = "Remove a relationship (multi-source or stdin)")]
+    #[command(
+        about = "Remove a relationship (multi-source or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
+    )]
     Unlink {
         #[arg(
             value_name = "SOURCE RELATION TARGET",

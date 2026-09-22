@@ -212,6 +212,26 @@ pebbles status a1b2 in_progress  # Critical bug
 pebbles status c3d4 todo         # Lower priority
 ```
 
+### Bulk Operations
+
+`status`, `update`, `delete`, `link`, and `unlink` accept multiple issue
+IDs in one invocation. With no IDs given, they read them from stdin, so the
+listing commands compose directly:
+
+```bash
+pebbles list --status todo | pebbles status in_progress
+pebbles link part_of a1b          # source IDs read from stdin
+pebbles update --title "Renamed" a1b2 c3d4
+```
+
+Batches apply per issue, one jj commit each, and print one compact line per
+changed issue. Batches are fail-soft: if one issue fails (say, a link that
+would create a dependency cycle), the rest are still applied. On a failure
+the command reports each failed ID with its reason on stderr, lists what
+was NOT applied, prints an `N/M succeeded` summary, and exits non-zero; on
+the happy path the output stays minimal. A single-issue batch prints
+exactly what the per-issue command prints.
+
 ### Working with Relationships
 
 ```bash

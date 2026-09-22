@@ -19,7 +19,7 @@ use display::{
 use operations::Operations;
 use std::collections::HashMap;
 use std::env;
-use std::io::{BufRead, IsTerminal};
+use std::io::{BufRead, IsTerminal, Write};
 use uuid::Uuid;
 
 fn main() -> Result<()> {
@@ -126,12 +126,11 @@ fn main() -> Result<()> {
             let uuids = resolve_to_uuids(&ops, &ids)?;
             let bulk = uuids.len() > 1;
             let prefixes = ops.id_prefixes()?;
-            for uuid in &uuids {
-                let id = uuid.to_string();
-                let outcome = ops.update_status(&id, new_status)?;
+            let (succeeded, failed) = run_bulk_batch(&uuids, &prefixes, bulk, |id, _short| {
+                let outcome = ops.update_status(id, new_status)?;
                 print_warnings(&outcome.warnings);
                 if outcome.value {
-                    let issue = ops.show(&id)?;
+                    let issue = ops.show(id)?;
                     if bulk {
                         println!("✓ Updated {}", bulk_row(&issue, &prefixes));
                     } else {
@@ -144,7 +143,9 @@ fn main() -> Result<()> {
                 } else if !bulk {
                     println!("No changes: issue already has this status");
                 }
-            }
+                Ok(())
+            })?;
+            finish_bulk("Status update", succeeded, &failed, uuids.len());
         }
 
         Commands::Approve { id } => {
@@ -167,12 +168,11 @@ fn main() -> Result<()> {
             let uuids = resolve_to_uuids(&ops, &ids)?;
             let bulk = uuids.len() > 1;
             let prefixes = ops.id_prefixes()?;
-            for uuid in &uuids {
-                let id = uuid.to_string();
-                let outcome = ops.update(&id, title.clone(), description.clone())?;
+            let (succeeded, failed) = run_bulk_batch(&uuids, &prefixes, bulk, |id, _short| {
+                let outcome = ops.update(id, title.clone(), description.clone())?;
                 print_warnings(&outcome.warnings);
                 if outcome.value {
-                    let issue = ops.show(&id)?;
+                    let issue = ops.show(id)?;
                     if bulk {
                         println!("✓ Updated {}", bulk_row(&issue, &prefixes));
                     } else {
@@ -185,7 +185,9 @@ fn main() -> Result<()> {
                 } else if !bulk {
                     println!("No changes: nothing to update");
                 }
-            }
+                Ok(())
+            })?;
+            finish_bulk("Update", succeeded, &failed, uuids.len());
         }
 
         Commands::Delete {
@@ -194,11 +196,15 @@ fn main() -> Result<()> {
         } => {
             let ids = collect_id_inputs(&ids)?;
             let uuids = resolve_to_uuids(&ops, &ids)?;
-            for uuid in &uuids {
-                let outcome = ops.delete(&uuid.to_string(), delete_links_too)?;
-                print_warnings(&outcome.warnings);
-                println!("✓ Deleted issue {}", outcome.value);
-            }
+            let prefixes = ops.id_prefixes()?;
+            let (succeeded, failed) =
+                run_bulk_batch(&uuids, &prefixes, uuids.len() > 1, |id, _short| {
+                    let outcome = ops.delete(id, delete_links_too)?;
+                    print_warnings(&outcome.warnings);
+                    println!("✓ Deleted issue {}", outcome.value);
+                    Ok(())
+                })?;
+            finish_bulk("Delete", succeeded, &failed, uuids.len());
         }
 
         Commands::Link { args } => {
@@ -211,20 +217,20 @@ fn main() -> Result<()> {
             let target_uuid = ops.resolve_ids(&[target])?[0];
             let prefixes = ops.id_prefixes()?;
             let target_short = display_uuid(&target_uuid, &prefixes);
-            for uuid in &uuids {
-                let outcome = ops.add_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+            let (succeeded, failed) = run_bulk_batch(&uuids, &prefixes, bulk, |id, short| {
+                let outcome = ops.add_relationship(id, relation_type.clone(), target)?;
                 print_warnings(&outcome.warnings);
                 if bulk {
                     println!(
                         "✓ Added relationship: {} {} {}",
-                        display_uuid(uuid, &prefixes),
-                        relation_type,
-                        target_short
+                        short, relation_type, target_short
                     );
                 } else {
                     println!("✓ Added relationship");
                 }
-            }
+                Ok(())
+            })?;
+            finish_bulk("Link", succeeded, &failed, uuids.len());
         }
 
         Commands::Unlink { args } => {
@@ -237,20 +243,20 @@ fn main() -> Result<()> {
             let target_uuid = ops.resolve_ids(&[target])?[0];
             let prefixes = ops.id_prefixes()?;
             let target_short = display_uuid(&target_uuid, &prefixes);
-            for uuid in &uuids {
-                let outcome = ops.remove_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+            let (succeeded, failed) = run_bulk_batch(&uuids, &prefixes, bulk, |id, short| {
+                let outcome = ops.remove_relationship(id, relation_type.clone(), target)?;
                 print_warnings(&outcome.warnings);
                 if bulk {
                     println!(
                         "✓ Removed relationship: {} {} {}",
-                        display_uuid(uuid, &prefixes),
-                        relation_type,
-                        target_short
+                        short, relation_type, target_short
                     );
                 } else {
                     println!("✓ Removed relationship");
                 }
-            }
+                Ok(())
+            })?;
+            finish_bulk("Unlink", succeeded, &failed, uuids.len());
         }
 
         Commands::Epic { id } => {
@@ -418,6 +424,87 @@ fn resolve_to_uuids(ops: &Operations, ids: &[String]) -> Result<Vec<Uuid>> {
 fn split_source_args(args: &[String]) -> (Vec<String>, &str, &str) {
     let (sources, tail) = args.split_at(args.len() - 2);
     (sources.to_vec(), &tail[0], &tail[1])
+}
+
+/// Apply a per-issue operation to a resolved batch, fail-soft in bulk mode.
+///
+/// `apply` receives each issue's full UUID and its display short ID and
+/// returns `Ok(())` when the operation succeeded. A no-op result (e.g. the
+/// issue already had the requested status) is also `Ok(())` and prints
+/// nothing in bulk mode, exactly as on the happy path. In bulk mode a
+/// per-issue error is collected as `(short ID, reason)` and the batch
+/// continues with the next issue; in single-issue mode the first error
+/// propagates to the caller unchanged, preserving per-issue behavior.
+fn run_bulk_batch<F>(
+    uuids: &[Uuid],
+    prefixes: &HashMap<Uuid, String>,
+    bulk: bool,
+    mut apply: F,
+) -> Result<(usize, Vec<(String, String)>)>
+where
+    F: FnMut(&str, &str) -> Result<()>,
+{
+    let mut succeeded = 0usize;
+    let mut failed: Vec<(String, String)> = Vec::new();
+    for uuid in uuids {
+        let id = uuid.to_string();
+        let short = display_uuid(uuid, prefixes);
+        match apply(&id, &short) {
+            Ok(()) => succeeded += 1,
+            Err(err) => {
+                if bulk {
+                    failed.push((short, format!("{err:?}")));
+                } else {
+                    return Err(err);
+                }
+            }
+        }
+    }
+    Ok((succeeded, failed))
+}
+
+/// Build the failure summary lines for a finished bulk batch: one line per
+/// failed ID (operation, ID, reason), the list of IDs that were NOT
+/// applied, and a final `N/M succeeded` line. Empty when nothing failed, so
+/// the happy path stays minimal (one compact line per changed issue, no
+/// summary noise).
+fn bulk_failure_lines(
+    operation: &str,
+    succeeded: usize,
+    failed: &[(String, String)],
+    total: usize,
+) -> Vec<String> {
+    if failed.is_empty() {
+        return Vec::new();
+    }
+    let mut lines: Vec<String> = failed
+        .iter()
+        .map(|(id, reason)| format!("{} failed for {}: {}", operation, id, reason))
+        .collect();
+    let not_applied: Vec<&str> = failed.iter().map(|(id, _)| id.as_str()).collect();
+    lines.push(format!("Not applied: {}", not_applied.join(", ")));
+    lines.push(format!("{}/{} succeeded", succeeded, total));
+    lines
+}
+
+/// Finish a bulk batch: on the happy path (nothing failed) this does
+/// nothing. Otherwise it prints the failure summary to stderr (the applied
+/// compact lines were already printed to stdout during the loop), flushes
+/// stdout, and exits non-zero.
+///
+/// Exits instead of returning an error so the per-ID summary is not
+/// followed by an `Error:` line: the failures are already reported above.
+fn finish_bulk(operation: &str, succeeded: usize, failed: &[(String, String)], total: usize) {
+    let lines = bulk_failure_lines(operation, succeeded, failed, total);
+    if lines.is_empty() {
+        return;
+    }
+    for line in lines {
+        eprintln!("{}", line);
+    }
+    let mut stdout = std::io::stdout();
+    let _ = stdout.flush();
+    std::process::exit(1);
 }
 
 /// Appropriate-length ID for a UUID, looked up in a precomputed prefix map.
