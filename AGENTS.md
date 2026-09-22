@@ -6,4 +6,14 @@ Is in [CONTRIBUTING.md](CONTRIBUTING.md). Before making any changes, make sure t
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Design philosophy, system architecture, extension points
 - **[SPEC.md](SPEC.md)** - Data model, file formats, and behavior specifications
 
-this will give you the context you need to improve rather than degrade system quality and coherence.
+## Versioning
+
+Releases follow Semantic Versioning (https://semver.org): MAJOR.MINOR.PATCH.
+
+- MAJOR: backward-incompatible changes (breaking CLI, issue file format, or data model changes).
+- MINOR: backward-compatible new features (new commands, TUI modes, issue types, flags).
+- PATCH: backward-compatible bug fixes and documentation-only changes.
+
+Bump the version in Cargo.toml (and Cargo.lock) in the release commit, describe it as
+`chore: release vMAJOR.MINOR.PATCH`, tag the release commit (`jj tag set vMAJOR.MINOR.PATCH -r @-`),
+and push the release bookmark through sync (jjs workflow, see ~/repos/jjs/README.md).
