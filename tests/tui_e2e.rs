@@ -329,6 +329,44 @@ fn build_project(root: &PathBuf, rows: &[(&str, u128, &str, &str, &str, bool)]) 
     fs::write(pebbles.join("index.json"), index).expect("index");
 }
 
+/// Externally add an issue - another pebbles process, an agent session, or
+/// a manual edit - by writing the issue file and appending it to the index.
+/// Used by the refresh e2e to shape external state while the TUI runs.
+fn add_issue_externally(
+    pebbles: &PathBuf,
+    name: &str,
+    id: u128,
+    itype: &str,
+    status: &str,
+    title: &str,
+) {
+    let uuid = format!("{:08x}-1111-4222-8333-{:012x}", id, id);
+    let file = format!("{itype}-{:08x}-{name}.json", id);
+    let issue = format!(
+        "{{\"id\":\"{uuid}\",\"title\":\"{title}\",\"description\":null,\"status\":\"{status}\",\"issue_type\":\"{itype}\",\"tags\":[],\"relationships\":[],\"metadata\":{{}},\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\"}}\n",
+    );
+    fs::write(pebbles.join("issues").join(&file), issue).expect("issue file");
+    // The index ends "<entries>]}"; splice the new entry in front of the "]}".
+    let index_content = fs::read_to_string(pebbles.join("index.json")).unwrap();
+    let mut updated = index_content[..index_content.len() - 2].to_string();
+    updated.push_str(
+        format!(",{{\"id\":\"{uuid}\",\"file_name\":\"{file}\"}}]}}").as_str(),
+    );
+    fs::write(pebbles.join("index.json"), updated).expect("index update");
+}
+
+/// Externally flip an issue's status by rewriting its file in place: what
+/// an external `pebbles approve` looks like, with index.json untouched.
+fn set_status_externally(pebbles: &PathBuf, file_name: &str, status: &str) {
+    let path = pebbles.join("issues").join(file_name);
+    let content = fs::read_to_string(&path).unwrap();
+    let updated = content.replace(
+        "\"status\":\"proposed\"",
+        format!("\"status\":\"{status}\"").as_str(),
+    );
+    fs::write(&path, updated).expect("status flip");
+}
+
 #[test]
 fn tui_multi_project_lists_and_mutates_in_own_project() -> termlens::Result<()> {
     let tempdir = tempfile::Builder::new()
@@ -409,6 +447,192 @@ fn tui_multi_project_lists_and_mutates_in_own_project() -> termlens::Result<()> 
         older_index.contains("22222222"),
         "older project untouched: {older_index}"
     );
+    Ok(())
+}
+
+/// `p` (poll) re-runs project discovery and reloads every project, so
+/// external state changes - another pebbles process, an agent session, a
+/// manual edit, a new project - become visible without restarting, and the
+/// selection re-settles in place (r[tui-refresh]). Nothing updates between
+/// keys: the view stays stale until `p`.
+#[test]
+fn tui_refresh_shows_external_changes_and_keeps_selection() -> termlens::Result<()> {
+    let tempdir = tempfile::Builder::new()
+        .prefix("pebbles-tui-refresh-")
+        .tempdir()
+        .expect("tempdir");
+    let home = tempdir.path().to_path_buf();
+    build_project(
+        &home.join("repos/proj-a"),
+        &[
+            ("alpha-idea", 0x11111111, "bug", "proposed", "Alpha idea", false),
+            ("beta-idea", 0x22222222, "usecase", "proposed", "Beta idea", false),
+        ],
+    );
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("HOME", home.to_string_lossy().to_string())
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&home)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    // The review filter lists both ideas with Alpha (bug sorts first)
+    // selected.
+    t.wait_until(|s| s.contains("proj-a"))?;
+    t.send(Key::Char('r'))?;
+    assert!(
+        settled(&mut t, "filter with Alpha selected", |s| {
+            s.contains("Alpha idea")
+                && s.contains("Beta idea")
+                && highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "filter with Alpha selected"
+    );
+
+    // External state changes while the TUI runs: a new issue and an
+    // in-place status flip in proj-a, plus a brand-new project appearing
+    // in the registry.
+    let pebbles_a = home.join("repos/proj-a/.pebbles");
+    add_issue_externally(&pebbles_a, "gamma-idea", 0x33333333, "design", "proposed", "Gamma idea");
+    set_status_externally(&pebbles_a, "usecase-22222222-beta-idea.json", "done");
+    build_project(
+        &home.join("repos/proj-b"),
+        &[("delta-idea", 0x44444444, "usecase", "proposed", "Delta idea", false)],
+    );
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Load-once-per-invocation: with no key pressed the screen still shows
+    // the startup issue set; the external changes are invisible.
+    let stale = t.screen();
+    assert!(!stale.contains("Gamma idea"), "stale before refresh: {stale}");
+    assert!(stale.contains("Beta idea"), "Beta still proposed before refresh: {stale}");
+    assert!(!stale.contains("proj-b"), "stale before refresh: {stale}");
+
+    // `p` reloads the changed project: Gamma appears under proj-a (its
+    // count grows 2 -> 3), Beta (now done) leaves the proposed filter, the
+    // freshly discovered proj-b joins the list, Alpha keeps the highlight.
+    t.send(Key::Char('p'))?;
+    assert!(
+        settled(&mut t, "refresh applied", |s| {
+            s.contains("Gamma idea")
+                && s.contains("proj-a (3)")
+                && s.contains("proj-b (1)")
+                && !tree_text(s).contains("Beta idea")
+                && highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "refresh applied"
+    );
+
+    // A second refresh is harmless: same data, selection still in place.
+    t.send(Key::Char('p'))?;
+    assert!(
+        settled(&mut t, "second refresh", |s| {
+            s.contains("Gamma idea") && highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "second refresh"
+    );
+
+    // Quit, terminal restored.
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
+
+    // The external edits are what the TUI showed: new issue on disk, Beta
+    // flipped to done.
+    let files: Vec<String> = fs::read_dir(home.join("repos/proj-a/.pebbles/issues"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    assert!(
+        files.iter().any(|f| f.contains("gamma-idea")),
+        "gamma file written: {files:?}"
+    );
+    let beta =
+        fs::read_to_string(pebbles_a.join("issues/usecase-22222222-beta-idea.json")).unwrap();
+    assert!(beta.contains("\"status\":\"done\""), "{beta}");
+    Ok(())
+}
+
+/// `p` works in the plain browser tree too (not just the review filter):
+/// project counts, newly discovered projects and selection all update in
+/// place, with the registry order re-applied (r[tui-refresh]).
+#[test]
+fn tui_refresh_in_plain_tree_adds_projects_and_keeps_selection() -> termlens::Result<()> {
+    let tempdir = tempfile::Builder::new()
+        .prefix("pebbles-tui-refresh-")
+        .tempdir()
+        .expect("tempdir");
+    let home = tempdir.path().to_path_buf();
+    build_project(
+        &home.join("repos/proj-a"),
+        &[("alpha-idea", 0x11111111, "bug", "proposed", "Alpha idea", false)],
+    );
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("HOME", home.to_string_lossy().to_string())
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&home)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    // Startup opens proj-a down to its first issue, Alpha, and selects it.
+    assert!(
+        settled(&mut t, "Alpha selected in plain tree", |s| {
+            highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "Alpha selected in plain tree"
+    );
+
+    // External state changes: a new issue in proj-a and a brand-new project.
+    add_issue_externally(
+        &home.join("repos/proj-a/.pebbles"),
+        "gamma-idea",
+        0x33333333,
+        "design",
+        "proposed",
+        "Gamma idea",
+    );
+    build_project(
+        &home.join("repos/proj-b"),
+        &[("delta-idea", 0x44444444, "usecase", "proposed", "Delta idea", false)],
+    );
+    std::thread::sleep(std::time::Duration::from_millis(100));
+
+    // Still stale until a key is pressed.
+    let stale = t.screen();
+    assert!(!stale.contains("Gamma idea"), "stale before refresh: {stale}");
+    assert!(!stale.contains("proj-b"), "stale before refresh: {stale}");
+
+    // `p`: proj-a grows 1 -> 2 and shows Gamma, proj-b joins the registry,
+    // and the highlight stays on Alpha.
+    t.send(Key::Char('p'))?;
+    assert!(
+        settled(&mut t, "plain tree refresh applied", |s| {
+            tree_text(s).contains("proj-a (2)")
+                && tree_text(s).contains("Gamma idea")
+                && s.contains("proj-b")
+                && highlighted_row_text(s).contains("Alpha idea")
+        }),
+        "plain tree refresh applied"
+    );
+
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
     Ok(())
 }
 

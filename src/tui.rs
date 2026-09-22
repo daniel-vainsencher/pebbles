@@ -569,6 +569,9 @@ pub struct App {
     pub message: Option<String>,
     pub confirm_delete: bool,
     pub should_quit: bool,
+    /// Refresh config (r[tui-refresh]): where `p` re-runs project discovery.
+    pub home: PathBuf,
+    pub extra_dirs: Vec<PathBuf>,
 }
 
 pub fn project_total(pd: &ProjectData) -> usize {
@@ -647,6 +650,8 @@ impl App {
             message: None,
             confirm_delete: false,
             should_quit: false,
+            home: PathBuf::from(""),
+            extra_dirs: Vec::new(),
         }
     }
 
@@ -708,22 +713,80 @@ impl App {
         if let Some(slot) = self.projects.iter_mut().find(|p| p.root == root) {
             *slot = pd;
         }
+        self.settle_selection(same, next);
+        Ok(())
+    }
+
+    /// Re-settle the selection after the issue set changed (r[tui-review]):
+    /// keep the same item while it is still visible, otherwise move exactly
+    /// one position - to the item that followed it before the change, or to
+    /// the new last item when the removed one was last. Never teleport to
+    /// the first item. With no prior selection (startup edge) re-select the
+    /// first visible item.
+    fn settle_selection(&mut self, same: Option<String>, next: Option<String>) {
         self.rebuild_items();
         if let Some(same) = same {
             if select_item(self, &same) {
-                return Ok(());
+                return;
             }
             if let Some(next) = next {
                 if select_item(self, &next) {
-                    return Ok(());
+                    return;
                 }
             }
             self.reset_selection_to_last();
         } else if !self.selection_visible() {
-            // No selection before the reload (startup edge): keep the old
-            // fallback instead of guessing at a neighbor.
             self.reset_selection_to_first();
         }
+    }
+
+    /// r[tui-refresh]: re-run project discovery with the startup config and
+    /// reload every project from disk - external edits (another pebbles
+    /// process, an agent session, a manual edit, a jj checkout) become
+    /// visible, newly discovered projects are added and vanished ones
+    /// dropped, keeping the registry order. The selection re-settles exactly
+    /// like after a mutation (r[tui-review]). The project count may grow
+    /// without bound, so this stays manual and on-demand: load-once-per-
+    /// invocation is the rule everywhere else, and nothing polls between
+    /// keys. Every project reloads (not just index.json mtime winners)
+    /// because in-place issue edits, like an external approve, do not touch
+    /// the index; several file reads per project on an explicit key are
+    /// trivial next to the hot path.
+    pub fn refresh_projects(&mut self) -> Result<()> {
+        let roots = discover_roots(&self.home, &self.extra_dirs)?;
+        let (same, next) = self.selection_targets();
+        for root in &roots {
+            if self.projects.iter().any(|p| p.root == *root) {
+                let ops = self
+                    .ops_map
+                    .get(root)
+                    .context("no operations for project")?;
+                let pd = load_project_data(root.as_path(), ops)?;
+                if let Some(slot) = self.projects.iter_mut().find(|p| p.root == *root) {
+                    *slot = pd;
+                }
+            } else {
+                let ops = Operations::new(root.as_path())?;
+                let pd = load_project_data(root.as_path(), &ops)?;
+                self.ops_map.insert(root.clone(), ops);
+                self.projects.push(pd);
+            }
+        }
+        // Drop projects that are no longer discovered, then reorder to the
+        // registry order (fresh discovery sorts by index mtime, r[project-registry]).
+        self.projects.retain(|p| roots.iter().any(|r| *r == p.root));
+        let mut reordered: Vec<ProjectData> = Vec::new();
+        for root in &roots {
+            let pos = self
+                .projects
+                .iter()
+                .position(|p| p.root == *root)
+                .expect("discovered root");
+            reordered.push(self.projects.remove(pos));
+        }
+        self.projects = reordered;
+        self.ops_map.retain(|root, _| self.projects.iter().any(|p| p.root == *root));
+        self.settle_selection(same, next);
         Ok(())
     }
 
@@ -913,6 +976,7 @@ const HELP_LINES: &[&str] = &[
     "                Backspace edits; s:!d = status not done,",
     "                t:bug = type bug, !term = not term",
     "r               toggle the proposed-issues filter",
+    "p               refresh: re-discover, reload projects",
     "a               approve selected (in proposed filter)",
     "d then y        close selected = delete (in filter)",
     "e               edit title/description/type/status (detail pane)",
@@ -1071,17 +1135,12 @@ fn centered_rect(area: Rect, pct_x: u16, height: u16) -> Rect {
 // Imperative shell: terminal setup, event loop, mutations
 // ---------------------------------------------------------------------------
 
-pub fn run() -> Result<()> {
-    // r[project-registry]: scan ~/repos (+ config extras), always include the
-    // current directory when it is a project; sort by index mtime.
-    let extra_dirs = {
-        let path = PathBuf::from(std::env::var("HOME").unwrap_or_default())
-            .join(".config/pebbles/projects.json");
-        crate::projects::parse_extra_dirs(std::fs::read_to_string(path).ok().as_deref())
-    };
-    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_default();
+/// r[project-registry]: scan ~/repos (+ config extras), always include the
+/// current directory when it is a project; sort by index mtime. Shared by
+/// startup and the `p` refresh key (r[tui-refresh]).
+fn discover_roots(home: &Path, extra_dirs: &[PathBuf]) -> Result<Vec<PathBuf>> {
     let mut candidates: Vec<(PathBuf, Option<std::time::SystemTime>)> =
-        crate::projects::discover(&home, &extra_dirs)?
+        crate::projects::discover(home, extra_dirs)?
             .into_iter()
             .map(|p| (p.root.clone(), crate::projects::index_mtime(&p.root)))
             .collect();
@@ -1096,15 +1155,27 @@ pub fn run() -> Result<()> {
             candidates.push((cwd.clone(), crate::projects::index_mtime(&cwd)));
         }
     }
-    let roots: Vec<PathBuf> = crate::projects::sort_projects(candidates)
+    Ok(crate::projects::sort_projects(candidates)
         .into_iter()
         .map(|p| p.root)
-        .collect();
+        .collect())
+}
+
+pub fn run() -> Result<()> {
+    let extra_dirs = {
+        let path = PathBuf::from(std::env::var("HOME").unwrap_or_default())
+            .join(".config/pebbles/projects.json");
+        crate::projects::parse_extra_dirs(std::fs::read_to_string(path).ok().as_deref())
+    };
+    let home = std::env::var("HOME").map(PathBuf::from).unwrap_or_default();
+    let roots = discover_roots(&home, &extra_dirs)?;
     if roots.is_empty() {
         anyhow::bail!("Pebbles not initialized. Run 'pebbles init' first.");
     }
 
     let mut app = App::load(&roots)?;
+    app.home = home;
+    app.extra_dirs = extra_dirs;
 
     enable_raw_mode().context("enabling raw mode")?;
     let mut stdout = stdout();
@@ -1196,6 +1267,11 @@ fn tree_key(app: &mut App, code: KeyCode) -> Result<()> {
             }
         }
         KeyCode::Char('r') => toggle_review_filter(app),
+        KeyCode::Char('p') => {
+            app.confirm_delete = false;
+            app.refresh_projects()?;
+            app.message = Some("Refreshed".to_string());
+        }
         KeyCode::Char('a') => {
             if app.filter.is_some() {
                 approve_selected(app)?;
