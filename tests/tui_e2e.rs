@@ -449,3 +449,193 @@ fn tui_search_type_prefixes_and_negation() -> termlens::Result<()> {
     assert!(after.cursor_visible(), "{after}");
     Ok(())
 }
+
+#[test]
+fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
+    let (_tempdir, root) = fixture_with_issues();
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&root)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    t.wait_until(|s| s.contains("Auth epic"))?;
+
+    // Focus the detail pane (BackTab from the tree) and open the edit pane
+    // on the selected issue (the first leaf: Login bug, id 22222222).
+    t.send(Key::BackTab)?;
+    t.wait_until(|s| s.row_text(23).trim_end().is_empty())?;
+    t.send(Key::Char('e'))?;
+    assert!(
+        settled(&mut t, "edit pane open", |s| {
+            s.contains("edit: 22222222")
+                && s.contains("> Title: Login bug")
+                && s.contains("Status: todo")
+        }),
+        "edit pane open"
+    );
+
+    // Title: edit in place; Enter applies through the operations layer.
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "title edit", |s| s.contains("Enter applies, Esc cancels")
+            && s.contains("Login bug")),
+        "title edit"
+    );
+    for c in " fixed".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "title applied", |s| {
+            s.row_text(23).contains("Updated title") && s.contains("Title: Login bug fixed")
+        }),
+        "title applied"
+    );
+
+    // Status: step to the field, start editing, cycle todo -> done, apply.
+    for (needle, _label) in [("> Description:", "desc"), ("> Type:", "type"), ("> Status:", "status")] {
+        t.send(Key::Char('j'))?;
+        assert!(settled(&mut t, "field", |s| s.contains(needle)), "step to {needle}");
+    }
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "status edit", |s| s.contains("Left/Right cycles, Enter applies, Esc cancels")),
+        "status edit"
+    );
+    t.send(Key::Right)?;
+    t.send(Key::Right)?;
+    assert!(
+        settled(&mut t, "status cycled", |s| s.contains("> Status: done")),
+        "status cycled"
+    );
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "status applied", |s| s.row_text(23).contains("Status: done")),
+        "status applied"
+    );
+
+    // Type: back up one field, cycle bug -> usecase, apply.
+    t.send(Key::Char('k'))?;
+    assert!(
+        settled(&mut t, "back to type", |s| s.contains("> Type:")),
+        "back to type"
+    );
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "type edit", |s| s.contains("Left/Right cycles, Enter applies, Esc cancels")),
+        "type edit"
+    );
+    t.send(Key::Right)?;
+    t.send(Key::Right)?;
+    assert!(
+        settled(&mut t, "type cycled", |s| s.contains("> Type: usecase")),
+        "type cycled"
+    );
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "type applied", |s| s.row_text(23).contains("Converted to usecase")),
+        "type applied"
+    );
+
+    // Description: back up one field, type a value, apply.
+    t.send(Key::Char('k'))?;
+    assert!(
+        settled(&mut t, "back to description", |s| s.contains("> Description:")),
+        "back to description"
+    );
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "description edit", |s| s.contains("Enter applies, Esc cancels")),
+        "description edit"
+    );
+    for c in "Fixes login".chars() {
+        t.send(Key::Char(c))?;
+    }
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "description applied", |s| {
+            s.row_text(23).contains("Updated description") && s.contains("Fixes login")
+        }),
+        "description applied"
+    );
+
+    // Esc cancels without writing: reopen, type into the title, Esc twice
+    // (once for the field edit, once for the pane) and verify the disk
+    // still holds the committed title.
+    t.send(Key::Esc)?;
+    assert!(
+        settled(&mut t, "pane closed", |s| !s.contains("edit: 22222222")),
+        "pane closed"
+    );
+    t.send(Key::Char('e'))?;
+    assert!(
+        settled(&mut t, "pane reopened", |s| s.contains("edit: 22222222")),
+        "pane reopened"
+    );
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "title edit again", |s| s.contains("Enter applies, Esc cancels")),
+        "title edit again"
+    );
+    t.send(Key::Char('!'))?;
+    assert!(
+        settled(&mut t, "buffer shows", |s| s.contains("Title: Login bug fixed!")),
+        "buffer shows"
+    );
+    t.send(Key::Esc)?;
+    assert!(
+        settled(&mut t, "field edit cancelled", |s| {
+            s.contains("j/k move, Enter edits") && s.contains("Title: Login bug fixed")
+        }),
+        "field edit cancelled"
+    );
+    t.send(Key::Esc)?;
+    assert!(
+        settled(&mut t, "pane closed again", |s| !s.contains("edit: 22222222")),
+        "pane closed again"
+    );
+
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+    let after = t.screen();
+    assert!(!after.alternate_screen(), "{after}");
+    assert!(after.cursor_visible(), "{after}");
+
+    // The operations landed on disk; the Esc'd title edit did not.
+    let files: Vec<String> = root
+        .join(".pebbles/issues")
+        .read_dir()
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    let edited = files
+        .iter()
+        .find(|f| f.contains("22222222"))
+        .unwrap_or_else(|| panic!("edited issue file: {files:?}"));
+    assert!(
+        edited.contains("login-bug-fixed"),
+        "file renamed by the title change: {files:?}"
+    );
+    let content =
+        fs::read_to_string(root.join(".pebbles/issues").join(edited)).unwrap();
+    assert!(content.contains("\"title\": \"Login bug fixed\""), "{content}");
+    assert!(content.contains("\"status\": \"done\""), "{content}");
+    assert!(content.contains("\"issue_type\": \"usecase\""), "{content}");
+    assert!(
+        content.contains("\"description\": \"Fixes login\""),
+        "{content}"
+    );
+    assert!(
+        !content.contains("Login bug!"),
+        "the cancelled title edit must not be written: {content}"
+    );
+    Ok(())
+}

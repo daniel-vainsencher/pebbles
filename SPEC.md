@@ -345,7 +345,7 @@ r[tui]
 **Browser (`pebbles tui`):**
 - Two-pane layout: left = foldable tree (epics with child pebbles newest-first, epic `(done/total)` progress, then orphaned pebbles newest-first); right = detail pane for the highlighted issue mirroring `show` (ID, type, status, description, tags, relationships, incoming references, updated timestamp); multi-line descriptions render as separate lines and long lines word-wrap.
 - Tree and filter lists sort by status (proposed, todo, in progress, blocked, done), then by type (bug, design, others), newest first within the same status+type: users read from the top.
-- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; Tab/BackTab switch which pane owns the keyboard (r[tui-focus]); `/` jumps to the search line (r[tui-search]); `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
+- Navigation: `j`/`k` or Up/Down move; Right unfolds (or moves to the first child), Left folds (or moves to the parent); Enter or `f` toggles the fold; Tab/BackTab switch which pane owns the keyboard (r[tui-focus]); `/` jumps to the search line (r[tui-search]); `e` opens the inline edit pane for title/description/type/status (r[tui-edit]); `?` toggles an opaque help overlay; `q` quits and restores the terminal (leaves alt-screen, shows cursor).
 - Every draw clears the full frame and the (alternate) screen is cleared once at startup: cells left behind by previous terminal contents never show through unpainted areas (r[tui-background]).
 - Display prefixes follow r[appropriate-length-id] semantics (minimal unambiguous prefixes where IDs are shown).
 
@@ -366,6 +366,16 @@ r[tui-focus]
 - The browser has three panes that can own the keyboard: the tree (move/select, `r` filter, `a`/`d` mutations), the search line (query editing, r[tui-search]), and the detail pane (`j`/`k` scroll its content). Tab and BackTab cycle focus; the focused pane's border is highlighted, and the search line additionally shows the `search: <query>` prompt while focused.
 - Enter in the search line accepts the query and returns focus to the tree; Esc clears the query and returns to the tree; Tab leaves the search open while focus moves on, so browsing and the query can coexist.
 - `/` jumps to the search line from the tree or the detail pane. `q` quits from the tree and the detail pane.
+
+Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](src/tui.rs), [tui e2e](tests/tui_e2e.rs)
+
+r[tui-edit]
+**Inline edit pane (key `e` with an issue selected in the detail pane):**
+- The right pane lists Title, Description, Type, and Status with the live values; the left tree stays visible. `j`/`k` or Up/Down move between fields (Tab/BackTab step too), and the selected field is marked `> `.
+- `Enter` starts editing the highlighted field. Title and Description edit as a single line of text (Backspace deletes, characters append; the buffer is pre-filled with the current value). `Left`/`Right` cycle the pending value for Type and Status, in the display order `bug, ux_problem, usecase, design, validation, epic, milestone` and `proposed, todo, in_progress, done, blocked`, wrapping both ways.
+- `Enter` again applies the field through the operations layer: `update` for title/description (keeping the non-empty-title validation), `convert` for type, `update_status` for status (r[update], r[convert-command], r[update-status]). Each applied field is one operation and therefore its own jj commit; after applying, the issue set reloads, the tree re-selects the edited issue, and the message line reports the change.
+- `Esc` cancels without writing: during a field edit it discards the pending text/cycle and returns to navigation; in navigation it closes the pane. No operation runs until a field is applied with `Enter`. No-change applies report "No changes" and write nothing.
+- Failures (empty title, convert guards such as converting an epic with children) surface in the message line with the pane still open. `q` quits while navigating the pane, not during text entry.
 
 Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](src/tui.rs), [tui e2e](tests/tui_e2e.rs)
 

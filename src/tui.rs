@@ -430,6 +430,8 @@ pub struct ProjectData {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mode {
     Browser,
+    /// The inline edit pane owns the keyboard (r[tui-edit]).
+    Edit,
     Help,
 }
 
@@ -440,9 +442,114 @@ pub enum Focus {
     Tree,
     /// The search line at the bottom: keys edit the query (`/`).
     Search,
-    /// The right detail pane: `j`/`k` scroll, `Esc` returns to the tree.
+    /// The right detail pane: `j`/`k` scroll, `e` opens the edit pane,
+    /// `Esc` returns to the tree.
     Detail,
 }
+
+/// A field of the inline edit pane, in display order (r[tui-edit]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum EditField {
+    Title,
+    Description,
+    Type,
+    Status,
+}
+
+/// Pending state for the inline edit pane: which field is highlighted, the
+/// text buffer, and the pending Type/Status values that `Enter` applies
+/// through the operations layer (r[tui-edit]).
+#[derive(Clone, Debug)]
+pub struct EditState {
+    /// The issue the pane edits, pinned so tree reloads cannot redirect it.
+    pub issue_id: Uuid,
+    /// The highlighted field.
+    pub field: EditField,
+    /// True while typing Title/Description or cycling Type/Status. While
+    /// false, `j`/`k` move between fields and `Esc` closes the pane.
+    pub editing: bool,
+    /// Text buffer for Title/Description, pre-filled from the live issue.
+    pub buffer: String,
+    /// Pending type; `Enter` applies it via `Operations::convert`.
+    pub pending_type: IssueType,
+    /// Pending status; `Enter` applies it via `Operations::update_status`.
+    pub pending_status: Status,
+}
+
+impl EditState {
+    fn for_issue(issue: &Issue) -> Self {
+        EditState {
+            issue_id: issue.id,
+            field: EditField::Title,
+            editing: false,
+            buffer: String::new(),
+            pending_type: issue.issue_type.clone(),
+            pending_status: issue.status.clone(),
+        }
+    }
+}
+
+/// The fields in order; `j`/`k` (and Tab) step through them, wrapping.
+const EDIT_FIELDS: [EditField; 4] = [
+    EditField::Title,
+    EditField::Description,
+    EditField::Type,
+    EditField::Status,
+];
+
+fn field_index(field: EditField) -> usize {
+    EDIT_FIELDS
+        .iter()
+        .position(|f| *f == field)
+        .expect("known field")
+}
+
+/// The field `delta` steps away, wrapping around both ends.
+fn step_field(field: EditField, delta: i8) -> EditField {
+    let next = (field_index(field) as i8 + delta).rem_euclid(EDIT_FIELDS.len() as i8) as usize;
+    EDIT_FIELDS[next].clone()
+}
+
+/// The types the edit pane cycles through, in display order.
+const TYPE_CYCLE: [IssueType; 7] = [
+    IssueType::Bug,
+    IssueType::UxProblem,
+    IssueType::Usecase,
+    IssueType::Design,
+    IssueType::Validation,
+    IssueType::Epic,
+    IssueType::Milestone,
+];
+
+/// The statuses the edit pane cycles through, matching `status_rank`.
+const STATUS_CYCLE: [Status; 5] = [
+    Status::Proposed,
+    Status::Todo,
+    Status::InProgress,
+    Status::Done,
+    Status::Blocked,
+];
+
+fn cycle_type(issue_type: IssueType, delta: i8) -> IssueType {
+    let pos = TYPE_CYCLE
+        .iter()
+        .position(|t| *t == issue_type)
+        .expect("known type");
+    let next = (pos as i8 + delta).rem_euclid(TYPE_CYCLE.len() as i8) as usize;
+    TYPE_CYCLE[next].clone()
+}
+
+fn cycle_status(status: Status, delta: i8) -> Status {
+    let pos = STATUS_CYCLE
+        .iter()
+        .position(|s| *s == status)
+        .expect("known status");
+    let next = (pos as i8 + delta).rem_euclid(STATUS_CYCLE.len() as i8) as usize;
+    STATUS_CYCLE[next].clone()
+}
+
+/// Cursor marker shown at the end of the buffer while editing text.
+const EDIT_CURSOR: &str = "\u{258f}";
 
 pub struct App {
     pub mode: Mode,
@@ -450,6 +557,8 @@ pub struct App {
     pub focus: Focus,
     /// Scroll offset of the detail pane while it has focus.
     pub detail_offset: usize,
+    /// The open inline edit pane, if any (r[tui-edit]).
+    pub edit: Option<EditState>,
     pub filter: Option<Status>,
     /// Raw search line; non-empty means the search filter is active.
     pub search: String,
@@ -528,6 +637,7 @@ impl App {
             mode: Mode::Browser,
             focus: Focus::Tree,
             detail_offset: 0,
+            edit: None,
             filter: None,
             search: String::new(),
             projects: Vec::new(),
@@ -721,6 +831,7 @@ const HELP_LINES: &[&str] = &[
     "r               toggle the proposed-issues filter",
     "a               approve selected (in proposed filter)",
     "d then y        close selected = delete (in filter)",
+    "e               edit title/description/type/status (detail pane)",
     "?               toggle this help",
     "q               quit",
 ];
@@ -731,7 +842,7 @@ pub fn render_app(f: &mut Frame, app: &mut App) {
     // every unpainted cell comes out blank (r[tui-background]).
     f.render_widget(Clear, f.area());
     match app.mode {
-        Mode::Browser => render_browser(f, app),
+        Mode::Browser | Mode::Edit => render_browser(f, app),
         Mode::Help => render_help(f, app),
     }
 }
@@ -797,7 +908,16 @@ fn render_browser(f: &mut Frame, app: &mut App) {
         .highlight_style(Style::new().bg(Color::Rgb(60, 60, 60)));
     f.render_stateful_widget(tree, tree_area, &mut app.tree_state);
 
-    let (all_lines, title) = if let Some((issue, pd)) = app.selected_with_project() {
+    // The inline edit pane takes over the detail area (r[tui-edit]); the
+    // tree stays visible so edits land next to the issue they belong to.
+    let (all_lines, title) = if app.mode == Mode::Edit {
+        let short = app
+            .edit
+            .as_ref()
+            .map(|e| e.issue_id.to_string()[..8].to_string())
+            .unwrap_or_default();
+        (edit_pane_lines(app), format!("edit: {short}"))
+    } else if let Some((issue, pd)) = app.selected_with_project() {
         (
             detail_lines(issue, &pd.related_titles, &pd.incoming),
             issue.title.clone(),
@@ -943,6 +1063,7 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) 
                     Focus::Search => search_key(app, key.code)?,
                     Focus::Detail => detail_key(app, key.code)?,
                 },
+                Mode::Edit => edit_key(app, key.code)?,
                 Mode::Help => app.mode = Mode::Browser,
             }
         }
@@ -1068,7 +1189,8 @@ fn search_key(app: &mut App, code: KeyCode) -> Result<()> {
 }
 
 /// Keys while the detail pane has focus (r[tui-focus]): j/k scroll the
-/// detail, Esc returns to the tree, `/` jumps to the search line.
+/// detail, `e` opens the inline edit pane (r[tui-edit]), Esc returns to
+/// the tree, `/` jumps to the search line.
 fn detail_key(app: &mut App, code: KeyCode) -> Result<()> {
     match code {
         KeyCode::Char('q') => app.should_quit = true,
@@ -1084,6 +1206,7 @@ fn detail_key(app: &mut App, code: KeyCode) -> Result<()> {
             app.detail_offset = 0;
             app.focus = Focus::Search;
         }
+        KeyCode::Char('e') => open_edit(app)?,
         KeyCode::Esc => app.focus = Focus::Tree,
         _ => app.confirm_delete = false,
     }
@@ -1135,6 +1258,293 @@ fn delete_selected(app: &mut App) -> Result<()> {
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Inline edit pane (r[tui-edit])
+// ---------------------------------------------------------------------------
+
+/// The live issue `issue_id` and its project, wherever they are now (the
+/// pane pins the issue, so commits survive tree reloads and re-sorts).
+fn issue_with_project<'a>(app: &'a App, issue_id: Uuid) -> Option<(&'a Issue, &'a ProjectData)> {
+    let pd = app.project_of(&issue_id)?;
+    let issue = pd.issues.iter().find(|i| i.id == issue_id)?;
+    Some((issue, pd))
+}
+
+/// `e` in the detail pane: open the edit pane for the selected issue.
+fn open_edit(app: &mut App) -> Result<()> {
+    let Some((issue, _)) = app.selected_with_project() else {
+        app.message = Some("Select an issue to edit".to_string());
+        return Ok(());
+    };
+    let edit = EditState::for_issue(issue);
+    app.detail_offset = 0;
+    app.confirm_delete = false;
+    app.edit = Some(edit);
+    app.mode = Mode::Edit;
+    Ok(())
+}
+
+fn close_edit(app: &mut App) {
+    app.mode = Mode::Browser;
+    app.edit = None;
+}
+
+/// The nested tree path (list of identifiers) to `identifier`, if visible.
+fn path_to_item(
+    items: &[TreeItem<'static, String>],
+    identifier: &str,
+    prefix: &mut Vec<String>,
+) -> Option<Vec<String>> {
+    for item in items {
+        prefix.push(item.identifier().clone());
+        if item.identifier().as_str() == identifier {
+            return Some(prefix.clone());
+        }
+        if let Some(path) = path_to_item(item.children(), identifier, prefix) {
+            return Some(path);
+        }
+        prefix.pop();
+    }
+    None
+}
+
+/// Select `identifier` in the tree, opening its ancestors so it is visible
+/// again after a mutation re-built the items.
+fn select_item(app: &mut App, identifier: &str) -> bool {
+    let Some(path) = path_to_item(&app.items, identifier, &mut Vec::new()) else {
+        return false;
+    };
+    for len in 1..path.len() {
+        app.tree_state.open(path[..len].to_vec());
+    }
+    app.tree_state.select(path);
+    true
+}
+
+/// Step the pending Type/Status value by `delta`; other fields ignore the
+/// arrows (they only scroll/steer during text editing, which is unsupported).
+fn cycle_edit(edit: &mut EditState, delta: i8) {
+    match edit.field {
+        EditField::Type => edit.pending_type = cycle_type(edit.pending_type.clone(), delta),
+        EditField::Status => edit.pending_status = cycle_status(edit.pending_status.clone(), delta),
+        EditField::Title | EditField::Description => {}
+    }
+}
+
+/// Apply the highlighted field through the operations layer: `update` for
+/// title/description (keeping the non-empty-title validation),
+/// `convert` for type, `update_status` for status. Every applied field is
+/// one operation and therefore its own jj commit (r[tui-edit]).
+fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
+    let Some((_, pd)) = issue_with_project(app, edit.issue_id) else {
+        app.message = Some("Issue no longer available".to_string());
+        return Ok(());
+    };
+    let root = pd.root.clone();
+    let Some(ops) = app.ops_map.get(&root) else {
+        app.message = Some("No operations for this project".to_string());
+        return Ok(());
+    };
+    let id = edit.issue_id.to_string();
+    let outcome = match edit.field {
+        EditField::Title => ops
+            .update(&id, Some(edit.buffer.clone()), None)
+            .map(|changed| (changed, "\u{2713} Updated title".to_string())),
+        EditField::Description => ops
+            .update(&id, None, Some(edit.buffer.clone()))
+            .map(|changed| (changed, "\u{2713} Updated description".to_string())),
+        EditField::Type => ops
+            .convert(&id, edit.pending_type.clone())
+            .map(|changed| (changed, format!("\u{2713} Converted to {}", edit.pending_type))),
+        EditField::Status => ops
+            .update_status(&id, edit.pending_status.clone())
+            .map(|changed| (changed, format!("\u{2713} Status: {}", edit.pending_status))),
+    };
+    match outcome {
+        Ok((false, _)) => {
+            app.message = Some("No changes: nothing to update".to_string());
+        }
+        Ok((true, message)) => {
+            app.reload_project(&root)?;
+            if !select_item(app, &id) {
+                // The issue is hidden by an active filter: stop editing it.
+                app.message = Some("Issue hidden by filter; edit closed".to_string());
+                app.edit = None;
+                app.mode = Mode::Browser;
+                return Ok(());
+            }
+            app.message = Some(message);
+            // The pane now reflects the committed values.
+            edit.editing = false;
+            if let Some(issue) = issue_with_project(app, edit.issue_id) {
+                edit.pending_type = issue.0.issue_type.clone();
+                edit.pending_status = issue.0.status.clone();
+            }
+        }
+        Err(e) => {
+            // Validation (empty title) and convert guards keep the pane open
+            // so the user can fix the field (r[tui-edit]).
+            app.message = Some(format!("Error: {e}"));
+        }
+    }
+    Ok(())
+}
+
+/// Keys while the inline edit pane is open (r[tui-edit]). Esc cancels
+/// without writing: an in-progress field edit is discarded, and in
+/// navigation it closes the pane. Nothing runs until Enter applies a field.
+fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
+    let Some(mut edit) = app.edit.clone() else {
+        return Ok(());
+    };
+    let mut closed = false;
+    match code {
+        KeyCode::Char('q') if !edit.editing => app.should_quit = true,
+        KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab if !edit.editing => {
+            edit.field = step_field(edit.field, 1);
+        }
+        KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab if !edit.editing => {
+            edit.field = step_field(edit.field, -1);
+        }
+        KeyCode::Enter if !edit.editing => {
+            let Some(issue) = issue_with_project(app, edit.issue_id).map(|(i, _)| i.clone()) else {
+                app.message = Some("Issue no longer available".to_string());
+                close_edit(app);
+                return Ok(());
+            };
+            edit.editing = true;
+            match edit.field {
+                EditField::Title => edit.buffer = issue.title.clone(),
+                EditField::Description => edit.buffer = issue.description.clone().unwrap_or_default(),
+                EditField::Type | EditField::Status => {}
+            }
+        }
+        KeyCode::Left => cycle_edit(&mut edit, -1),
+        KeyCode::Right => cycle_edit(&mut edit, 1),
+        KeyCode::Enter => commit_edit(app, &mut edit)?,
+        KeyCode::Esc => {
+            if edit.editing {
+                // Cancel the in-progress field edit without writing.
+                edit.editing = false;
+                edit.buffer.clear();
+                if let Some(issue) = issue_with_project(app, edit.issue_id) {
+                    edit.pending_type = issue.0.issue_type.clone();
+                    edit.pending_status = issue.0.status.clone();
+                }
+            } else {
+                closed = true;
+            }
+        }
+        KeyCode::Backspace | KeyCode::Delete if edit.editing => {
+            edit.buffer.pop();
+        }
+        KeyCode::Char(c)
+            if edit.editing && matches!(edit.field, EditField::Title | EditField::Description) =>
+        {
+            edit.buffer.push(c);
+        }
+        _ => {}
+    }
+    if closed {
+        close_edit(app);
+    } else {
+        app.edit = Some(edit);
+    }
+    Ok(())
+}
+
+/// The edit pane's content: one row per field (selected row marked `> ` and
+/// highlighted) plus a hint line. Title/Description show the live values
+/// while navigating and the buffer while typing; Type/Status show the
+/// pending values (live until cycled).
+fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
+    let Some(edit) = &app.edit else {
+        return vec![Line::raw("No edit in progress")];
+    };
+    let issue = issue_with_project(app, edit.issue_id).map(|(i, _)| i);
+    let highlight = Style::new().bg(Color::Rgb(60, 60, 60));
+
+    let mut rows = Vec::new();
+    for field in EDIT_FIELDS {
+        let marker = if edit.field == field { "> " } else { "  " };
+        let value_style = if edit.field == field {
+            highlight
+        } else {
+            Style::new()
+        };
+        let value = match field {
+            EditField::Title => {
+                if edit.editing {
+                    format!("{}{}", edit.buffer, EDIT_CURSOR)
+                } else {
+                    issue.map(|i| i.title.clone()).unwrap_or_default()
+                }
+            }
+            EditField::Description => {
+                if edit.editing {
+                    format!("{}{}", edit.buffer, EDIT_CURSOR)
+                } else {
+                    issue
+                        .map(|i| {
+                            i.description
+                                .clone()
+                                .unwrap_or_default()
+                                .replace('\n', " ")
+                        })
+                        .unwrap_or_default()
+                }
+            }
+            EditField::Type => {
+                let value = if edit.field == EditField::Type {
+                    edit.pending_type.clone()
+                } else {
+                    issue.map(|i| i.issue_type.clone()).unwrap_or_else(|| edit.pending_type.clone())
+                };
+                value.to_string()
+            }
+            EditField::Status => {
+                let value = if edit.field == EditField::Status {
+                    edit.pending_status.clone()
+                } else {
+                    issue.map(|i| i.status.clone()).unwrap_or_else(|| edit.pending_status.clone())
+                };
+                value.to_string()
+            }
+        };
+        let label = match field {
+            EditField::Title => "Title",
+            EditField::Description => "Description",
+            EditField::Type => "Type",
+            EditField::Status => "Status",
+        };
+        rows.push(Line::from(vec![
+            Span::raw(marker),
+            Span::styled(
+                format!("{label}: "),
+                Style::new().add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(value, value_style),
+        ]));
+    }
+    let hint = if edit.editing {
+        match edit.field {
+            EditField::Title | EditField::Description => {
+                "typing ... Enter applies, Esc cancels".to_string()
+            }
+            EditField::Type | EditField::Status => {
+                "Left/Right cycles, Enter applies, Esc cancels".to_string()
+            }
+        }
+    } else {
+        "j/k move, Enter edits, Left/Right cycles type/status, Esc closes".to_string()
+    };
+    rows.push(Line::from(Span::styled(
+        hint,
+        Style::new().fg(Color::DarkGray),
+    )));
+    rows
 }
 
 #[cfg(test)]
@@ -1850,5 +2260,172 @@ mod tests {
                 );
             }
         }
+    }
+
+    // ---- inline edit pane (r[tui-edit]) ----
+
+    fn edit_app() -> (App, Uuid) {
+        let epic_id = Uuid::from_u128(0x4444);
+        let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
+        app.tree_state.select(vec![
+            "/repos/alpha".to_string(),
+            epic_id.to_string(),
+        ]);
+        open_edit(&mut app).unwrap();
+        (app, epic_id)
+    }
+
+    #[test]
+    fn step_field_wraps_and_cycles_cover_all_values() {
+        assert_eq!(step_field(EditField::Title, 1), EditField::Description);
+        assert_eq!(step_field(EditField::Title, -1), EditField::Status);
+        assert_eq!(step_field(EditField::Status, 1), EditField::Title);
+        assert_eq!(cycle_status(Status::Todo, 1), Status::InProgress);
+        assert_eq!(cycle_status(Status::Blocked, 1), Status::Proposed, "wraps");
+        assert_eq!(cycle_status(Status::Proposed, -1), Status::Blocked);
+        assert_eq!(cycle_type(IssueType::Bug, 1), IssueType::UxProblem);
+        assert_eq!(cycle_type(IssueType::Milestone, 1), IssueType::Bug, "wraps");
+        assert_eq!(cycle_type(IssueType::Epic, -1), IssueType::Validation);
+    }
+
+    #[test]
+    fn open_edit_requires_an_issue_selection() {
+        let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
+        // A project node is selected, not an issue: the pane does not open.
+        app.tree_state.select(vec!["/repos/alpha".to_string()]);
+        detail_key(&mut app, KeyCode::Char('e')).unwrap();
+        assert_eq!(app.mode, Mode::Browser, "no edit mode without an issue");
+        assert!(
+            app.message.as_deref().unwrap().contains("Select an issue"),
+            "hint: {:?}",
+            app.message
+        );
+        // With an issue selected the pane opens pinned to it, with the live
+        // values as the pending defaults.
+        let (mut app, epic_id) = edit_app();
+        let edit = app.edit.as_ref().unwrap();
+        assert_eq!(edit.issue_id, epic_id);
+        assert_eq!(edit.field, EditField::Title);
+        assert!(!edit.editing);
+        assert_eq!(edit.pending_type, IssueType::Epic);
+        assert_eq!(edit.pending_status, Status::Todo);
+        close_edit(&mut app);
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.edit.is_none());
+    }
+
+    #[test]
+    fn edit_pane_renders_fields_pending_values_and_hints() {
+        let (mut app, _) = edit_app();
+        let rows = draw(&mut app);
+        let joined = rows.join("\n");
+        assert!(joined.contains("> Title: The epic"), "{joined}");
+        assert!(joined.contains("Type: epic"), "{joined}");
+        assert!(joined.contains("Status: todo"), "{joined}");
+        assert!(joined.contains("j/k move, Enter edits"), "{joined}");
+        // Cycling the pending status is visible without a commit.
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().field,
+            EditField::Status,
+            "three j presses land on Status"
+        );
+        edit_key(&mut app, KeyCode::Right).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().pending_status,
+            Status::InProgress
+        );
+        let rows = draw(&mut app);
+        assert!(
+            rows.iter().any(|r| r.contains("> Status: in_progress")),
+            "{rows:?}"
+        );
+        // While editing the field, Esc reverts the pending cycle to the
+        // live value and returns to navigation (the pane stays open).
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert!(app.edit.as_ref().unwrap().editing);
+        edit_key(&mut app, KeyCode::Right).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().pending_status,
+            Status::Done,
+            "in_progress + one Right = done (already cycled once above)"
+        );
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert!(!edit.editing, "Esc leaves the field edit");
+        assert_eq!(
+            edit.pending_status, Status::Todo,
+            "Esc cancels the uncommitted cycle"
+        );
+        // Esc in navigation closes the pane without writing.
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.edit.is_none());
+    }
+
+    #[test]
+    fn edit_text_types_backspaces_and_esc_discards() {
+        let (mut app, _) = edit_app();
+        // Enter starts editing the title with the live value pre-filled.
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert!(edit.editing);
+        assert_eq!(edit.buffer, "The epic");
+        // q types while editing instead of quitting.
+        edit_key(&mut app, KeyCode::Char('q')).unwrap();
+        edit_key(&mut app, KeyCode::Char('!')).unwrap();
+        edit_key(&mut app, KeyCode::Char('?')).unwrap();
+        assert!(!app.should_quit, "q appends while editing");
+        assert_eq!(app.edit.as_ref().unwrap().buffer, "The epicq!?");
+        edit_key(&mut app, KeyCode::Backspace).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().buffer, "The epicq!");
+        // The buffer (with cursor) is rendered while editing.
+        let rows = draw(&mut app);
+        assert!(
+            rows.iter().any(|r| r.contains("The epicq!\u{258f}")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter().any(|r| r.contains("Enter applies, Esc cancels")),
+            "typing hint: {rows:?}"
+        );
+        // Esc discards the pending edit: no operation ran, the buffer is
+        // dropped and the pane returns to navigation.
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert!(!edit.editing);
+        assert!(edit.buffer.is_empty());
+        assert_eq!(app.mode, Mode::Edit, "Esc on a field edit keeps the pane");
+        // Esc in navigation closes the pane.
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.edit.is_none());
+    }
+
+    #[test]
+    fn edit_enter_from_navigation_only_starts_editing() {
+        let (mut app, _) = edit_app();
+        // One Enter must not apply anything: it enters editing mode.
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        let rows = draw(&mut app);
+        assert!(
+            rows.iter().any(|r| r.contains("> Title: The epic")),
+            "title untouched after Enter + Esc: {rows:?}"
+        );
+        // Tab moves to the next field; BackTab back.
+        edit_key(&mut app, KeyCode::Tab).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().field, EditField::Description);
+        edit_key(&mut app, KeyCode::BackTab).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().field, EditField::Title);
+    }
+
+    #[test]
+    fn q_quits_from_edit_navigation() {
+        let (mut app, _) = edit_app();
+        edit_key(&mut app, KeyCode::Char('q')).unwrap();
+        assert!(app.should_quit, "q quits while navigating the pane");
     }
 }
