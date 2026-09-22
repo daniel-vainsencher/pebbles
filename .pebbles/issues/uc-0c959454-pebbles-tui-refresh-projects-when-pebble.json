@@ -1,0 +1,12 @@
+{
+  "id": "0c959454-3fd1-4494-9076-39704d22640b",
+  "title": "pebbles tui: refresh projects when pebble state changes externally",
+  "description": "The TUI loads each project's issue set once per invocation (uc-1875abac) and reloads only after its own mutations (reload_project). External state changes - another pebble process, an agent session, a manual edit, a jj checkout, or a different project in the registry - stay invisible until restart. Ask (owner question 2026-09-22): pick an update mechanism. Recommended: keystroke mtime-poll - before each frame, stat each project's .pebbles/index.json (and re-run the registry scan periodically) and reload any changed project; selection preservation from pebble 34ec799a keeps reloads non-disruptive; add a manual refresh key (r) as an escape hatch. Dependency-free and single-threaded; upgrade to an OS file watcher (notify crate) only if polling ever feels stale. Doc: update SPEC r[tui] and the load-once-per-invocation rule to describe refresh-on-change.",
+  "status": "proposed",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-22T11:56:27.356945974Z",
+  "updated_at": "2026-09-22T11:56:27.356945974Z"
+}
