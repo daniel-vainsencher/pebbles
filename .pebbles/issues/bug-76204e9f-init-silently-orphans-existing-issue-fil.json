@@ -2,11 +2,11 @@
   "id": "76204e9f-f37c-45b6-8c7d-52f77b82a6cd",
   "title": "init silently orphans existing issue files when index.json is missing",
   "description": "'pebbles init' decides \"already initialized\" solely from .pebbles/index.json existing (Storage::exists() in src/storage.rs). If the index is gone but issue files remain, init writes a fresh empty index and reports success, which silently disconnects every issue from the tracker.\n\nMeasured on pebbles 1.0.0 (build of this repo's HEAD), .no_jj store with 3 issues: 'rm .pebbles/index.json' -> 'pebbles list' fails with \"Pebbles not initialized\"; 'pebbles init' -> exit 0, '✓ Pebbles initialized successfully'; 'pebbles list' -> 'No issues found.' while all 3 issue files are still under .pebbles/issues/. No warning, no confirmation prompt, and no command to rebuild the index (see 0f6f1445 doctor, todo). Same trap is one 'jj restore' or a bad conflict resolution away during a merge of index.json (measured in b931c524).\n\nAsk: make init inspect issues/ before writing an index. If issue files exist with no index, refuse unless --force, and offer the rebuild-from-files path (that rebuild is also the repair half of 0f6f1445). Add a SPEC rule so the empty-store and lost-index cases are distinguishable.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-20T16:40:12.646846869Z",
-  "updated_at": "2026-09-22T01:24:44.584264650Z"
+  "updated_at": "2026-09-22T04:02:15.399120705Z"
 }
