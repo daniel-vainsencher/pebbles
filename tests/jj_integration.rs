@@ -1037,6 +1037,133 @@ fn t29_bulk_link_commits_per_source() {
     repo.assert_no_paths_outside_pebbles("bulk link");
 }
 
+
+/// T30: `pebbles reindex` rebuilds a conflicted (unparsable) index from the
+/// issue files and verifies with a load; the rebuilt index is left in the
+/// working copy, uncommitted (the command never runs jj - a conflicted
+/// index is exactly the repair context where committing makes no sense).
+#[test]
+fn t30_reindex_repairs_conflicted_index() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Alpha bug", "-t", "bug"]);
+    repo.pebbles(&["new", "Beta idea", "-t", "design"]);
+    let before_commits = repo.commit_count();
+    assert_eq!(repo.read_index().len(), 2, "two issues indexed");
+
+    // Simulate a conflicted index file: every command fails to parse it and
+    // no repair path exists other than reindex.
+    std::fs::write(
+        repo.root.join(".pebbles/index.json"),
+        "conflicted <<<<<<< garbage",
+    ).expect("corrupt index");
+    let err = repo.pebbles_fail(&["list"]);
+    assert!(err.contains("Failed to parse index file"), "got: {:?}", err);
+
+    // A concurrent agent left a hand-written issue file too: reindex must
+    // adopt it (the files are the truth).
+    let new_file = "bug-55555555-hand-written-issue.json";
+    std::fs::write(
+        repo.root.join(".pebbles/issues").join(&new_file),
+        r#"{
+            "id": "55555555-5555-5555-5555-555555555555",
+            "title": "Hand written issue",
+            "description": null,
+            "status": "proposed",
+            "issue_type": "bug",
+            "tags": [],
+            "relationships": [],
+            "metadata": {},
+            "created_at": "2026-01-10T12:01:00Z",
+            "updated_at": "2026-01-10T12:01:00Z"
+        }
+        "#,
+    ).expect("write hand-written issue");
+
+    let out = repo.pebbles(&["reindex"]);
+    assert!(out.contains("Rebuilt index: 3"), "got: {:?}", out);
+
+    // Verified with a load: the index parses and every issue still lists,
+    // including the hand-written one.
+    assert_eq!(repo.read_index().len(), 3, "index rebuilt from all files");
+    let listed = repo.pebbles(&["list"]);
+    assert!(listed.contains("Hand written issue"), "got: {:?}", listed);
+
+    // reindex never commits: the working copy holds exactly the new issue
+    // file and the repaired index, and no new commit appeared.
+    let diff = repo.jj(&["diff", "--summary"]);
+    let paths = parse_summary_paths(&diff);
+    assert_eq!(
+        &paths,
+        &p(&[&issue_path(&new_file), INDEX_PATH]),
+        "reindex leaves only the index change: {:?}",
+        paths
+    );
+    assert_eq!(
+        repo.commit_count(),
+        before_commits,
+        "reindex must not commit (repair context)"
+    );
+    assert!(
+        repo.jj(&["log", "--no-pager", "-r", "@-", "-T", "description"]).contains("Beta idea"),
+        "last commit still the last mutation"
+    );
+}
+
+
+/// T31: a store without a jj repository still writes the store and exits 0,
+/// with the uncommitted-change fact surfaced as a warning: the exit code
+/// describes the resulting store state, not jj's (r[store-without-jj]).
+#[test]
+fn t31_store_without_jj_repo_writes_and_exits_0() {
+    let repo = TestRepo::new();
+    repo.pebbles(&["init"]);
+    repo.pebbles(&["new", "Alpha", "-t", "bug", "--approved"]);
+
+    // Drop the jj repo while the store stays (e.g. someone deleted .jj).
+    remove_dir_all(&repo.root.join(".jj")).expect("remove .jj");
+
+    let output = Command::new(PEBBLES_BIN)
+        .args(&["new", "Beta", "-t", "bug", "--approved"])
+        .current_dir(&repo.root)
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .env_remove("CLICOLOR_FORCE")
+        .env_remove("FORCE_COLOR")
+        .output()
+        .expect("run pebbles");
+    assert!(
+        output.status.success(),
+        "store write must succeed without a jj repo: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("No jj repository found"),
+        "succeeding without committing must be loud: {:?}",
+        stderr
+    );
+
+    // The resulting store state is intact: the new issue is written,
+    // indexed, and listed.
+    assert_eq!(repo.read_index().len(), 2, "new issue is indexed");
+    let listed = String::from_utf8_lossy(&output.stdout);
+    assert!(listed.contains("Created bug"), "got: {:?}", listed);
+}
+
+/// Recursively delete a directory tree (jj tools are not guaranteed present,
+/// so tests remove `.jj` with the std library).
+fn remove_dir_all(path: &std::path::Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(path)?.flatten() {
+        if entry.path().is_dir() {
+            remove_dir_all(&entry.path())?;
+        } else {
+            std::fs::remove_file(&entry.path())?;
+        }
+    }
+    std::fs::remove_dir(path)
+}
+
 /// Count `*.json` files under `<root>/.pebbles/issues/`.
 fn issue_file_count(root: &std::path::Path) -> usize {
     let dir = root.join(".pebbles/issues");

@@ -28,10 +28,28 @@ use crate::models::{
     build_epic_counts, build_incoming_relationships_map, Issue, IssueType, RelationType, Status,
 };
 use crate::operations::Operations;
+use crate::storage::LoadWarning;
 
 // ---------------------------------------------------------------------------
 // Pure helpers
 // ---------------------------------------------------------------------------
+
+/// Fold load/write warnings into the TUI's one-line message row
+/// (r[load-warnings-as-data]): `"<message>; WARNING: <first> (+N more)"`.
+/// The message row is a single line, so only the first warning's text is
+/// shown; the detail pane lists every warning in full.
+fn fold_warnings(message: String, warnings: &[LoadWarning]) -> String {
+    if warnings.is_empty() {
+        return message;
+    }
+    let first = &warnings[0].message;
+    let more = warnings.len() - 1;
+    if more > 0 {
+        format!("{}; WARNING: {} (+{} more)", message, first, more)
+    } else {
+        format!("{}; WARNING: {}", message, first)
+    }
+}
 
 fn status_span(status: &Status) -> Span<'static> {
     let (label, color) = match status {
@@ -424,6 +442,9 @@ pub struct ProjectData {
     pub issues: Vec<Issue>,
     pub related_titles: HashMap<Uuid, String>,
     pub incoming: HashMap<Uuid, Vec<(Uuid, String, RelationType)>>,
+    /// Load warnings for this project's issue set, folded into the message
+    /// and detail lines instead of raw stderr (r[load-warnings-as-data]).
+    pub warnings: Vec<LoadWarning>,
     pub index_mtime: Option<std::time::SystemTime>,
 }
 
@@ -624,6 +645,12 @@ pub fn project_detail_lines(pd: &ProjectData) -> Vec<Line<'static>> {
         })
         .unwrap_or_else(|| "Last index update: unknown".to_string());
     lines.push(Line::from(mtime_line));
+    // Load warnings as data, rendered into the detail pane
+    // (r[load-warnings-as-data]): raw stderr would corrupt the alternate
+    // screen while the TUI is in raw mode.
+    for warning in &pd.warnings {
+        lines.push(Line::from(format!("WARNING: {}", warning.message)));
+    }
     lines
 }
 
@@ -667,6 +694,15 @@ impl App {
         app.rebuild_items();
         if !app.selection_visible() {
             app.reset_selection_to_first();
+        }
+        // Fold each project's first load warning into the message row: a
+        // degraded store is visible on startup without raw stderr
+        // (r[load-warnings-as-data]).
+        for pd in &app.projects {
+            if !pd.warnings.is_empty() {
+                app.message = Some(format!("WARNING: {}", pd.warnings[0].message));
+                break;
+            }
         }
         Ok(app)
     }
@@ -872,7 +908,7 @@ impl App {
 }
 
 fn load_project_data(root: &Path, ops: &Operations) -> Result<ProjectData> {
-    let issues = ops.list(None, None)?;
+    let (issues, warnings) = ops.list(None, None)?;
     let related_titles = issues.iter().map(|i| (i.id, i.title.clone())).collect();
     let incoming = build_incoming_relationships_map(&issues)
         .into_iter()
@@ -894,6 +930,7 @@ fn load_project_data(root: &Path, ops: &Operations) -> Result<ProjectData> {
         issues,
         related_titles,
         incoming,
+        warnings,
         index_mtime: crate::projects::index_mtime(root),
     })
 }
@@ -1389,10 +1426,10 @@ fn approve_selected(app: &mut App) -> Result<()> {
         return Ok(());
     };
     match ops.approve(&uuid.to_string()) {
-        Ok(()) => {
+        Ok(outcome) => {
             let alid = ops.appropriate_length_id(&uuid)?;
             app.reload_project(&root)?;
-            app.message = Some(format!("\u{2713} Approved {alid}"));
+            app.message = Some(fold_warnings(format!("\u{2713} Approved {alid}"), &outcome.warnings));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
@@ -1411,9 +1448,9 @@ fn delete_selected(app: &mut App) -> Result<()> {
         return Ok(());
     };
     match ops.delete(&uuid.to_string(), false) {
-        Ok(short) => {
+        Ok(outcome) => {
             app.reload_project(&root)?;
-            app.message = Some(format!("\u{2713} Deleted {short}"));
+            app.message = Some(fold_warnings(format!("\u{2713} Deleted {}", outcome.value), &outcome.warnings));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
@@ -1511,19 +1548,19 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     let outcome = match edit.field {
         EditField::Title => ops
             .update(&id, Some(edit.buffer.clone()), None)
-            .map(|changed| (changed, "\u{2713} Updated title".to_string())),
+            .map(|out| (out.value, fold_warnings("\u{2713} Updated title".to_string(), &out.warnings))),
         EditField::Description => ops
             .update(&id, None, Some(edit.buffer.clone()))
-            .map(|changed| (changed, "\u{2713} Updated description".to_string())),
-        EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|changed| {
+            .map(|out| (out.value, fold_warnings("\u{2713} Updated description".to_string(), &out.warnings))),
+        EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|out| {
             (
-                changed,
-                format!("\u{2713} Converted to {}", edit.pending_type),
+                out.value,
+                fold_warnings(format!("\u{2713} Converted to {}", edit.pending_type), &out.warnings),
             )
         }),
         EditField::Status => ops
             .update_status(&id, edit.pending_status.clone())
-            .map(|changed| (changed, format!("\u{2713} Status: {}", edit.pending_status))),
+            .map(|out| (out.value, fold_warnings(format!("\u{2713} Status: {}", edit.pending_status), &out.warnings))),
     };
     match outcome {
         Ok((false, _)) => {
@@ -1715,8 +1752,33 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
 mod tests {
     use super::*;
     use crate::models::Relationship;
+    use crate::storage::LoadWarning;
     use ratatui::backend::TestBackend;
     use std::time::{Duration, UNIX_EPOCH};
+
+    fn warning(message: &str) -> LoadWarning {
+        LoadWarning {
+            file_name: "bug-11111111-x.json".to_string(),
+            message: message.to_string(),
+        }
+    }
+
+    #[test]
+    fn fold_warnings_empty_is_message_unchanged() {
+        assert_eq!(fold_warnings("\u{2713} Done".to_string(), &[]), "\u{2713} Done");
+    }
+
+    #[test]
+    fn fold_warnings_appends_first_warning_and_more_count() {
+        assert_eq!(
+            fold_warnings("\u{2713} Done".to_string(), &[warning("k1")]),
+            "\u{2713} Done; WARNING: k1"
+        );
+        assert_eq!(
+            fold_warnings("\u{2713} Done".to_string(), &[warning("k1"), warning("k2")]),
+            "\u{2713} Done; WARNING: k1 (+1 more)"
+        );
+    }
 
     fn issue(uuid_suffix: u128, title: &str, status: Status, issue_type: IssueType) -> Issue {
         let mut i = Issue::new(title.to_string(), None, issue_type);
@@ -1752,6 +1814,7 @@ mod tests {
                 })
                 .collect(),
             issues,
+            warnings: Vec::new(),
             index_mtime: None,
         }
     }

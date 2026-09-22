@@ -9,6 +9,7 @@ mod storage;
 mod tui;
 
 use crate::models::{Issue, Status};
+use crate::storage::LoadWarning;
 use anyhow::{bail, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
@@ -43,11 +44,14 @@ fn main() -> Result<()> {
             approved,
         } => {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            let issue = ops.create(title, description, issue_type, approved)?;
+            let outcome = ops.create(title, description, issue_type, approved)?;
+            print_warnings(&outcome.warnings);
+            let issue = outcome.value;
             let short_id = ops.appropriate_length_id(&issue.id)?;
             println!("Created {} {}", issue.issue_type, short_id);
             let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            let (incoming, incoming_warnings) = ops.get_incoming_relationships(&issue.id)?;
+            print_warnings(&incoming_warnings);
             print_issue_detail(&issue, &related_titles, &incoming);
         }
 
@@ -68,7 +72,8 @@ fn main() -> Result<()> {
                 None
             };
             let filter_applied = status_filter.is_some() || type_filter.is_some() || orphaned;
-            let mut issues = ops.list(status_filter, type_filter)?;
+            let (mut issues, warnings) = ops.list(status_filter, type_filter)?;
+            print_warnings(&warnings);
 
             if orphaned {
                 issues.retain(|issue| {
@@ -94,7 +99,8 @@ fn main() -> Result<()> {
         Commands::Show { id } => {
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+            print_warnings(&warnings);
             print_issue_detail(&issue, &related_titles, &incoming);
         }
 
@@ -122,14 +128,17 @@ fn main() -> Result<()> {
             let prefixes = ops.id_prefixes()?;
             for uuid in &uuids {
                 let id = uuid.to_string();
-                if ops.update_status(&id, new_status)? {
+                let outcome = ops.update_status(&id, new_status)?;
+                print_warnings(&outcome.warnings);
+                if outcome.value {
                     let issue = ops.show(&id)?;
                     if bulk {
                         println!("✓ Updated {}", bulk_row(&issue, &prefixes));
                     } else {
                         println!("✓ Updated issue status");
                         let related_titles = ops.get_related_titles(&issue);
-                        let incoming = ops.get_incoming_relationships(&issue.id)?;
+                        let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                        print_warnings(&warnings);
                         print_issue_detail(&issue, &related_titles, &incoming);
                     }
                 } else if !bulk {
@@ -139,10 +148,12 @@ fn main() -> Result<()> {
         }
 
         Commands::Approve { id } => {
-            ops.approve(&id)?;
+            let outcome = ops.approve(&id)?;
+            print_warnings(&outcome.warnings);
             let issue = ops.show(&id)?;
             let related_titles = ops.get_related_titles(&issue);
-            let incoming = ops.get_incoming_relationships(&issue.id)?;
+            let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+            print_warnings(&warnings);
             println!("✓ Approved issue");
             print_issue_detail(&issue, &related_titles, &incoming);
         }
@@ -158,14 +169,17 @@ fn main() -> Result<()> {
             let prefixes = ops.id_prefixes()?;
             for uuid in &uuids {
                 let id = uuid.to_string();
-                if ops.update(&id, title.clone(), description.clone())? {
+                let outcome = ops.update(&id, title.clone(), description.clone())?;
+                print_warnings(&outcome.warnings);
+                if outcome.value {
                     let issue = ops.show(&id)?;
                     if bulk {
                         println!("✓ Updated {}", bulk_row(&issue, &prefixes));
                     } else {
                         println!("✓ Updated issue");
                         let related_titles = ops.get_related_titles(&issue);
-                        let incoming = ops.get_incoming_relationships(&issue.id)?;
+                        let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                        print_warnings(&warnings);
                         print_issue_detail(&issue, &related_titles, &incoming);
                     }
                 } else if !bulk {
@@ -181,8 +195,9 @@ fn main() -> Result<()> {
             let ids = collect_id_inputs(&ids)?;
             let uuids = resolve_to_uuids(&ops, &ids)?;
             for uuid in &uuids {
-                let short = ops.delete(&uuid.to_string(), delete_links_too)?;
-                println!("✓ Deleted issue {}", short);
+                let outcome = ops.delete(&uuid.to_string(), delete_links_too)?;
+                print_warnings(&outcome.warnings);
+                println!("✓ Deleted issue {}", outcome.value);
             }
         }
 
@@ -197,7 +212,8 @@ fn main() -> Result<()> {
             let prefixes = ops.id_prefixes()?;
             let target_short = display_uuid(&target_uuid, &prefixes);
             for uuid in &uuids {
-                ops.add_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                let outcome = ops.add_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                print_warnings(&outcome.warnings);
                 if bulk {
                     println!(
                         "✓ Added relationship: {} {} {}",
@@ -222,7 +238,8 @@ fn main() -> Result<()> {
             let prefixes = ops.id_prefixes()?;
             let target_short = display_uuid(&target_uuid, &prefixes);
             for uuid in &uuids {
-                ops.remove_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                let outcome = ops.remove_relationship(&uuid.to_string(), relation_type.clone(), target)?;
+                print_warnings(&outcome.warnings);
                 if bulk {
                     println!(
                         "✓ Removed relationship: {} {} {}",
@@ -237,14 +254,16 @@ fn main() -> Result<()> {
         }
 
         Commands::Epic { id } => {
-            let (epic, child_issues) = ops.epic(&id)?;
+            let (epic, child_issues, warnings) = ops.epic(&id)?;
+            print_warnings(&warnings);
             // r[impl appropriate-length-id]
             let id_prefixes = ops.id_prefixes()?;
             print_epic_view(&epic, &child_issues, &id_prefixes);
         }
 
         Commands::Next => {
-            let issues = ops.next()?;
+            let (issues, warnings) = ops.next()?;
+            print_warnings(&warnings);
             // r[impl epic-progress-counts] - next is a filtered view.
             let full_epic_counts = ops.epic_counts()?;
             // r[impl appropriate-length-id]
@@ -254,7 +273,8 @@ fn main() -> Result<()> {
 
         // r[impl review-command]
         Commands::Review => {
-            let issues = ops.list(Some(Status::Proposed), None)?;
+            let (issues, warnings) = ops.list(Some(Status::Proposed), None)?;
+            print_warnings(&warnings);
             // r[impl epic-progress-counts] - review is a filtered view.
             let full_epic_counts = ops.epic_counts()?;
             // r[impl appropriate-length-id]
@@ -265,10 +285,13 @@ fn main() -> Result<()> {
         Commands::Convert { id, new_type } => {
             let new_type_parsed: crate::models::IssueType =
                 new_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            if ops.convert(&id, new_type_parsed.clone())? {
+            let outcome = ops.convert(&id, new_type_parsed.clone())?;
+            print_warnings(&outcome.warnings);
+            if outcome.value {
                 let issue = ops.show(&id)?;
                 let related_titles = ops.get_related_titles(&issue);
-                let incoming = ops.get_incoming_relationships(&issue.id)?;
+                let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                print_warnings(&warnings);
                 println!("✓ Converted issue type");
                 print_issue_detail(&issue, &related_titles, &incoming);
             } else {
@@ -279,18 +302,41 @@ fn main() -> Result<()> {
             }
         }
 
+        Commands::Reindex => {
+            let outcome = ops.reindex()?;
+            if outcome.wrote {
+                println!("✓ Rebuilt index: {} issue(s)", outcome.entries);
+            } else {
+                println!("✓ Index is up to date: {} issue(s)", outcome.entries);
+            }
+            for description in &outcome.unparsable {
+                eprintln!(
+                    "Warning: Skipped unparsable issue file {}; it is not indexed",
+                    description
+                );
+            }
+            for file_name in &outcome.duplicates {
+                eprintln!(
+                    "Warning: Skipped {}: duplicate id (the first occurrence wins; this file is not indexed)",
+                    file_name
+                );
+            }
+        }
+
         Commands::Tui => {
             tui::run()?;
         }
 
         Commands::Summary => {
-            let summary = ops.summary()?;
+            let (summary, warnings) = ops.summary()?;
+            print_warnings(&warnings);
             print_summary(&summary);
         }
 
         Commands::Flow { format, output } => {
             // Load all issues
-            let issues = ops.list(None, None)?;
+            let (issues, warnings) = ops.list(None, None)?;
+            print_warnings(&warnings);
 
             // Compute layout
             let layout = flow::compute_flow_layout(&issues)?;
@@ -316,6 +362,16 @@ fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Print load and mutation warnings to stderr in the CLI's own convention
+/// (r[load-warnings-as-data]): one `Warning:` line per item. The storage and
+/// operations layers only produce the warnings as data; rendering is the
+/// shell's job so the TUI never sees raw stderr from a load.
+fn print_warnings(warnings: &[LoadWarning]) {
+    for warning in warnings {
+        eprintln!("{}", warning.cli_line());
+    }
 }
 
 /// Collect issue ID inputs for a bulk command: the positional IDs, or —

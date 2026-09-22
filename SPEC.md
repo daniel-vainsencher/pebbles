@@ -112,6 +112,26 @@ r[issues-dir-created-on-demand]
 
 The index maintains the mapping between UUIDs and current filenames. When an issue's title changes, the filename changes but the ID remains constant.
 
+r[index-write-atomicity]
+**Atomic index writes:**
+- Every index write goes through a temp file in the same directory plus a rename, so readers never observe a torn `index.json`.
+- Implementation: [`Storage::save_index()`](src/storage.rs) | Test: [jj-integration](tests/jj_integration.rs)
+
+r[stale-index-warning]
+**Write-time stale-index detection:**
+- At mutation write time, pebbles scans `.pebbles/issues/` for `*.json` files newer than the index version read (baseline: the index file's mtime, not the clock) and not mapped by that index, excluding the current operation's own files.
+- When any are found, the operation prints a warning that the index is stale and should be regenerated with `pebbles reindex`, and continues writing (no refusal). A newer file the index already maps is not staleness: the `id -> file_name` entry is still correct.
+- Implementation: [`Storage::stale_index_warning()`](src/storage.rs) | Test: [storage](src/storage.rs)
+
+r[reindex]
+**`pebbles reindex` (repair command):**
+- Rebuilds `.pebbles/index.json` from the issue files: one entry per file with a parseable UUID `id` (first file wins per id), never touching issue files.
+- Entry order is preserved from the current index when it parses; otherwise entries follow scan order (alphabetical by file name), i.e. deterministic.
+- The rebuilt index is written atomically and verified with a load before the write; a store whose rebuilt index equals the current one is a no-op.
+- Unparsable files and files duplicating an id are reported, not indexed.
+- The command never runs jj: after a merge or repair, the rebuilt index is left in the working copy for the owner to commit.
+- Implementation: [`Storage::reindex()`](src/storage.rs) | Test: [jj-integration](tests/jj_integration.rs) t30, [cmd/reindex](tests/cmd/reindex.trycmd)
+
 ### Issue Files
 
 r[issue-filename-format]
@@ -174,7 +194,20 @@ r[schema-valid-issues]
 **Schema-valid issue files:**
 - Every file under `.pebbles/issues/` must parse as a schema-compliant `Issue`.
 - Files that fail to parse or violate the schema are reported when the issue set is loaded, and never silently ignored.
-- Implementation: [`Storage::load_all_issues()`](src/storage.rs) | Test: pending
+- **Unknown keys are schema violations.** A file whose top-level keys go beyond the `Issue` schema (`id`, `title`, `description`, `status`, `issue_type`, `tags`, `relationships`, `metadata`, `created_at`, `updated_at`) is loaded with a warning on every load naming the file and the keys; the issue stays usable and commands exit 0 (degraded-but-usable). There is deliberately no passthrough or migration machinery: a later rewrite serializes only the parsed fields, so the unknown keys are dropped - the load warning makes that consequence explicit in advance. Fix the file to remove them.
+- A malformed file (unparsable JSON, missing required field, invalid value) is reported and the issue is absent from the loaded set (the set is degraded).
+- Callers can distinguish a degraded issue set from a clean one: `load_all_issues` returns the issues plus a `Vec<LoadWarning>`; an empty vector means every indexed file loaded cleanly. The CLI prints each warning through its own conventions (`Warning: ...` lines); the TUI folds them into its message and detail lines instead of raw stderr (r[load-warnings-as-data]).
+- Implementation: [`Storage::load_all_issues()`](src/storage.rs) | Test: [cmd/reindex](tests/cmd/reindex.trycmd), [storage](src/storage.rs)
+
+r[load-warnings-as-data]
+**Load warnings are data:**
+- Loading the issue set never writes to stderr. `load_all_issues` returns per-item outcomes (`Vec<Issue>`, `Vec<LoadWarning>`); the CLI prints `Warning: ...` lines through its own conventions, and the TUI folds them into its message row and project detail lines instead of raw stderr, which would corrupt the raw-mode alternate screen.
+- Implementation: [`Storage::load_all_issues()`](src/storage.rs) | Test: [cmd/reindex](tests/cmd/reindex.trycmd), [tui-e2e](tests/tui_e2e.rs)
+
+r[store-without-jj]
+**Store without a jj repository:**
+- A mutation that writes the store successfully exits 0 even when jj cannot commit because there is no jj repository; the fact that the change was not committed to version control is surfaced as a warning. Exit codes describe the resulting store state.
+- Implementation: [`Operations::commit_store_fallible()`](src/operations.rs) | Test: [jj-integration](tests/jj_integration.rs) t31
 
 ## Validation Rules
 

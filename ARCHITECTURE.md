@@ -415,11 +415,30 @@ If repositories grow beyond 10,000 issues:
 
 ### Concurrent Access
 
-Current design assumes single-user operation. For concurrent use:
-- Jujutsu handles file conflicts automatically
-- Index conflicts require manual resolution
-- Could implement optimistic locking for index updates
-- Could use file-based locking for write operations
+Pebbles is single-writer: there is no locking or serialization. Two
+overlapping mutations both read `.pebbles/index.json`, both rewrite it, and
+the last writer wins, silently dropping the other's index entry while both
+issue files survive on disk. Jujutsu does not repair this: parallel `pebbles`
+runs in a colocated jj repo produce divergent change IDs, leftover
+working-copy changes, and a conflicted `index.json` that breaks every
+command. The design therefore states the real constraint and mitigates it
+rather than promising serialization:
+
+- Index writes are atomic (temp file + rename) so the index is never torn.
+- At mutation time pebbles scans `.pebbles/issues/` for files newer than the
+  index version it read and not mapped by that index; if any exist, it warns
+  that the index is stale and names `pebbles reindex` as the repair, then
+  continues the write. Silent last-writer-wins loss becomes a loud, named,
+  repairable condition.
+- Load-time reporting keeps every schema violation and parse failure visible
+  on every load, and load-time divergence detection (doctor, r[index-consistent])
+  remains the backstop.
+- `pebbles reindex` rebuilds `index.json` from the issue files: the
+  sanctioned repair after any merge or concurrent-mutation accident.
+
+The supported pattern for concurrent agents is one writer per checkout; each
+agent works in its own workspace and merges, then runs `pebbles reindex`
+before other commands.
 
 ### Search
 

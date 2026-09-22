@@ -10,9 +10,9 @@ use clap::{Parser, Subcommand};
     Issues are JSON files under .pebbles/. Make all changes through the pebbles \
     CLI: it validates relationships, renames files when titles or types change, \
     keeps the index in sync, and commits each operation to jj.\n\n\
-    Edit files under .pebbles/ manually only if the CLI is failing (for example, \
-    to repair a corrupt index). Afterwards, run 'pebbles list' to verify that \
-    every issue still loads."
+    Edit files under .pebbles/ manually only if the CLI is failing. Afterwards, \
+    run 'pebbles reindex' to rebuild the index from the issue files, then \
+    'pebbles list' to verify that every issue still loads."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -177,6 +177,12 @@ pub enum Commands {
 
     #[command(about = "Interactive TUI")]
     Tui,
+
+    #[command(
+        about = "Rebuild .pebbles/index.json from the issue files (repair command)",
+        long_about = "Rebuild .pebbles/index.json from the issue files under .pebbles/issues/.\n\n        The sanctioned repair for a conflicted or desynchronized index (e.g. after a merge of two\n        .pebbles copies). The rebuilt index contains every issue file with a parseable UUID id\n        (first file wins per id); entry order is preserved from the current index when it parses,\n        and is deterministic otherwise. Unparsable files and duplicate ids are reported. The\n        rebuilt index is written atomically, verified with a load, and left in the working copy\n        for you to commit."
+    )]
+    Reindex,
 
     #[command(about = "Show project summary and statistics")]
     Summary,

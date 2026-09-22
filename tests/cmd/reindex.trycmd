@@ -1,0 +1,42 @@
+# Reindex Test
+
+`pebbles reindex` rebuilds .pebbles/index.json from the issue files: the
+sanctioned repair for a conflicted or desynchronized index. This fixture has
+an index missing one entry (the concurrent-new-issue loss), an unparsable
+issue file, a file duplicating another file's id, and a file with keys
+outside the Issue schema.
+
+## Rebuild the index from the issue files
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles reindex
+✓ Rebuilt index: 3 issue(s)
+Warning: Skipped unparsable issue file broken-44444444-not-an-issue.json: missing 'id' field; it is not indexed
+Warning: Skipped bug-55555555-dup-of-login.json: duplicate id (the first occurrence wins; this file is not indexed)
+
+```
+
+## Every issue still loads; schema violations are warned per load
+
+The issue with unknown keys loads (degraded-but-usable) with a warning naming
+the file and the keys; the unparsable and duplicate files stay unindexed.
+The rebuilt index is order-preserving, but the list sorts by updated time.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles list
+Warning: Issue des-33333333-design-task.json has unknown key(s) not in the schema: assignee, priority; the file is loaded but the key(s) will be dropped on the next rewrite. Fix the file to remove them.
+111 [bug] [TODO] Login bug
+222 [uc] [TODO] Second issue
+333 [des] [TODO] Design task
+
+```
+
+## A healthy store is a no-op
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles reindex
+✓ Index is up to date: 3 issue(s)
+Warning: Skipped unparsable issue file broken-44444444-not-an-issue.json: missing 'id' field; it is not indexed
+Warning: Skipped bug-55555555-dup-of-login.json: duplicate id (the first occurrence wins; this file is not indexed)
+
+```

@@ -8,7 +8,7 @@ use crate::models::{
     build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
     Issue, IssueType, RelationType, Status,
 };
-use crate::storage::{SaveOutcome, Storage};
+use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
 
 pub struct ProjectSummary {
     pub total_issues: usize,
@@ -18,6 +18,16 @@ pub struct ProjectSummary {
     pub actionable_count: usize,
     pub total_relationships: usize,
     pub by_relationship_type: HashMap<RelationType, usize>,
+}
+
+/// Result of a mutating operation: the operation's own value plus any
+/// warnings produced while writing (a stale-index warning naming
+/// `pebbles reindex`, or the store-without-jj note). Warnings are data, not
+/// stderr: the CLI and the TUI each report them through their own channels
+/// (r[load-warnings-as-data]).
+pub struct MutationOutcome<T> {
+    pub value: T,
+    pub warnings: Vec<LoadWarning>,
 }
 
 /// Titles must be non-empty after trimming: they become slugs in filenames
@@ -138,7 +148,7 @@ impl Operations {
         description: Option<String>,
         issue_type: IssueType,
         approved: bool,
-    ) -> Result<Issue> {
+    ) -> Result<MutationOutcome<Issue>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -154,15 +164,19 @@ impl Operations {
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&issue, &mut index)?;
-        self.storage.save_index(&index)?;
-
-        let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
-            &format!("Create {}: {}", issue.issue_type, issue.title),
-            &as_path_refs(&paths),
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
         )?;
 
-        Ok(issue)
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!("Create {}: {}", issue.issue_type, issue.title),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome { value: issue, warnings })
     }
 
     // r[impl list-filter]
@@ -170,12 +184,12 @@ impl Operations {
         &self,
         status_filter: Option<Status>,
         type_filter: Option<IssueType>,
-    ) -> Result<Vec<Issue>> {
+    ) -> Result<(Vec<Issue>, Vec<LoadWarning>)> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let mut issues = self.storage.load_all_issues()?;
+        let (mut issues, warnings) = self.storage.load_all_issues()?;
 
         if let Some(status) = status_filter {
             issues.retain(|issue| issue.status == status);
@@ -188,7 +202,7 @@ impl Operations {
         // r[impl issue-ordering]
         issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
-        Ok(issues)
+        Ok((issues, warnings))
     }
 
     pub fn show(&self, id: &str) -> Result<Issue> {
@@ -202,7 +216,7 @@ impl Operations {
 
     /// Returns `Ok(false)` when the issue already had the requested status
     /// (no file write, no jj commit).
-    pub fn update_status(&self, id: &str, new_status: Status) -> Result<bool> {
+    pub fn update_status(&self, id: &str, new_status: Status) -> Result<MutationOutcome<bool>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -211,7 +225,7 @@ impl Operations {
         let mut issue = self.storage.load_issue(&uuid)?;
 
         if issue.status == new_status {
-            return Ok(false);
+            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
         }
 
         let old_status = issue.status.clone();
@@ -220,22 +234,26 @@ impl Operations {
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&issue, &mut index)?;
-        self.storage.save_index(&index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
+        )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
+        self.commit_store_fallible(
             &format!(
                 "Update {} {}: {} -> {}",
                 issue.issue_type, issue.title, old_status, issue.status
             ),
             &as_path_refs(&paths),
+            &mut warnings,
         )?;
 
-        Ok(true)
+        Ok(MutationOutcome { value: true, warnings })
     }
 
     // r[impl approve-command]
-    pub fn approve(&self, id: &str) -> Result<()> {
+    pub fn approve(&self, id: &str) -> Result<MutationOutcome<()>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -254,8 +272,8 @@ impl Operations {
 
         // Approving is a status change proposed -> todo, reusing the regular
         // status-update path (save + jj commit with the issue file path).
-        self.update_status(id, Status::Todo)?;
-        Ok(())
+        let outcome = self.update_status(id, Status::Todo)?;
+        Ok(MutationOutcome { value: (), warnings: outcome.warnings })
     }
 
     /// Returns `Ok(false)` when nothing changed (no file write, no jj commit).
@@ -264,7 +282,7 @@ impl Operations {
         id: &str,
         title: Option<String>,
         description: Option<String>,
-    ) -> Result<bool> {
+    ) -> Result<MutationOutcome<bool>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -290,22 +308,26 @@ impl Operations {
         }
 
         if !changed {
-            return Ok(false);
+            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
         }
 
         issue.update();
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&issue, &mut index)?;
-        self.storage.save_index(&index)?;
-
-        let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
-            &format!("Update {}: {}", issue.issue_type, issue.title),
-            &as_path_refs(&paths),
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
         )?;
 
-        Ok(true)
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!("Update {}: {}", issue.issue_type, issue.title),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome { value: true, warnings })
     }
 
     /// Deletes the issue and returns its appropriate-length ID (computed
@@ -315,7 +337,7 @@ impl Operations {
     /// delete fails naming each broken link unless `delete_links_too` is
     /// set, in which case the referencing relationships are removed in the
     /// same operation and commit.
-    pub fn delete(&self, id: &str, delete_links_too: bool) -> Result<String> {
+    pub fn delete(&self, id: &str, delete_links_too: bool) -> Result<MutationOutcome<String>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -326,7 +348,7 @@ impl Operations {
         let issue_path = self.storage.issue_path(&issue.file_name());
 
         // Find every issue with a relationship pointing at this one.
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, _) = self.storage.load_all_issues()?;
         let referencing: Vec<Issue> = all_issues
             .into_iter()
             .filter(|i| i.relationships.iter().any(|rel| rel.target_id == uuid))
@@ -362,6 +384,9 @@ impl Operations {
 
         let mut commit_paths: Vec<PathBuf> = vec![issue_path.clone()];
         let mut index = self.storage.load_index()?;
+        // Every issue file this operation rewrites or removes is excluded
+        // from the stale-index scan: own writes must not look concurrent.
+        let mut own_files: Vec<String> = vec![issue.file_name()];
 
         // Remove the referencing relationships from their source issues.
         for mut source in referencing {
@@ -377,22 +402,26 @@ impl Operations {
             );
             let outcome = self.storage.save_issue(&source, &mut index)?;
             commit_paths.push(self.storage.issue_path(&outcome.new_file_name));
+            own_files.push(outcome.new_file_name);
         }
 
         self.storage.delete_issue(&uuid, &index)?;
         index.remove(&uuid);
-        self.storage.save_index(&index)?;
+        let mut warnings = Vec::new();
+        let own_refs: Vec<&str> = own_files.iter().map(String::as_str).collect();
+        self.storage.save_index_stale_aware(&index, &own_refs, &mut warnings)?;
         commit_paths.push(self.storage.index_path().clone());
 
         // Delete commits the (now-removed) issue file, every file touched by
         // link removal, and index.json.
         let path_refs: Vec<&Path> = commit_paths.iter().map(|p| p.as_path()).collect();
-        self.jj.commit(
+        self.commit_store_fallible(
             &format!("Delete {}: {}", issue.issue_type, issue.title),
             &path_refs,
+            &mut warnings,
         )?;
 
-        Ok(short)
+        Ok(MutationOutcome { value: short, warnings })
     }
 
     pub fn add_relationship(
@@ -400,7 +429,7 @@ impl Operations {
         source_id: &str,
         relation_type: RelationType,
         target_id: &str,
-    ) -> Result<()> {
+    ) -> Result<MutationOutcome<()>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -418,7 +447,7 @@ impl Operations {
 
         // DAG invariant: reject edges that close a directed dependency cycle
         // (r[graph-acyclic]).
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, _) = self.storage.load_all_issues()?;
         let adjacency = build_dependency_adjacency(&all_issues);
         if creates_cycle(&adjacency, source_uuid, target_uuid) {
             bail!(
@@ -436,18 +465,22 @@ impl Operations {
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&source_issue, &mut index)?;
-        self.storage.save_index(&index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
+        )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
+        self.commit_store_fallible(
             &format!(
                 "Add relationship: {} {} {}",
                 source_issue.title, relation_type, target_issue.title
             ),
             &as_path_refs(&paths),
+            &mut warnings,
         )?;
 
-        Ok(())
+        Ok(MutationOutcome { value: (), warnings })
     }
 
     pub fn remove_relationship(
@@ -455,7 +488,7 @@ impl Operations {
         source_id: &str,
         relation_type: RelationType,
         target_id: &str,
-    ) -> Result<()> {
+    ) -> Result<MutationOutcome<()>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -478,21 +511,25 @@ impl Operations {
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&source_issue, &mut index)?;
-        self.storage.save_index(&index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
+        )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
+        self.commit_store_fallible(
             &format!(
                 "Remove relationship: {} {} {}",
                 source_issue.title, relation_type, target_label
             ),
             &as_path_refs(&paths),
+            &mut warnings,
         )?;
 
-        Ok(())
+        Ok(MutationOutcome { value: (), warnings })
     }
 
-    pub fn epic(&self, id: &str) -> Result<(Issue, Vec<Issue>)> {
+    pub fn epic(&self, id: &str) -> Result<(Issue, Vec<Issue>, Vec<LoadWarning>)> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -509,7 +546,7 @@ impl Operations {
             );
         }
 
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, warnings) = self.storage.load_all_issues()?;
         let mut child_issues: Vec<Issue> = all_issues
             .into_iter()
             .filter(|issue| {
@@ -523,15 +560,15 @@ impl Operations {
         // r[impl issue-ordering]
         child_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
-        Ok((epic, child_issues))
+        Ok((epic, child_issues, warnings))
     }
 
-    pub fn next(&self) -> Result<Vec<Issue>> {
+    pub fn next(&self) -> Result<(Vec<Issue>, Vec<LoadWarning>)> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, warnings) = self.storage.load_all_issues()?;
         let incoming_map = build_incoming_relationships_map(&all_issues);
 
         let todo_issues: Vec<Issue> = all_issues
@@ -562,12 +599,12 @@ impl Operations {
         // r[impl issue-ordering]
         unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
-        Ok(unblocked_issues)
+        Ok((unblocked_issues, warnings))
     }
 
     /// Returns `Ok(false)` when the issue already has the requested type
     /// (no file write, no jj commit); the caller warns the user.
-    pub fn convert(&self, id: &str, new_type: IssueType) -> Result<bool> {
+    pub fn convert(&self, id: &str, new_type: IssueType) -> Result<MutationOutcome<bool>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
@@ -578,13 +615,13 @@ impl Operations {
         let old_type = issue.issue_type.clone();
 
         if old_type == new_type {
-            return Ok(false);
+            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
         }
 
         // Validate conversion
         if old_type == IssueType::Epic && new_type != IssueType::Epic {
             // Check if this epic has children
-            let all_issues = self.storage.load_all_issues()?;
+            let (all_issues, _) = self.storage.load_all_issues()?;
             let has_children = all_issues.iter().any(|i| {
                 i.relationships
                     .iter()
@@ -612,26 +649,30 @@ impl Operations {
 
         let mut index = self.storage.load_index()?;
         let outcome = self.storage.save_issue(&issue, &mut index)?;
-        self.storage.save_index(&index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index, &[outcome.new_file_name.as_str()], &mut warnings
+        )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
-        self.jj.commit(
+        self.commit_store_fallible(
             &format!(
                 "Convert {}: {} → {}",
                 issue.title, old_type, issue.issue_type
             ),
             &as_path_refs(&paths),
+            &mut warnings,
         )?;
 
-        Ok(true)
+        Ok(MutationOutcome { value: true, warnings })
     }
 
-    pub fn summary(&self) -> Result<ProjectSummary> {
+    pub fn summary(&self) -> Result<(ProjectSummary, Vec<LoadWarning>)> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, warnings) = self.storage.load_all_issues()?;
         let total_issues = all_issues.len();
 
         // Count by status
@@ -671,7 +712,7 @@ impl Operations {
         }
 
         // Count actionable issues
-        let actionable = self.next()?;
+        let (actionable, _) = self.next()?;
         let actionable_count = actionable.len();
 
         // Count relationships
@@ -686,21 +727,24 @@ impl Operations {
             }
         }
 
-        Ok(ProjectSummary {
-            total_issues,
-            by_status,
-            by_type,
-            epics: epic_info,
-            actionable_count,
-            total_relationships,
-            by_relationship_type,
-        })
+        Ok((
+            ProjectSummary {
+                total_issues,
+                by_status,
+                by_type,
+                epics: epic_info,
+                actionable_count,
+                total_relationships,
+                by_relationship_type,
+            },
+            warnings,
+        ))
     }
 
     /// Epic child progress `(total, done)` computed over the FULL issue set,
     /// independent of any view filter. See SPEC r[epic-progress-counts].
     pub fn epic_counts(&self) -> Result<HashMap<Uuid, (usize, usize)>> {
-        let all_issues = self.storage.load_all_issues()?;
+        let (all_issues, _) = self.storage.load_all_issues()?;
         Ok(build_epic_counts(&all_issues))
     }
 
@@ -716,11 +760,13 @@ impl Operations {
 
     /// Returns incoming relationships: other issues that have relationships pointing to this issue.
     /// Returns a Vec of (source_issue_id, source_issue_title, relation_type)
+    /// plus the load warnings produced while reading the issue set
+    /// (r[load-warnings-as-data]).
     pub fn get_incoming_relationships(
         &self,
         issue_id: &Uuid,
-    ) -> Result<Vec<(Uuid, String, RelationType)>> {
-        let all_issues = self.storage.load_all_issues()?;
+    ) -> Result<(Vec<(Uuid, String, RelationType)>, Vec<LoadWarning>)> {
+        let (all_issues, warnings) = self.storage.load_all_issues()?;
         let incoming_map = build_incoming_relationships_map(&all_issues);
 
         let incoming = incoming_map
@@ -732,7 +778,7 @@ impl Operations {
             })
             .unwrap_or_default();
 
-        Ok(incoming)
+        Ok((incoming, warnings))
     }
 
     /// Returns minimal unambiguous ID prefixes for every ID in the index.
@@ -821,6 +867,44 @@ impl Operations {
             }
         }
         Ok(out)
+    }
+
+    /// Commit the mutation's paths to jj. The store write is already
+    /// complete; when jj cannot do its part because there is no repository,
+    /// the operation still succeeds and the fact is surfaced as a warning,
+    /// so the exit code describes the resulting store state
+    /// (r[store-without-jj]).
+    fn commit_store_fallible(
+        &self,
+        message: &str,
+        paths: &[&Path],
+        warnings: &mut Vec<LoadWarning>,
+    ) -> Result<()> {
+        match self.jj.commit(message, paths) {
+            Ok(()) => Ok(()),
+            Err(e) if e.to_string().contains("no jj repo") => {
+                warnings.push(LoadWarning {
+                    file_name: String::new(),
+                    message: format!(
+                        "No jj repository found; the change is written to .pebbles/ but was not \
+                         committed to version control ({})",
+                        e
+                    ),
+                });
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Rebuild `.pebbles/index.json` from the issue files: the sanctioned
+    /// repair for a conflicted or desynchronized index (r[reindex]). The
+    /// rebuilt index stays in the working copy; the caller commits it when
+    /// appropriate (this command deliberately never runs jj - the typical
+    /// repair context is a conflicted index after a merge, which jj commit
+    /// cannot meaningfully handle).
+    pub fn reindex(&self) -> Result<ReindexOutcome> {
+        self.storage.reindex()
     }
 }
 
