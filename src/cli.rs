@@ -81,7 +81,7 @@ pub enum Commands {
         id: String,
     },
 
-    #[command(about = "Update issue status")]
+    #[command(about = "Update status of one or more issues (multi-ID or stdin)")]
     Status {
         #[arg(
             value_name = "ID or STATUS",
@@ -98,7 +98,7 @@ pub enum Commands {
         id: String,
     },
 
-    #[command(about = "Update one or more issues")]
+    #[command(about = "Update one or more issues (multi-ID or stdin)")]
     Update {
         #[arg(
             value_name = "ID",
@@ -114,7 +114,7 @@ pub enum Commands {
         description: Option<String>,
     },
 
-    #[command(about = "Delete one or more issues")]
+    #[command(about = "Delete one or more issues (multi-ID or stdin)")]
     Delete {
         #[arg(
             value_name = "ID",
@@ -130,7 +130,7 @@ pub enum Commands {
         delete_links_too: bool,
     },
 
-    #[command(about = "Add a relationship between issues")]
+    #[command(about = "Add a relationship (multi-source or stdin)")]
     Link {
         #[arg(
             value_name = "SOURCE RELATION TARGET",
@@ -141,7 +141,7 @@ pub enum Commands {
         args: Vec<String>,
     },
 
-    #[command(about = "Remove a relationship between issues")]
+    #[command(about = "Remove a relationship (multi-source or stdin)")]
     Unlink {
         #[arg(
             value_name = "SOURCE RELATION TARGET",
@@ -175,7 +175,7 @@ pub enum Commands {
         new_type: String,
     },
 
-    #[command(about = "Interactive TUI (experimental)")]
+    #[command(about = "Interactive TUI")]
     Tui,
 
     #[command(about = "Show project summary and statistics")]
