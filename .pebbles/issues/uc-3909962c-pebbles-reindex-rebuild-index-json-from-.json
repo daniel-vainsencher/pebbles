@@ -2,11 +2,11 @@
   "id": "3909962c-04c1-4785-90aa-ad2319363f9f",
   "title": "pebbles reindex: rebuild index.json from the issue files",
   "description": "Multi-agent use merges .pebbles branches whose index.json conflicts on every command (verified: any command then fails with 'Failed to parse index file', no repair exists; uc-0f6f1445 doctor only detects). Regenerating the index from issues/*.json is the sanctioned repair and makes per-workspace pebbles copies mergeable.\n\nAsk: `pebbles reindex` rebuilds index.json from the issue files (union of entries, order preserved from the current index when parseable, deterministic otherwise), writes atomically, reports unparsable files and duplicate ids, and verifies with a load. Related: des-b931c524 (write serialization). Reference implementation: the crew skill's regenerate_index (~/.prime/agent/skills/crew).",
-  "status": "todo",
+  "status": "in_progress",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-22T01:31:42.035815417Z",
-  "updated_at": "2026-09-22T18:32:08.810122499Z"
+  "updated_at": "2026-09-22T18:36:48.077275740Z"
 }
