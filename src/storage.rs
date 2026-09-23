@@ -46,6 +46,30 @@ pub struct SavePlan {
 ///
 /// Pure: no filesystem access. The file removal and write happen in
 /// `Storage::save_issue` from the returned plan.
+///
+/// ```rust
+/// # use pebbles::models::Index;
+/// # use pebbles::storage::plan_save_issue;
+/// # use uuid::Uuid;
+/// let id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+/// let mut index = Index::new();
+///
+/// // A new issue: the index gains the entry and is dirty.
+/// let plan = plan_save_issue(&mut index, id, "bug-11111111-x.json");
+/// assert!(plan.index_modified);
+/// assert_eq!(plan.renamed_from, None);
+///
+/// // An update under the same file name: nothing changes.
+/// let plan = plan_save_issue(&mut index, id, "bug-11111111-x.json");
+/// assert!(!plan.index_modified);
+/// assert_eq!(plan.renamed_from, None);
+///
+/// // A rename (title or type changed): the old file must be removed.
+/// let plan = plan_save_issue(&mut index, id, "bug-11111111-y.json");
+/// assert!(plan.index_modified);
+/// assert_eq!(plan.renamed_from, Some("bug-11111111-x.json".to_string()));
+/// assert_eq!(index.get_file_name(&id), Some("bug-11111111-y.json"));
+/// ```
 pub fn plan_save_issue(index: &mut Index, issue_id: Uuid, new_file_name: &str) -> SavePlan {
     let old_name = index.get_file_name(&issue_id).map(|s| s.to_string());
     match old_name.as_deref() {
@@ -88,6 +112,15 @@ pub struct LoadWarning {
 
 impl LoadWarning {
     /// The full CLI warning line this item renders to.
+    ///
+    /// ```rust
+    /// # use pebbles::storage::LoadWarning;
+    /// let warning = LoadWarning {
+    ///     file_name: "bug-11111111-x.json".to_string(),
+    ///     message: "Failed to parse bug-11111111-x.json".to_string(),
+    /// };
+    /// assert_eq!(warning.cli_line(), "Warning: Failed to parse bug-11111111-x.json");
+    /// ```
     pub fn cli_line(&self) -> String {
         format!("Warning: {}", self.message)
     }
@@ -402,6 +435,12 @@ impl Storage {
         Ok(())
     }
 
+    /// Write `issue` to `.pebbles/issues/<file_name>` and record it in
+    /// `index`, applying the rename/index-dirty decision from
+    /// `plan_save_issue`: a changed file name also removes the old file
+    /// from disk. The caller commits every touched path (including the old
+    /// file on rename and `index.json` when dirty) via the returned
+    /// `SaveOutcome` (r[impl rename-commits-all-paths]).
     // r[impl rename-commits-all-paths]
     pub fn save_issue(&self, issue: &Issue, index: &mut Index) -> Result<SaveOutcome> {
         self.ensure_issues_dir()?;
@@ -431,6 +470,9 @@ impl Storage {
         })
     }
 
+    /// Remove the issue file for `id` from disk, looked up through the
+    /// index's file name. A no-op when the file is already gone or the id
+    /// is not indexed; the caller updates the index itself.
     pub fn delete_issue(&self, id: &Uuid, index: &Index) -> Result<()> {
         if let Some(file_name) = index.get_file_name(id) {
             let path = self.issue_path(file_name);

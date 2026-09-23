@@ -10,6 +10,9 @@ use crate::models::{
 };
 use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
 
+/// Aggregated view of an issue set for `pebbles summary`: totals by
+/// status and type, per-epic child progress, the actionable (unblocked
+/// todo) count, and relationship totals. Produced by `calculate_summary`.
 pub struct ProjectSummary {
     pub total_issues: usize,
     pub by_status: HashMap<Status, usize>,
@@ -52,6 +55,13 @@ fn validate_title(title: &str) -> Result<()> {
 ///   treated as several ID inputs.
 /// - Any other line contributes only its first field, so a list row like
 ///   `333 [des] [TODO] JWT token authentication system` yields `333`.
+///
+/// ```rust
+/// # use pebbles::operations::parse_id_input_line;
+/// assert_eq!(parse_id_input_line("333 [bug] [DONE] Fix login"), vec!["333"]);
+/// assert_eq!(parse_id_input_line("333 444 555"), vec!["333", "444", "555"]);
+/// assert!(parse_id_input_line("   ").is_empty());
+/// ```
 pub fn parse_id_input_line(line: &str) -> Vec<&str> {
     let fields: Vec<&str> = line.split_whitespace().collect();
     if fields.is_empty() {
@@ -76,6 +86,27 @@ pub fn parse_id_input_line(line: &str) -> Vec<&str> {
 /// multiple matches are errors. Pure: no storage access, so the matching
 /// logic is unit-testable without a filesystem (ARCHITECTURE: functional
 /// core, imperative shell).
+///
+/// ```rust
+/// # use pebbles::operations::match_id_prefix;
+/// # use uuid::Uuid;
+/// let a = Uuid::parse_str("11111111-2222-3333-4444-555555555555").unwrap();
+/// let b = Uuid::parse_str("aaaaaaaa-1111-2222-3333-444444444444").unwrap();
+/// let ids = vec![a, b];
+///
+/// // A full UUID resolves exactly; an unambiguous prefix resolves
+/// // case-insensitively.
+/// assert_eq!(match_id_prefix("11111111-2222-3333-4444-555555555555", &ids).unwrap(), a);
+/// assert_eq!(match_id_prefix("AAAAAAA", &ids).unwrap(), b);
+///
+/// // A prefix shared by several ids is ambiguous and fails.
+/// let c = Uuid::parse_str("11111111-9999-8888-7777-666666666666").unwrap();
+/// assert!(match_id_prefix("11111111", &vec![a, c]).is_err());
+///
+/// // So does a full UUID that is not in the set.
+/// let unknown = Uuid::parse_str("99999999-8888-7777-6666-555555555555").unwrap();
+/// assert!(match_id_prefix(&unknown.to_string(), &ids).is_err());
+/// ```
 pub fn match_id_prefix(id_str: &str, known_ids: &[Uuid]) -> Result<Uuid> {
     if let Ok(uuid) = Uuid::parse_str(id_str) {
         if known_ids.contains(&uuid) {
@@ -129,6 +160,22 @@ fn as_path_refs(paths: &[PathBuf]) -> Vec<&Path> {
 /// relationship from a non-Done issue (SPEC `next`). Sorted by
 /// `updated_at` descending (r[impl issue-ordering]). Pure: no storage
 /// access, so the blocking rules are unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType, RelationType, Relationship, Status};
+/// # use pebbles::operations::get_unblocked_issues;
+/// let mut blocker = Issue::new("blocker".to_string(), None, IssueType::Bug);
+/// blocker.status = Status::Todo;
+/// let blocked = Issue::new("blocked".to_string(), None, IssueType::Bug);
+/// let blocker_id = blocker.id;
+/// blocker.relationships.push(Relationship {
+///     relation_type: RelationType::RequiredFor,
+///     target_id: blocked.id,
+/// });
+/// let out = get_unblocked_issues(&[blocker, blocked]);
+/// assert_eq!(out.len(), 1);
+/// assert_eq!(out[0].id, blocker_id);
+/// ```
 pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
     let incoming_map = build_incoming_relationships_map(issues);
 
@@ -587,6 +634,11 @@ impl Operations {
         })
     }
 
+    /// Link `source_id` to `target_id` (`pebbles link`): resolve and load
+    /// both issues, reject self-links and any edge that would close a
+    /// dependency cycle (r[graph-acyclic]), defer type and duplicate
+    /// validation to `Issue::add_relationship`, then save the source issue
+    /// and commit the store change.
     pub fn add_relationship(
         &self,
         source_id: &str,
@@ -651,6 +703,11 @@ impl Operations {
         })
     }
 
+    /// Remove the relationship `source_id --relation-type--> target_id`
+    /// (`pebbles unlink`). The target may already be gone (e.g. deleted
+    /// while this relationship survived), in which case its short id is
+    /// used in messages; fails when the relationship does not exist on the
+    /// source.
     pub fn remove_relationship(
         &self,
         source_id: &str,

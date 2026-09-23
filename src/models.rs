@@ -32,6 +32,17 @@ impl std::fmt::Display for Status {
 impl std::str::FromStr for Status {
     type Err = String;
 
+    /// Parse a status from user or file input, case-insensitively.
+    /// `in_progress` matches the canonical on-disk spelling; the legacy
+    /// `inprogress` and `in-progress` spellings also parse
+    /// (r[impl status-serialization]).
+    ///
+    /// ```rust
+    /// # use pebbles::models::Status;
+    /// assert_eq!("todo".parse::<Status>(), Ok(Status::Todo));
+    /// assert_eq!("IN-PROGRESS".parse::<Status>(), Ok(Status::InProgress));
+    /// assert!("what".parse::<Status>().is_err());
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "proposed" => Ok(Status::Proposed),
@@ -77,6 +88,18 @@ impl std::fmt::Display for IssueType {
 impl std::str::FromStr for IssueType {
     type Err = String;
 
+    /// Parse an issue type from user or file input, case-insensitively.
+    /// `usecase` also accepts `use-case` and `use_case`; `ux_problem` also
+    /// accepts the legacy `uxproblem` and `ux-problem` spellings and the
+    /// CLI shorthand `ux`.
+    ///
+    /// ```rust
+    /// # use pebbles::models::IssueType;
+    /// assert_eq!("use-case".parse::<IssueType>(), Ok(IssueType::Usecase));
+    /// assert_eq!("use_case".parse::<IssueType>(), Ok(IssueType::Usecase));
+    /// assert_eq!("UX".parse::<IssueType>(), Ok(IssueType::UxProblem));
+    /// assert!("feature".parse::<IssueType>().is_err());
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "bug" => Ok(IssueType::Bug),
@@ -92,11 +115,32 @@ impl std::str::FromStr for IssueType {
 }
 
 impl IssueType {
+    /// Whether an issue of this type may be linked into an epic with
+    /// `part_of`: every type except `Epic` and `Milestone`
+    /// (r[impl part-of-epic-types]).
+    ///
+    /// ```rust
+    /// # use pebbles::models::IssueType;
+    /// assert!(IssueType::Bug.can_be_part_of_epic());
+    /// assert!(!IssueType::Epic.can_be_part_of_epic());
+    /// assert!(!IssueType::Milestone.can_be_part_of_epic());
+    /// ```
     // r[impl part-of-epic-types]
     pub fn can_be_part_of_epic(&self) -> bool {
         !matches!(self, IssueType::Epic | IssueType::Milestone)
     }
 
+    /// The 2-4 character prefix used in issue file names
+    /// (r[impl issue-filename-format]): `bug`, `ux`, `uc`, `des`, `val`,
+    /// `epic`, `mile`.
+    ///
+    /// ```rust
+    /// # use pebbles::models::IssueType;
+    /// assert_eq!(IssueType::UxProblem.short_code(), "ux");
+    /// assert_eq!(IssueType::Usecase.short_code(), "uc");
+    /// assert_eq!(IssueType::Epic.short_code(), "epic");
+    /// assert_eq!(IssueType::Milestone.short_code(), "mile");
+    /// ```
     pub fn short_code(&self) -> &'static str {
         match self {
             IssueType::Bug => "bug",
@@ -131,6 +175,18 @@ impl std::fmt::Display for RelationType {
 impl std::str::FromStr for RelationType {
     type Err = String;
 
+    /// Parse a relation type from user or file input, case-insensitively.
+    /// Each type accepts its snake_case spelling plus the joined form;
+    /// `required_for` also accepts `requires` and `scheduled_before` also
+    /// accepts `before`.
+    ///
+    /// ```rust
+    /// # use pebbles::models::RelationType;
+    /// assert_eq!("part-of".parse::<RelationType>(), Ok(RelationType::PartOf));
+    /// assert_eq!("requires".parse::<RelationType>(), Ok(RelationType::RequiredFor));
+    /// assert_eq!("BEFORE".parse::<RelationType>(), Ok(RelationType::ScheduledBefore));
+    /// assert!("blocks".parse::<RelationType>().is_err());
+    /// ```
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "part_of" | "partof" | "part-of" => Ok(RelationType::PartOf),
@@ -167,6 +223,18 @@ pub struct Issue {
 }
 
 impl Issue {
+    /// Create an issue with a fresh UUID, status `Proposed`, empty tags,
+    /// relationships, and metadata, and both timestamps set to the current
+    /// time. `--approved` callers flip the status to `Todo` after creation
+    /// (r[impl new-issues-default-proposed]).
+    ///
+    /// ```rust
+    /// # use pebbles::models::{Issue, IssueType, Status};
+    /// let issue = Issue::new("Title".to_string(), None, IssueType::Bug);
+    /// assert_eq!(issue.status, Status::Proposed);
+    /// assert!(issue.tags.is_empty());
+    /// assert!(issue.relationships.is_empty());
+    /// ```
     // r[impl new-issues-default-proposed]
     pub fn new(title: String, description: Option<String>, issue_type: IssueType) -> Self {
         let now = Utc::now();
@@ -184,6 +252,8 @@ impl Issue {
         }
     }
 
+    /// Bump `updated_at` to the current time. Mutations call this before
+    /// saving so the record reflects when it last changed.
     pub fn update(&mut self) {
         self.updated_at = Utc::now();
     }
@@ -192,10 +262,36 @@ impl Issue {
     /// Stable regardless of other issues in the repo (SPEC r[issue-filename-format]).
     /// User-facing display uses the minimal unambiguous prefix instead
     /// (SPEC r[appropriate-length-id]); see `Operations::id_prefixes`.
+    ///
+    /// ```rust
+    /// # use pebbles::models::{Issue, IssueType};
+    /// let issue = Issue::new("Title".to_string(), None, IssueType::Bug);
+    /// let short = issue.short_id();
+    /// assert_eq!(short.len(), 8);
+    /// assert!(issue.id.to_string().starts_with(&short));
+    /// ```
     pub fn short_id(&self) -> String {
         self.id.to_string()[..8].to_string()
     }
 
+    /// The on-disk file name for this issue:
+    /// `{type-short-code}-{short_id}-{slug}.json`, where the slug is the
+    /// URL-slugified title truncated to 40 characters
+    /// (r[impl issue-filename-format]).
+    ///
+    /// ```rust
+    /// # use pebbles::models::{Issue, IssueType};
+    /// # use uuid::Uuid;
+    /// let mut issue = Issue::new("My cool feature".to_string(), None, IssueType::Usecase);
+    /// issue.id = Uuid::parse_str("12345678-90ab-cdef-1234-567890abcdef").unwrap();
+    /// assert_eq!(issue.file_name(), "uc-12345678-my-cool-feature.json");
+    ///
+    /// // Titles that slug to more than 40 characters are truncated.
+    /// let mut long = Issue::new("x".repeat(50).to_string(), None, IssueType::Bug);
+    /// long.id = Uuid::parse_str("aaaaaaaa-90ab-cdef-1234-567890abcdef").unwrap();
+    /// let expected = format!("bug-aaaaaaaa-{}.json", "x".repeat(40));
+    /// assert_eq!(long.file_name(), expected);
+    /// ```
     // r[impl issue-filename-format]
     pub fn file_name(&self) -> String {
         let slug = slug::slugify(&self.title);
@@ -208,6 +304,31 @@ impl Issue {
         )
     }
 
+    /// Add a directed relationship to `target_id`, rejecting:
+    ///
+    /// - `part_of` from an `Epic` or `Milestone` source
+    ///   (r[impl part-of-epic-types]);
+    /// - an exact duplicate of an existing relationship
+    ///   (r[impl no-duplicate-relationships]).
+    ///
+    /// On success the relationship is appended and `updated_at` bumped.
+    ///
+    /// ```rust
+    /// # use pebbles::models::{Issue, IssueType, RelationType};
+    /// let mut epic = Issue::new("Epic".to_string(), None, IssueType::Epic);
+    /// let mut issue = Issue::new("Child".to_string(), None, IssueType::Bug);
+    ///
+    /// // An epic cannot be part of another epic.
+    /// assert!(epic.add_relationship(RelationType::PartOf, issue.id).is_err());
+    ///
+    /// // A bug can; the relationship lives on the source issue.
+    /// assert!(issue.add_relationship(RelationType::PartOf, epic.id).is_ok());
+    /// assert_eq!(issue.relationships.len(), 1);
+    ///
+    /// // Duplicates are rejected.
+    /// assert!(issue.add_relationship(RelationType::PartOf, epic.id).is_err());
+    /// assert_eq!(issue.relationships.len(), 1);
+    /// ```
     // r[impl part-of-epic-types]
     // r[impl no-duplicate-relationships]
     pub fn add_relationship(
@@ -237,6 +358,19 @@ impl Issue {
         Ok(())
     }
 
+    /// Remove every relationship of `relation_type` pointing at
+    /// `target_id`. Returns whether anything was removed; `updated_at` is
+    /// bumped only on an actual removal.
+    ///
+    /// ```rust
+    /// # use pebbles::models::{Issue, IssueType, RelationType};
+    /// let epic = Issue::new("Epic".to_string(), None, IssueType::Epic);
+    /// let mut issue = Issue::new("Child".to_string(), None, IssueType::Bug);
+    /// issue.add_relationship(RelationType::PartOf, epic.id).unwrap();
+    /// assert!(issue.remove_relationship(RelationType::PartOf, epic.id));
+    /// assert!(issue.relationships.is_empty());
+    /// assert!(!issue.remove_relationship(RelationType::PartOf, epic.id));
+    /// ```
     pub fn remove_relationship(&mut self, relation_type: RelationType, target_id: Uuid) -> bool {
         let original_len = self.relationships.len();
         self.relationships
@@ -261,14 +395,31 @@ pub struct Index {
 }
 
 impl Index {
+    /// An empty index. The initial state a store loads when `index.json`
+    /// is missing.
     pub fn new() -> Self {
         Self { issues: Vec::new() }
     }
 
+    /// Record that `id` maps to `file_name` in the index. Callers keep the
+    /// mapping in sync with the issue files on disk (`Storage::save_issue`
+    /// and `plan_save_issue` do this).
     pub fn add(&mut self, id: Uuid, file_name: String) {
         self.issues.push(IssueMetadata { id, file_name });
     }
 
+    /// Remove the entry for `id`, returning the file name it mapped to,
+    /// or `None` when the id is not indexed.
+    ///
+    /// ```rust
+    /// # use pebbles::models::Index;
+    /// # use uuid::Uuid;
+    /// let id = Uuid::parse_str("11111111-1111-1111-1111-111111111111").unwrap();
+    /// let mut index = Index::new();
+    /// index.add(id, "bug-11111111-x.json".to_string());
+    /// assert_eq!(index.remove(&id), Some("bug-11111111-x.json".to_string()));
+    /// assert_eq!(index.remove(&id), None);
+    /// ```
     pub fn remove(&mut self, id: &Uuid) -> Option<String> {
         if let Some(pos) = self.issues.iter().position(|m| &m.id == id) {
             Some(self.issues.remove(pos).file_name)
@@ -304,10 +455,8 @@ impl Default for Index {
     }
 }
 
-/// Information about an incoming relationship: source issue details and relation type.
-/// Builds a map of epic child progress from a list of issues.
-/// Key: epic ID, Value: (total children, done children) via `part_of`
-/// relationships. Pure function, testable without I/O.
+/// Count each epic's `part_of` children as `(total, done)` by epic ID.
+/// Pure function, testable without I/O.
 pub fn build_epic_counts(issues: &[Issue]) -> HashMap<Uuid, (usize, usize)> {
     let mut counts: HashMap<Uuid, (usize, usize)> = HashMap::new();
     for issue in issues {
