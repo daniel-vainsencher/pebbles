@@ -9,7 +9,7 @@ use crate::export::{drop_missing_relationships, parse_export_bundle, validate_im
 use crate::jj::JJ;
 use crate::models::{
     build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
-    Issue, IssueType, RelationType, Status,
+    Issue, IssueType, RelationType, Relationship, Status,
 };
 use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
 
@@ -694,6 +694,79 @@ pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
         actionable_count,
         total_relationships,
         by_relationship_type,
+    }
+}
+
+// r[guidance-tips]
+/// The optional contextual guidance to show after a successful issue
+/// creation. Selection is a pure decision (`select_creation_tips`), so the
+/// rules are unit-testable without I/O (ARCHITECTURE: functional core,
+/// imperative shell); `display::print_creation_tips` renders it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CreationGuidance {
+    /// Suggest linking the new issue into an existing epic with `part_of`.
+    pub suggest_epic: bool,
+    /// Existing epics as (id, title), offered so the user can pick a
+    /// `part_of` target. Populated exactly when `suggest_epic` holds.
+    pub epic_candidates: Vec<(Uuid, String)>,
+    /// Suggest declaring a `required_for` dependency on another issue.
+    pub suggest_dependency: bool,
+}
+
+/// Decide which optional tips to show after creating an issue
+/// (r[guidance-tips]).
+///
+/// Rules:
+/// - Epic tip: the new issue's type can be part of an epic (every type but
+///   `Epic` and `Milestone`, r[part-of-epic-types]), the project already
+///   has epics to link into, and the issue is not already part of one.
+/// - Dependency tip: the issue declares no relationships yet.
+/// - Both tips are gated on the project having at least one epic: with no
+///   epics there is no pickable `part_of` target, and the suggestions
+///   would be noise for a project that has not adopted that structure yet.
+///
+/// Tips are hints, never errors: they carry no failure semantics for the
+/// creation itself.
+///
+/// ```rust
+/// # use pebbles::models::{IssueType, RelationType, Relationship};
+/// # use pebbles::operations::select_creation_tips;
+/// # use uuid::Uuid;
+/// let epics: Vec<(Uuid, String)> = vec![(
+///     Uuid::parse_str("aaaaaaaa-0000-0000-0000-000000000001").unwrap(),
+///     "User Auth".to_string(),
+/// )];
+/// let guidance = select_creation_tips(&IssueType::Bug, &Vec::new(), &epics);
+/// assert!(guidance.suggest_epic);
+/// assert_eq!(guidance.epic_candidates, epics);
+/// assert!(guidance.suggest_dependency);
+/// let mut rels: Vec<Relationship> = vec![Relationship {
+///     relation_type: RelationType::PartOf,
+///     target_id: epics[0].0,
+/// }];
+/// let linked = select_creation_tips(&IssueType::Bug, &rels, &epics);
+/// assert!(!linked.suggest_epic);
+/// assert!(!linked.suggest_dependency);
+/// ```
+pub fn select_creation_tips(
+    issue_type: &IssueType,
+    relationships: &[Relationship],
+    epics: &[(Uuid, String)],
+) -> CreationGuidance {
+    let already_part_of_an_epic = relationships
+        .iter()
+        .any(|rel| rel.relation_type == RelationType::PartOf);
+    let suggest_epic =
+        issue_type.can_be_part_of_epic() && !epics.is_empty() && !already_part_of_an_epic;
+    let suggest_dependency = relationships.is_empty() && !epics.is_empty();
+    CreationGuidance {
+        suggest_epic,
+        epic_candidates: if suggest_epic {
+            epics.to_vec()
+        } else {
+            Vec::new()
+        },
+        suggest_dependency,
     }
 }
 
@@ -2856,5 +2929,113 @@ mod tests {
         let terms = parse_text_query("login").unwrap();
         let out = filter_by_text_query(&[newer.clone(), older.clone()], &terms);
         assert_eq!(ids(&out), vec![newer.id, older.id]);
+    }
+
+    // -- select_creation_tips (r[guidance-tips]) -------------------------------
+
+    /// A list of existing epics as (id, title) pairs, the shape
+    /// `select_creation_tips` receives from the CLI.
+    fn epics(epics: &[(&str, &str)]) -> Vec<(Uuid, String)> {
+        epics
+            .iter()
+            .map(|(id, title)| (uuid(id), title.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn creation_guidance_bug_with_epics_suggests_epic_and_lists_candidates() {
+        let guidance = select_creation_tips(
+            &IssueType::Bug,
+            &Vec::new(),
+            &epics(&[
+                ("aaaaaaaa-0000-0000-0000-000000000001", "User Auth"),
+                ("bbbbbbbb-0000-0000-0000-000000000002", "Payments"),
+            ]),
+        );
+        assert!(guidance.suggest_epic);
+        assert_eq!(
+            guidance
+                .epic_candidates
+                .iter()
+                .map(|(_, title)| title.clone())
+                .collect::<Vec<String>>(),
+            vec!["User Auth", "Payments"]
+        );
+        // A fresh issue has no relationships: the dependency tip also applies
+        // (both tips are optional and independent).
+        assert!(guidance.suggest_dependency);
+    }
+
+    #[test]
+    fn creation_guidance_without_epics_suggests_nothing() {
+        let guidance =
+            select_creation_tips(&IssueType::Bug, &Vec::new(), &Vec::<(Uuid, String)>::new());
+        assert!(!guidance.suggest_epic);
+        assert!(guidance.epic_candidates.is_empty());
+        // An epic-less project gets no guidance at all: there is no epic to
+        // link into, so both tips would be noise (r[guidance-tips]).
+        assert!(!guidance.suggest_dependency);
+    }
+
+    #[test]
+    fn creation_guidance_epic_creation_never_suggests_epic() {
+        // An epic itself cannot be part_of another epic
+        // (r[part-of-epic-types]): no epic tip and no candidate list.
+        let guidance = select_creation_tips(
+            &IssueType::Epic,
+            &Vec::new(),
+            &epics(&[("aaaaaaaa-0000-0000-0000-000000000001", "User Auth")]),
+        );
+        assert!(!guidance.suggest_epic);
+        assert!(guidance.epic_candidates.is_empty());
+        // The dependency tip is orthogonal to the epic tip: a fresh epic
+        // still has no relationships.
+        assert!(guidance.suggest_dependency);
+    }
+
+    #[test]
+    fn creation_guidance_milestone_never_suggests_epic() {
+        let guidance = select_creation_tips(
+            &IssueType::Milestone,
+            &Vec::new(),
+            &epics(&[("aaaaaaaa-0000-0000-0000-000000000001", "User Auth")]),
+        );
+        assert!(!guidance.suggest_epic);
+        assert!(guidance.epic_candidates.is_empty());
+    }
+
+    #[test]
+    fn creation_guidance_existing_relationships_suppress_tips() {
+        // Already part of an epic: re-suggesting the epic link would be noise.
+        let mut rels: Vec<Relationship> = Vec::new();
+        rels.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: uuid("aaaaaaaa-0000-0000-0000-000000000001"),
+        });
+        let guidance = select_creation_tips(
+            &IssueType::Bug,
+            &rels,
+            &epics(&[("aaaaaaaa-0000-0000-0000-000000000001", "User Auth")]),
+        );
+        assert!(!guidance.suggest_epic);
+        assert!(guidance.epic_candidates.is_empty());
+        assert!(!guidance.suggest_dependency);
+    }
+
+    #[test]
+    fn creation_guidance_dependency_tip_requires_no_relationships() {
+        // Any existing relationship suppresses the dependency tip: there is
+        // nothing new to teach.
+        let mut rels: Vec<Relationship> = Vec::new();
+        rels.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: uuid("bbbbbbbb-0000-0000-0000-000000000002"),
+        });
+        let guidance = select_creation_tips(
+            &IssueType::Bug,
+            &rels,
+            &epics(&[("aaaaaaaa-0000-0000-0000-000000000001", "User Auth")]),
+        );
+        assert!(!guidance.suggest_dependency);
     }
 }

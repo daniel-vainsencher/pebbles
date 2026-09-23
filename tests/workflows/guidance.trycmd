@@ -1,0 +1,122 @@
+# Contextual Guidance Test
+
+This workflow verifies the optional post-creation guidance tips
+(r[guidance-tips]): helpful for beginner and LLM users, and silent when
+they would be noise.
+
+## Create in a project without epics
+
+The fixture store has no epics yet: creation must print nothing extra
+after the issue detail (no epic tip, no epic list, no dependency tip).
+
+```console
+$ pebbles new "First bug" --issue-type bug
+Created bug [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: First bug
+Type: Bug
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: bug-[..]-first-bug.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Create the first epic
+
+Creating an epic itself never suggests the epic link (an epic cannot be
+part_of another epic, r[part-of-epic-types]): no epic tip, no epic list.
+The dependency tip still applies, since a fresh epic has no relationships.
+
+```console
+$ pebbles new "Platform epic" --issue-type epic
+Created epic [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Platform epic
+Type: Epic
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: epic-[..]-platform-epic.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tip: Add dependencies with: pebbles link [..] required_for <other-id>
+
+```
+
+## Create a bug now that an epic exists
+
+The project has one epic: creation suggests the epic link, lists the
+pickable epic (id + title), and still offers the dependency tip.
+
+r[verify guidance-tips]
+```console
+$ pebbles new "Second bug" --issue-type bug
+Created bug [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Second bug
+Type: Bug
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: bug-[..]-second-bug.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tip: Link to an epic with: pebbles link [..] part_of <epic-id>
+  [..] Platform epic
+Tip: Add dependencies with: pebbles link [..] required_for <other-id>
+
+```
+
+## Create a usecase
+
+Any creatable type that can be part of an epic gets the same guidance.
+
+```console
+$ pebbles new "Mobile usecase" --issue-type usecase
+Created usecase [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Mobile usecase
+Type: Usecase
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: uc-[..]-mobile-usecase.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tip: Link to an epic with: pebbles link [..] part_of <epic-id>
+  [..] Platform epic
+Tip: Add dependencies with: pebbles link [..] required_for <other-id>
+
+```
+
+## Create another epic
+
+Even with epics already present, creating an epic prints no epic tip.
+
+```console
+$ pebbles new "Design epic" --issue-type epic
+Created epic [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Design epic
+Type: Epic
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: epic-[..]-design-epic.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Tip: Add dependencies with: pebbles link [..] required_for <other-id>
+
+```

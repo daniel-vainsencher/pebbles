@@ -290,6 +290,27 @@ r[new-issues-default-proposed]
   The title must be non-empty after trimming; empty or whitespace-only titles are an error.
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
+r[guidance-tips]
+After a successful `new`, pebbles may print optional guidance tips (hints,
+never errors) so beginners and LLM users discover features contextually:
+- If the new issue's type can be `part_of` an epic (every type but `epic`
+  and `milestone`, r[part-of-epic-types]) and the project already has
+  epics, print `Tip: Link to an epic with: pebbles link <id> part_of
+  <epic-id>` followed by the existing epics (short id + title, one per
+  line) so the user can pick a target.
+- If the new issue has no relationships, print `Tip: Add dependencies
+  with: pebbles link <id> required_for <other-id>`.
+Both tips are gated on the project having at least one epic: with no epics
+there is no pickable `part_of` target and the suggestions would be noise,
+so creation output stays byte-identical for epic-less projects. The epic
+tip is suppressed when the new issue is already part of an epic; the
+dependency tip is suppressed when the issue already has relationships.
+`<id>` is the issue's appropriate-length ID (r[appropriate-length-id]).
+Tips appear after the issue detail block, one blank line before them.
+Implementation: [`select_creation_tips()`](src/operations.rs) (pure) |
+Rendering: [`print_creation_tips()`](src/display.rs) | Test:
+[guidance](tests/workflows/guidance.trycmd#create-a-bug-now-that-an-epic-exists)
+
 r[list-filter]
 - `list` - List all issues with optional `--status`, `--issue-type`, `--search`,
   repeatable `--tag`, repeatable `--metadata`, and `--grep` filters  

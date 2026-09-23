@@ -42,7 +42,7 @@ pub enum Commands {
             short = 't',
             long,
             default_value = "bug",
-            help = "Issue type (bug, ux_problem, usecase, design, validation, epic, milestone)"
+            help = "Issue type: bug - software defects requiring fixes\n  ux_problem - user experience issues\n  usecase - user stories or requirements\n  design - software design or architecture problems\n  validation - validation features or checks\n  epic - container for grouping related issues\n  milestone - ordering or prioritization marker"
         )]
         issue_type: String,
 
@@ -62,7 +62,11 @@ pub enum Commands {
         )]
         status: Option<String>,
 
-        #[arg(short = 't', long, help = "Filter by type (bug, ux_problem, etc.)")]
+        #[arg(
+            short = 't',
+            long,
+            help = "Filter by type: bug - software defects requiring fixes\n  ux_problem - user experience issues\n  usecase - user stories or requirements\n  design - software design or architecture problems\n  validation - validation features or checks\n  epic - container for grouping related issues\n  milestone - ordering or prioritization marker"
+        )]
         issue_type: Option<String>,
 
         #[arg(
@@ -221,7 +225,7 @@ pub enum Commands {
         id: String,
 
         #[arg(
-            help = "New issue type (bug, ux_problem, usecase, design, validation, epic, milestone)"
+            help = "New issue type: bug - software defects requiring fixes\n  ux_problem - user experience issues\n  usecase - user stories or requirements\n  design - software design or architecture problems\n  validation - validation features or checks\n  epic - container for grouping related issues\n  milestone - ordering or prioritization marker"
         )]
         new_type: String,
     },

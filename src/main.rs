@@ -9,13 +9,14 @@ mod projects;
 mod storage;
 mod tui;
 
-use crate::models::{Issue, Status};
+use crate::models::{Issue, IssueType, Status};
 use crate::storage::LoadWarning;
 use anyhow::{bail, Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands, MetadataCommand, TagCommand};
 use display::{
-    print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary,
+    print_creation_tips, print_epic_view, print_issue_detail, print_issue_list, print_issue_tree,
+    print_summary,
 };
 use operations::Operations;
 use std::collections::HashMap;
@@ -54,6 +55,22 @@ fn main() -> Result<()> {
             let (incoming, incoming_warnings) = ops.get_incoming_relationships(&issue.id)?;
             print_warnings(&incoming_warnings);
             print_issue_detail(&issue, &related_titles, &incoming);
+
+            // Post-creation guidance (r[guidance-tips]): optional tips
+            // shown when the project has epics to link into. Selection is
+            // pure (operations::select_creation_tips); rendering here.
+            let (all_issues, _) = ops.list(None, None)?;
+            let epics: Vec<(Uuid, String)> = all_issues
+                .iter()
+                .filter(|candidate| candidate.issue_type == IssueType::Epic)
+                .map(|epic| (epic.id, epic.title.clone()))
+                .collect();
+            let guidance =
+                operations::select_creation_tips(&issue.issue_type, &issue.relationships, &epics);
+            // r[impl appropriate-length-id] - shorten both the new issue's
+            // id (already computed above) and the epic candidates.
+            let id_prefixes = ops.id_prefixes()?;
+            print_creation_tips(&guidance, &short_id, &id_prefixes);
         }
 
         Commands::List {

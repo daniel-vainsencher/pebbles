@@ -215,6 +215,10 @@ Updated: [..]
 File: bug-[..]-temporary-test-issue.json
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+Tip: Link to an epic with: pebbles link [..] part_of <epic-id>
+  [..] User Authentication Epic
+Tip: Add dependencies with: pebbles link [..] required_for <other-id>
+
 ```
 
 ## List includes new issue

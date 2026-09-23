@@ -1,5 +1,5 @@
 use crate::models::{build_epic_counts, Issue, IssueType, RelationType, Status};
-use crate::operations::ProjectSummary;
+use crate::operations::{CreationGuidance, ProjectSummary};
 use colored::*;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -176,6 +176,41 @@ pub fn print_issue_detail(
     );
     println!("{}: {}", "File".bold(), issue.file_name().dimmed());
     println!("{}", "━".repeat(60).dimmed());
+}
+
+/// Print the optional guidance tips shown after a successful issue
+/// creation (r[guidance-tips]). Hints, never errors: each tip is one line
+/// prefixed `Tip:`, followed by the pickable epic candidates when the epic
+/// tip applies. Renders nothing at all when no tip applies, so creation
+/// output stays byte-identical for projects without epics.
+pub fn print_creation_tips(
+    guidance: &CreationGuidance,
+    new_issue_short_id: &str,
+    id_prefixes: &HashMap<Uuid, String>,
+) {
+    if guidance.suggest_epic {
+        println!();
+        println!(
+            "Tip: Link to an epic with: pebbles link {} part_of <epic-id>",
+            new_issue_short_id
+        );
+        for (id, title) in &guidance.epic_candidates {
+            let short = id_prefixes
+                .get(id)
+                .cloned()
+                .unwrap_or_else(|| id.to_string());
+            println!("  {} {}", short.dimmed(), title.bold());
+        }
+    }
+    if guidance.suggest_dependency {
+        if !guidance.suggest_epic {
+            println!();
+        }
+        println!(
+            "Tip: Add dependencies with: pebbles link {} required_for <other-id>",
+            new_issue_short_id
+        );
+    }
 }
 
 pub fn print_epic_view(epic: &Issue, child_issues: &[Issue], id_prefixes: &HashMap<Uuid, String>) {
