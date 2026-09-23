@@ -12,7 +12,7 @@ use crate::models::{Issue, Status};
 use crate::storage::LoadWarning;
 use anyhow::{bail, Result};
 use clap::Parser;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, TagCommand};
 use display::{
     print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary,
 };
@@ -59,6 +59,7 @@ fn main() -> Result<()> {
             status,
             issue_type,
             search,
+            tag,
             tree,
             orphaned,
         } => {
@@ -72,13 +73,27 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            let filter_applied =
-                status_filter.is_some() || type_filter.is_some() || orphaned || search.is_some();
+            // Empty --tag values are an error (r[continuity]): a blank tag
+            // is not a selector for anything.
+            let tag_filter: Vec<String> = tag.iter().map(|t| t.trim().to_string()).collect();
+            if tag_filter.iter().any(|t| t.is_empty()) {
+                anyhow::bail!("Tag filter cannot be empty");
+            }
+            let filter_applied = status_filter.is_some()
+                || type_filter.is_some()
+                || !tag_filter.is_empty()
+                || orphaned
+                || search.is_some();
             let (mut issues, warnings) = ops.list(status_filter, type_filter)?;
             print_warnings(&warnings);
 
             if let Some(query) = search {
                 issues = operations::filter_by_title_query(&issues, &query);
+            }
+
+            // r[tag-filter-and]
+            if !tag_filter.is_empty() {
+                issues = operations::filter_by_tags(&issues, &tag_filter);
             }
 
             if orphaned {
@@ -264,6 +279,37 @@ fn main() -> Result<()> {
             })?;
             finish_bulk("Unlink", succeeded, &failed, uuids.len());
         }
+
+        Commands::Tag { command } => match command {
+            TagCommand::Add { id, tags } => {
+                let outcome = ops.add_tags(&id, &tags)?;
+                print_warnings(&outcome.warnings);
+                if !outcome.value.is_empty() {
+                    let issue = ops.show(&id)?;
+                    let related_titles = ops.get_related_titles(&issue);
+                    let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                    print_warnings(&warnings);
+                    println!("✓ Added tags: {}", outcome.value.join(", "));
+                    print_issue_detail(&issue, &related_titles, &incoming);
+                } else {
+                    println!("No changes: issue already has these tags");
+                }
+            }
+            TagCommand::Remove { id, tags } => {
+                let outcome = ops.remove_tags(&id, &tags)?;
+                print_warnings(&outcome.warnings);
+                if !outcome.value.is_empty() {
+                    let issue = ops.show(&id)?;
+                    let related_titles = ops.get_related_titles(&issue);
+                    let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                    print_warnings(&warnings);
+                    println!("✓ Removed tags: {}", outcome.value.join(", "));
+                    print_issue_detail(&issue, &related_titles, &incoming);
+                } else {
+                    println!("No changes: issue does not have these tags");
+                }
+            }
+        },
 
         Commands::Epic { id } => {
             let (epic, child_issues, warnings) = ops.epic(&id)?;

@@ -17,7 +17,7 @@ An issue represents a unit of work tracked by Pebbles. See [`Issue` struct](src/
 - `status` - Current status (see [Status](#status))
 - `issue_type` - Type of issue (see [Issue Types](#issue-types))
 - `relationships` - Links to other issues (see [Relationships](#relationships))
-- `tags` - List of string tags (currently not used by CLI)
+- `tags` - List of string tags for categorization (see [Tags](#tags))
 - `metadata` - Extensible key-value storage for custom fields
 - `created_at` / `updated_at` - Timestamps in UTC
 
@@ -291,8 +291,11 @@ r[new-issues-default-proposed]
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 r[list-filter]
-- `list` - List all issues with optional `--status` and `--issue-type` filters  
-  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues)
+- `list` - List all issues with optional `--status`, `--issue-type`, and repeatable `--tag` filters  
+  `--tag` keeps issues carrying every given tag (AND) and composes with the
+  other filters and with `--search` (r[tag-filter-and]); an empty `--tag`
+  value is an error.
+  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag)
 
 - `show <id>` - Show issue details  
   Example: [Quick Start](README.md#view-details) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details)
@@ -316,6 +319,21 @@ r[approve-command]
 
 - `unlink <source> <relation> <target>` - Remove relationship  
   Example: [Quick Start](README.md#link-issues)
+
+r[tag-add-dedupe]
+- `tag add <id> <tag...>` - Add tags to an issue  
+  Appends the given tags, deduplicating against the tags already present and
+  within the input itself; when every requested tag is already present the
+  command reports no changes and writes nothing. Tags are trimmed on entry;
+  empty or whitespace-only tags are an error, and a single bad tag fails the
+  whole request without adding anything.
+  Test: [tag-management](tests/workflows/tag-management.trycmd#add-tags-to-an-issue)
+
+- `tag remove <id> <tag...>` - Remove tags from an issue  
+  Removes every occurrence of the given tags (exact, case-sensitive match);
+  tags that are not present are ignored, and when none are present the
+  command reports no changes and writes nothing. Empty tags are an error.
+  Test: [tag-management](tests/workflows/tag-management.trycmd#remove-a-tag)
 
 - `epic <id>` - Show epic with all child issues  
   Test: [core-workflow](tests/workflows/core-workflow.trycmd#view-epic-with-all-child-issues)
@@ -521,12 +539,19 @@ The `metadata` field is a `HashMap<String, String>` that can store arbitrary key
 
 ### Tags
 
-The `tags` field is a `Vec<String>` for categorization. Currently not used by CLI commands. Use the CLI for all supported updates; edit JSON manually only if the CLI is failing.
+The `tags` field is a `Vec<String>` for categorization. Manage tags through
+the CLI: `pebbles tag add <id> <tag...>` appends tags (deduplicating against
+existing tags and within the input; a no-op change reports no changes) and
+`pebbles tag remove <id> <tag...>` removes them. `pebbles list --tag <tag>`
+filters by tag: the flag is repeatable with AND semantics (an issue must
+carry every given tag) and composes with `--status`, `--issue-type`, and
+`--search`. Tags are trimmed on entry and matched exactly
+(case-sensitive); empty tags are an error. Use the CLI for all supported
+updates; edit JSON manually only if the CLI is failing.
 
 ## Future Considerations
 
 Features mentioned in historical documentation but not yet implemented:
-- Tag management CLI commands
 - Metadata management CLI commands
 - Fuzzy search
 - View commands (graph, route)

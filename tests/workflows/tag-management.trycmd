@@ -1,0 +1,242 @@
+# Tag management workflow
+
+`pebbles tag add <id> <tag...>` appends and deduplicates tags on one
+issue; `pebbles tag remove <id> <tag...>` removes them. `pebbles list
+--tag <tag>` filters by tag (repeatable, AND) and composes with
+--status, --issue-type, and --search. Tags are trimmed on entry and
+matched exactly (case-sensitive).
+
+Fixture store: 111 (Login button..., todo bug), 222 (JWT token
+authentication system, todo design), 333 (User can login..., in
+progress usecase), 444 (Export users to CSV, done usecase). All
+untagged initially.
+
+## Baseline list (updated_at descending)
+
+```console
+$ pebbles list
+111 [bug] [TODO] Login button doesn't respond on mobile
+222 [des] [TODO] JWT token authentication system
+333 [uc] [IN PROGRESS] User can login with email and password
+444 [uc] [DONE] Export users to CSV
+
+```
+
+## Add tags to an issue
+
+r[verify tag-add-dedupe]
+```console
+$ pebbles tag add 11111111 mobile frontend
+✓ Added tags: mobile, frontend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+Tags: mobile, frontend
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+```console
+$ pebbles tag add 22222222 backend security
+✓ Added tags: backend, security
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 22222222-1111-1111-1111-111111111111
+Title: JWT token authentication system
+Type: Design
+Status: TODO
+Description: Design and implement JWT-based authentication
+Tags: backend, security
+
+Created: 2026-01-10 09:00:00
+Updated: [..]
+File: des-22222222-jwt-token-authentication-system.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Filter by tag
+
+```console
+$ pebbles list --tag mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+```console
+$ pebbles list --tag backend
+222 [des] [TODO] JWT token authentication system
+
+```
+
+```console
+$ pebbles tag add 33333333 backend
+✓ Added tags: backend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 33333333-1111-1111-1111-111111111111
+Title: User can login with email and password
+Type: Usecase
+Status: IN PROGRESS
+Tags: backend
+
+Created: 2026-01-10 08:00:00
+Updated: [..]
+File: uc-33333333-user-can-login-with-email-and-password.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Tag filter orders by updated_at (newest first)
+
+```console
+$ pebbles list --tag backend
+333 [uc] [IN PROGRESS] User can login with email and password
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Tag filter composes with --status
+
+```console
+$ pebbles list --tag backend --status todo
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Tag filter composes with --search
+
+```console
+$ pebbles list --tag backend --search jwt
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Repeatable --tag is AND (issue must carry every tag)
+
+```console
+$ pebbles list --tag mobile --tag backend
+No issues found.
+
+```
+
+## Adding an existing tag is a no-op
+
+```console
+$ pebbles tag add 11111111 mobile
+No changes: issue already has these tags
+
+```
+
+## Remove a tag
+
+```console
+$ pebbles tag remove 11111111 frontend
+✓ Removed tags: frontend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+Tags: mobile
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Removing an absent tag is a no-op
+
+```console
+$ pebbles tag remove 11111111 frontend
+No changes: issue does not have these tags
+
+```
+
+## Duplicate tags in one add command are added once
+
+```console
+$ pebbles tag add 44444444 urgent urgent
+✓ Added tags: urgent
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 44444444-1111-1111-1111-111111111111
+Title: Export users to CSV
+Type: Usecase
+Status: DONE
+Tags: urgent
+
+Created: 2026-01-10 07:00:00
+Updated: [..]
+File: uc-44444444-export-users-to-csv.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## show displays an issue's tags
+
+```console
+$ pebbles show 44444444
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 44444444-1111-1111-1111-111111111111
+Title: Export users to CSV
+Type: Usecase
+Status: DONE
+Tags: urgent
+
+Created: 2026-01-10 07:00:00
+Updated: [..]
+File: uc-44444444-export-users-to-csv.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Empty tags are rejected
+
+```console
+$ pebbles tag add 11111111 ""
+? failed
+Error: Tag cannot be empty (got "")
+
+```
+
+## An empty --tag filter is rejected
+
+```console
+$ pebbles list --tag ""
+? failed
+Error: Tag filter cannot be empty
+
+```
+
+## Unknown issue IDs fail with the standard error
+
+```console
+$ pebbles tag add 99999999 x
+? failed
+Error: No issue found with ID starting with '99999999'
+
+```
+
+## Tag matching is case-sensitive
+
+```console
+$ pebbles list --tag Mobile
+No issues found.
+
+```
+
+## No match
+
+```console
+$ pebbles list --tag doesntexist
+No issues found.
+
+```

@@ -67,9 +67,17 @@ pub enum Commands {
 
         #[arg(
             long,
-            help = "Fuzzy-match issue titles against this query (case-insensitive; composes with --status and --issue-type)"
+            help = "Fuzzy-match issue titles against this query (case-insensitive; composes with --status, --issue-type, and --tag)"
         )]
         search: Option<String>,
+
+        #[arg(
+            long,
+            value_name = "TAG",
+            action = clap::ArgAction::Append,
+            help = "Keep issues carrying this tag (exact, case-sensitive). Repeatable: every given tag must be present (AND). Composes with --status, --issue-type, and --search."
+        )]
+        tag: Vec<String>,
 
         #[arg(
             long,
@@ -168,6 +176,12 @@ pub enum Commands {
         args: Vec<String>,
     },
 
+    #[command(about = "Manage an issue's tags (add or remove; per-issue, non-bulk)")]
+    Tag {
+        #[command(subcommand)]
+        command: TagCommand,
+    },
+
     #[command(about = "Show an epic with all its child issues")]
     Epic {
         #[arg(help = "Epic ID (full UUID or prefix)")]
@@ -229,6 +243,43 @@ pub enum Commands {
             help = "Highlight the critical chain to this goal issue (full UUID or prefix)"
         )]
         goal: Option<String>,
+    },
+}
+
+/// Subcommands of `pebbles tag`: add and remove tags on a single issue.
+///
+/// Both commands accept one or more tags after the issue ID (`tag add <id>
+/// <tag...>`). Tags are matched and stored exactly as given (trimmed, but
+/// case-sensitive); `add` appends and deduplicates, `remove` deletes every
+/// matching occurrence.
+#[derive(Subcommand)]
+pub enum TagCommand {
+    #[command(about = "Add tags to an issue (appends and deduplicates)")]
+    Add {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(
+            value_name = "TAG",
+            num_args = 1..,
+            required = true,
+            help = "Tag(s) to add"
+        )]
+        tags: Vec<String>,
+    },
+
+    #[command(about = "Remove tags from an issue")]
+    Remove {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(
+            value_name = "TAG",
+            num_args = 1..,
+            required = true,
+            help = "Tag(s) to remove"
+        )]
+        tags: Vec<String>,
     },
 }
 

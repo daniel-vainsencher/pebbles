@@ -1,0 +1,14 @@
+{
+  "id": "44444444-1111-1111-1111-111111111111",
+  "title": "Export users to CSV",
+  "description": null,
+  "status": "done",
+  "issue_type": "usecase",
+  "tags": [
+    "urgent"
+  ],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-01-10T07:00:00Z",
+  "updated_at": "[..]"
+}

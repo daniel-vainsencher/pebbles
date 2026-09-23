@@ -261,6 +261,106 @@ pub fn filter_by_title_query(issues: &[Issue], query: &str) -> Vec<Issue> {
 /// by relation type. Pure: no storage access, so the aggregation and the
 /// actionability link to `get_unblocked_issues` are unit-testable without
 /// I/O.
+/// Reject tag inputs that would store a meaningless value: any tag that is
+/// empty or whitespace-only (after trimming) is an error. Called by the
+/// mutating tag commands and by `list --tag` BEFORE any resolution or write,
+/// so a bad tag fails the whole request atomically. Pure: no storage access.
+///
+/// ```rust
+/// # use pebbles::operations::validate_tags;
+/// assert!(validate_tags(&["backend".to_string()]).is_ok());
+/// assert!(validate_tags(&["backend".to_string(), "  ".to_string()]).is_err());
+/// assert!(validate_tags(&["".to_string()]).is_err());
+/// ```
+pub fn validate_tags(tags: &[String]) -> Result<()> {
+    if let Some(bad) = tags.iter().find(|t| t.trim().is_empty()) {
+        bail!("Tag cannot be empty (got {:?})", bad);
+    }
+    Ok(())
+}
+
+/// Append `tags` to `issue.tags` in input order, deduplicating against the
+/// tags already present and against earlier entries in `tags` themselves
+/// (r[tag-add-dedupe]). Matching is exact and case-sensitive: tags are
+/// stored as given. Returns the tags actually appended (in input order);
+/// empty when nothing changed. Pure: no storage access, so the
+/// append/dedupe rules are unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::add_tags_to_issue;
+/// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
+/// let added = add_tags_to_issue(&mut issue, &["x".to_string(), "x".to_string(), "y".to_string()]);
+/// assert_eq!(added, vec!["x".to_string(), "y".to_string()]);
+/// assert_eq!(issue.tags, vec!["x".to_string(), "y".to_string()]);
+/// assert!(add_tags_to_issue(&mut issue, &["x".to_string()]).is_empty());
+/// ```
+// r[impl tag-add-dedupe]
+pub fn add_tags_to_issue(issue: &mut Issue, tags: &[String]) -> Vec<String> {
+    let mut added = Vec::new();
+    for tag in tags {
+        if !issue.tags.iter().any(|existing| existing == tag) {
+            issue.tags.push(tag.clone());
+            added.push(tag.clone());
+        }
+    }
+    added
+}
+
+/// Remove every occurrence of `tags` from `issue.tags` (exact,
+/// case-sensitive match), keeping the remaining tags in their current
+/// order. Tags that were not present are ignored. Returns the tags actually
+/// removed (in request order, without duplicates); empty when nothing
+/// changed. Pure: no storage access, so the removal rules are
+/// unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::remove_tags_from_issue;
+/// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
+/// issue.tags = vec!["x".to_string(), "y".to_string()];
+/// let removed = remove_tags_from_issue(&mut issue, &["y".to_string(), "nope".to_string()]);
+/// assert_eq!(removed, vec!["y".to_string()]);
+/// assert_eq!(issue.tags, vec!["x".to_string()]);
+/// ```
+pub fn remove_tags_from_issue(issue: &mut Issue, tags: &[String]) -> Vec<String> {
+    let mut removed = Vec::new();
+    for tag in tags {
+        if issue.tags.iter().any(|existing| existing == tag) {
+            issue.tags.retain(|existing| existing != tag);
+            removed.push(tag.clone());
+        }
+    }
+    removed
+}
+
+/// The issues from `issues` that carry EVERY tag in `filter` (exact,
+/// case-sensitive match against the stored `tags`; r[tag-filter-and]).
+/// Input order is preserved: the caller produces a sorted list and this
+/// retains the slice. An empty filter returns every issue (vacuous AND);
+/// the CLI rejects empty `--tag` values before this is reachable. Pure: no
+/// storage access, so the filter rules are unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::filter_by_tags;
+/// let mut a = Issue::new("A".to_string(), None, IssueType::Bug);
+/// let mut b = Issue::new("B".to_string(), None, IssueType::Bug);
+/// a.tags = vec!["x".to_string(), "y".to_string()];
+/// b.tags = vec!["x".to_string()];
+/// let out = filter_by_tags(&[a, b], &["x".to_string(), "y".to_string()]);
+/// assert_eq!(out.len(), 1);
+/// assert_eq!(out[0].title, "A");
+/// ```
+// r[tag-filter-and]
+pub fn filter_by_tags(issues: &[Issue], filter: &[String]) -> Vec<Issue> {
+    issues
+        .iter()
+        .filter(|issue| filter.iter().all(|tag| issue.tags.contains(tag)))
+        .cloned()
+        .collect()
+}
+
 pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
     let total_issues = issues.len();
 
@@ -583,6 +683,114 @@ impl Operations {
 
         Ok(MutationOutcome {
             value: true,
+            warnings,
+        })
+    }
+
+    /// Append tags to an issue (`pebbles tag add`): resolve and load the
+    /// issue, reject empty tags up front (nothing is written on a bad tag),
+    /// apply the pure append/dedupe rule, then save and commit. Returns the
+    /// tags actually added; empty when every requested tag was already
+    /// present (no file write, no jj commit).
+    pub fn add_tags(&self, id: &str, tags: &[String]) -> Result<MutationOutcome<Vec<String>>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        // Trim and validate before touching anything: a single bad tag
+        // fails the whole request atomically, with nothing added.
+        let tags: Vec<String> = tags.iter().map(|t| t.trim().to_string()).collect();
+        validate_tags(&tags)?;
+
+        let uuid = self.resolve_id(id)?;
+        let mut issue = self.storage.load_issue(&uuid)?;
+
+        let added = add_tags_to_issue(&mut issue, &tags);
+        if added.is_empty() {
+            return Ok(MutationOutcome {
+                value: Vec::new(),
+                warnings: Vec::new(),
+            });
+        }
+
+        issue.update();
+
+        let mut index = self.storage.load_index()?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
+        )?;
+
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!(
+                "Add tags to {}: {} ({})",
+                issue.issue_type,
+                issue.title,
+                added.join(", ")
+            ),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome {
+            value: added,
+            warnings,
+        })
+    }
+
+    /// Remove tags from an issue (`pebbles tag remove`): resolve and load
+    /// the issue, reject empty tags up front, apply the pure removal rule
+    /// (missing tags are ignored), then save and commit. Returns the tags
+    /// actually removed; empty when none of the requested tags were present
+    /// (no file write, no jj commit).
+    pub fn remove_tags(&self, id: &str, tags: &[String]) -> Result<MutationOutcome<Vec<String>>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let tags: Vec<String> = tags.iter().map(|t| t.trim().to_string()).collect();
+        validate_tags(&tags)?;
+
+        let uuid = self.resolve_id(id)?;
+        let mut issue = self.storage.load_issue(&uuid)?;
+
+        let removed = remove_tags_from_issue(&mut issue, &tags);
+        if removed.is_empty() {
+            return Ok(MutationOutcome {
+                value: Vec::new(),
+                warnings: Vec::new(),
+            });
+        }
+
+        issue.update();
+
+        let mut index = self.storage.load_index()?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
+        )?;
+
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!(
+                "Remove tags from {}: {} ({})",
+                issue.issue_type,
+                issue.title,
+                removed.join(", ")
+            ),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome {
+            value: removed,
             warnings,
         })
     }
@@ -1598,5 +1806,151 @@ mod tests {
         );
         assert!(filter_by_title_query(&[login.clone()], "").is_empty());
         assert!(filter_by_title_query(&[login.clone()], "   ").is_empty());
+    }
+    // -- tag helpers ---------------------------------------------------------
+
+    #[test]
+    fn add_tags_appends_new_tags_in_input_order() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string(), "beta".to_string()];
+        let added = add_tags_to_issue(&mut issue, &["gamma".to_string(), "delta".to_string()]);
+        assert_eq!(
+            added,
+            ["gamma", "delta"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            issue.tags,
+            ["alpha", "beta", "gamma", "delta"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn add_tags_dedupes_existing_and_within_input() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string()];
+        // "alpha" already present, "gamma" repeated inside the input.
+        let added = add_tags_to_issue(
+            &mut issue,
+            &[
+                "alpha".to_string(),
+                "gamma".to_string(),
+                "gamma".to_string(),
+            ],
+        );
+        assert_eq!(added, vec!["gamma".to_string()]);
+        assert_eq!(
+            issue.tags,
+            ["alpha", "gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn add_tags_no_change_when_all_tags_present() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string()];
+        assert!(add_tags_to_issue(&mut issue, &["alpha".to_string()]).is_empty());
+        assert_eq!(issue.tags, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn add_tags_is_case_sensitive() {
+        // Tags are stored exactly as given; "Alpha" is a distinct tag from
+        // "alpha".
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string()];
+        let added = add_tags_to_issue(&mut issue, &["Alpha".to_string()]);
+        assert_eq!(added, vec!["Alpha".to_string()]);
+        assert_eq!(
+            issue.tags,
+            ["alpha", "Alpha"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn remove_tags_deletes_matching_and_keeps_others() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+        let removed = remove_tags_from_issue(&mut issue, &["beta".to_string(), "nope".to_string()]);
+        assert_eq!(removed, vec!["beta".to_string()]);
+        assert_eq!(
+            issue.tags,
+            ["alpha", "gamma"]
+                .into_iter()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn remove_tags_no_change_when_none_present() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string()];
+        assert!(remove_tags_from_issue(&mut issue, &["nope".to_string()]).is_empty());
+        assert_eq!(issue.tags, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn remove_tags_is_case_sensitive() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        issue.tags = vec!["alpha".to_string()];
+        assert!(remove_tags_from_issue(&mut issue, &["Alpha".to_string()]).is_empty());
+        assert_eq!(issue.tags, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn filter_by_tags_keeps_issues_carrying_every_filter_tag() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let mut c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        a.tags = vec!["x".to_string(), "y".to_string()];
+        b.tags = vec!["x".to_string()];
+        c.tags = vec!["y".to_string()];
+        // AND semantics: only A carries both tags.
+        let out = filter_by_tags(&[a.clone(), b, c], &["x".to_string(), "y".to_string()]);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_tags_single_tag_and_order_preserved() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        a.tags = vec!["x".to_string()];
+        b.tags = vec!["x".to_string()];
+        // Input order is preserved (the caller sorts by updated_at first).
+        let out = filter_by_tags(&[a.clone(), c, b.clone()], &["x".to_string()]);
+        assert_eq!(ids(&out), vec![a.id, b.id]);
+    }
+
+    #[test]
+    fn filter_by_tags_is_case_sensitive() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        a.tags = vec!["backend".to_string()];
+        assert!(filter_by_tags(&[a.clone()], &["Backend".to_string()]).is_empty());
+        assert_eq!(
+            ids(&filter_by_tags(&[a.clone()], &["backend".to_string()])),
+            vec![a.id]
+        );
+    }
+
+    #[test]
+    fn filter_by_tags_empty_filter_returns_everything() {
+        // The CLI rejects an empty --tag filter before this is reachable;
+        // vacuously, an issue carries every tag in an empty filter.
+        let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let out = filter_by_tags(&[a.clone()], &[]);
+        assert_eq!(ids(&out), vec![a.id]);
     }
 }
