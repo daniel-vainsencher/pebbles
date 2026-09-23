@@ -2,11 +2,11 @@
   "id": "43caa49f-d935-4252-99c7-00ed576f5e04",
   "title": "Store bidirectional relationships in issue model",
   "description": "Implement bidirectional relationship storage with format versioning.\n\nVersioning strategy:\n- v1 (implicit): Current format, relations on one side only. No .format file needed.\n- v2+: Marked by .format file in .pebbles/ directory containing version string (e.g., 'v2')\n\nNew RelationType variants (inverses):\n- part_of ↔ has_part\n- required_for ↔ requires\n- scheduled_before ↔ scheduled_after\n\nChanges needed:\n1. Introduce .format file concept in .pebbles/ directory\n2. Add HasPart, Requires, ScheduledAfter to RelationType enum\n3. Implement bidirectional relationship storage as v2 format\n4. Update relationship logic to maintain both directions automatically\n5. Plan (document only) migration path for v1→v2\n6. Update SPEC.md to document versioning and bidirectional storage\n7. Update display logic from relationship UX pebble to use direct references instead of searching\n\nReferenced by:\n  scheduled after 48e1d52e (Display all relationships when showing an issue)\n\nNOTE 2026-09-22 (manager): incoming relationships are COMPUTED at read time (models.rs incoming helper + display shows them), not stored; whether to store both directions or keep computing is an open design question. Reverted to proposed for owner review.\n\nNOTE 2026-09-23 (manager): closed per owner. Incoming relationships are computed at read time (models.rs incoming helper + display), so bidirectional storage is not needed.",
-  "status": "proposed",
+  "status": "done",
   "issue_type": "design",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-18T17:44:21.633458811Z",
-  "updated_at": "2026-09-23T18:04:37.482322161Z"
+  "updated_at": "2026-09-23T18:04:37.590579415Z"
 }
