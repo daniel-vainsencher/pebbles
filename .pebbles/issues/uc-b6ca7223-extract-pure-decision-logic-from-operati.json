@@ -3,7 +3,7 @@
   "title": "Extract pure decision logic from Operations/Storage (match_id_prefix, save_issue rename decision, get_unblocked_issues, calculate_summary)",
   "description": "Umbrella issue (a12e9fd6 merged in per owner, 2026-09-23): extract the pure decision functions from Operations and Storage so the algorithms are unit-testable without a filesystem.\n\nARCHITECTURE.md 'Testing Functional Core vs Imperative Shell' uses resolve_id as the textbook counterexample and prescribes extracting pure match_id_prefix(id_str, known_ids) -> Result<Uuid> (ARCHITECTURE.md:290). That extraction was never done: Operations::resolve_id (operations.rs:784-807) still loads the index and prefix-matches in one function; Storage::save_issue (storage.rs:138-172) interleaves the rename/index-dirty decision with fs::remove_file/fs::write. rg 'match_id_prefix' finds nothing.\n\nRequired extractions:\n- match_id_prefix(id_str: &str, known_ids: &[Uuid]) -> Result<Uuid>\n- save_issue rename/index-dirty decision as a pure function (rename vs no-rename)\n- get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> - Operations::next inlines the dependency-traversal filter in the I/O-bound function (was: mixes dependency traversal with storage.load_all_issues())\n- calculate_summary(issues: &[Issue]) -> ProjectSummary - Operations::summary mixes aggregation with storage.load_all_issues()\n\nAfter extraction, update:\n- Operations::resolve_id to call match_id_prefix\n- Operations::next to call get_unblocked_issues\n- Operations::summary to call calculate_summary\n\nConsequence: ambiguous/unknown-prefix resolution, case-insensitivity boundaries, rename vs no-rename, next's dependency blocking, and summary aggregation have no unit tests (operations.rs has 7 tests, all parse_id_input_line; storage.rs has 0). Fix: extract the pure decision functions per ARCHITECTURE.md's own example and add unit tests for each (ambiguous/unknown prefixes, case-insensitivity boundaries, rename vs no-rename, unblocked-issue traversal, summary aggregation). From sonnet-latest design review 2026-09-22; a12e9fd6 (Extract pure logic from Operations for unit testing) merged here 2026-09-23.",
   "status": "todo",
-  "issue_type": "design",
+  "issue_type": "usecase",
   "tags": [],
   "relationships": [
     {
@@ -17,5 +17,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-22T12:32:25.928998968Z",
-  "updated_at": "2026-09-23T18:05:03.781243307Z"
+  "updated_at": "2026-09-23T19:07:49.335363707Z"
 }
