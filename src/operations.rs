@@ -255,6 +255,131 @@ pub fn filter_by_title_query(issues: &[Issue], query: &str) -> Vec<Issue> {
     scored.into_iter().map(|(_, issue)| issue).collect()
 }
 
+/// A single term of a `pebbles list --grep` full-text query
+/// (r[grep-query-syntax]). Terms are lowercased at parse time, so matching
+/// is always case-insensitive.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TextQueryTerm {
+    /// A bare, unquoted term: matched as a case-insensitive substring of
+    /// the issue's title or description.
+    Substring(String),
+    /// A double-quoted phrase: matched verbatim (internal whitespace
+    /// preserved, word order fixed) as a case-insensitive substring of the
+    /// issue's title or description.
+    Phrase(String),
+}
+
+/// Parse a `--grep` query into ANDed terms (r[grep-query-syntax]).
+///
+/// Syntax:
+/// - Space-separated terms outside quotes become [`TextQueryTerm::Substring`]
+///   terms, ANDed together: every term must match.
+/// - A double-quoted segment becomes a [`TextQueryTerm::Phrase`]: it matches
+///   verbatim (internal whitespace preserved), still case-insensitively.
+/// - A blank (empty or whitespace-only) query parses to no terms, which
+///   matches nothing (r[continuity]) -- the same convention as
+///   `--search ""` (see `filter_by_title_query`).
+///
+/// Malformed queries are an error, not a silent fallback (r[grep-query-parse]):
+/// - an unterminated quote (a `"` with no closing `"`), and
+/// - an empty phrase (`""`), which would match every issue (r[continuity]).
+///
+/// Pure: no storage access, so the parsing is unit-testable without I/O
+/// (ARCHITECTURE: functional core, imperative shell).
+///
+/// ```rust
+/// # use pebbles::operations::{parse_text_query, TextQueryTerm};
+/// let terms = parse_text_query("login \"jwt token\"").unwrap();
+/// assert_eq!(
+///     terms,
+///     vec![
+///         TextQueryTerm::Substring("login".to_string()),
+///         TextQueryTerm::Phrase("jwt token".to_string()),
+///     ]
+/// );
+/// ```
+pub fn parse_text_query(query: &str) -> Result<Vec<TextQueryTerm>> {
+    let mut terms: Vec<TextQueryTerm> = Vec::new();
+    let mut bare = String::new();
+    let mut in_phrase = false;
+    let mut phrase = String::new();
+
+    for ch in query.trim().chars() {
+        if in_phrase {
+            if ch == '"' {
+                in_phrase = false;
+                if phrase.is_empty() {
+                    bail!("Empty phrase in --grep query: \"\" is not a selector");
+                }
+                terms.push(TextQueryTerm::Phrase(phrase.to_lowercase()));
+                phrase.clear();
+            } else {
+                phrase.push(ch);
+            }
+            continue;
+        }
+        if ch == '"' {
+            flush_bare_term(&mut terms, &mut bare);
+            in_phrase = true;
+        } else if ch.is_whitespace() {
+            flush_bare_term(&mut terms, &mut bare);
+        } else {
+            bare.push(ch);
+        }
+    }
+    if in_phrase {
+        bail!("Unterminated quote in --grep query: missing closing \"");
+    }
+    flush_bare_term(&mut terms, &mut bare);
+    Ok(terms)
+}
+
+/// Append the accumulated bare term (lowercased) to `terms`, if any.
+fn flush_bare_term(terms: &mut Vec<TextQueryTerm>, bare: &mut String) {
+    if !bare.is_empty() {
+        terms.push(TextQueryTerm::Substring(
+            std::mem::take(bare).to_lowercase(),
+        ));
+    }
+}
+
+/// The issues from `issues` whose title or description contains every term
+/// of `terms`, in input order (r[grep-query-syntax]): `--grep` is a boolean
+/// filter and adds no relevance ranking, unlike `--search` which sorts by
+/// fuzzy-match quality.
+///
+/// Matching is a case-insensitive substring check, done once per issue on
+/// the lowercased title and description; an issue without a description has
+/// only its title to match. An empty `terms` slice matches nothing
+/// (r[continuity]): `--grep ""` is a distinct filter, not the unfiltered
+/// list.
+///
+/// Pure: no storage access, so the matching and ordering logic is
+/// unit-testable without I/O (ARCHITECTURE: functional core, imperative
+/// shell).
+pub fn filter_by_text_query(issues: &[Issue], terms: &[TextQueryTerm]) -> Vec<Issue> {
+    if terms.is_empty() {
+        return Vec::new();
+    }
+    issues
+        .iter()
+        .filter(|issue| {
+            let mut haystack = issue.title.to_lowercase();
+            if let Some(description) = &issue.description {
+                haystack.push('\n');
+                haystack.push_str(&description.to_lowercase());
+            }
+            terms.iter().all(|term| {
+                let needle = match term {
+                    TextQueryTerm::Substring(n) | TextQueryTerm::Phrase(n) => n,
+                };
+                haystack.contains(needle)
+            })
+        })
+        .cloned()
+        .collect()
+}
+
 /// Aggregate `issues` into a `ProjectSummary`: total count, counts by
 /// status and type, per-epic child progress (`part_of` children, done
 /// count), the actionable (unblocked todo) count, and relationship totals
@@ -2419,5 +2544,250 @@ mod tests {
                 ("zeta".to_string(), "1".to_string()),
             ]
         );
+    }
+
+    // -- parse_text_query / filter_by_text_query ------------------------------
+
+    fn issue_with_description(id: &str, title: &str, description: &str, status: Status) -> Issue {
+        let mut issue = issue_with(id, title, status);
+        issue.description = Some(description.to_string());
+        issue
+    }
+
+    #[test]
+    fn parse_text_query_blank_query_has_no_terms() {
+        assert_eq!(parse_text_query("").unwrap(), Vec::new());
+        assert_eq!(parse_text_query("   ").unwrap(), Vec::new());
+        assert_eq!(parse_text_query("\t ").unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn parse_text_query_single_term_is_substring() {
+        assert_eq!(
+            parse_text_query("login").unwrap(),
+            vec![TextQueryTerm::Substring("login".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_text_query_terms_are_lowercased() {
+        assert_eq!(
+            parse_text_query("LOGIN").unwrap(),
+            vec![TextQueryTerm::Substring("login".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_text_query_space_separated_terms_are_anded() {
+        assert_eq!(
+            parse_text_query("login mobile").unwrap(),
+            vec![
+                TextQueryTerm::Substring("login".to_string()),
+                TextQueryTerm::Substring("mobile".to_string()),
+            ]
+        );
+        // Runs of whitespace collapse; surrounding whitespace is trimmed.
+        assert_eq!(
+            parse_text_query("  login \t mobile  ").unwrap(),
+            vec![
+                TextQueryTerm::Substring("login".to_string()),
+                TextQueryTerm::Substring("mobile".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_text_query_quoted_phrase_matches_verbatim() {
+        assert_eq!(
+            parse_text_query("\"login button\"").unwrap(),
+            vec![TextQueryTerm::Phrase("login button".to_string())]
+        );
+        // Internal spacing is preserved inside a phrase.
+        assert_eq!(
+            parse_text_query("\"login  button\"").unwrap(),
+            vec![TextQueryTerm::Phrase("login  button".to_string())]
+        );
+    }
+
+    #[test]
+    fn parse_text_query_mixes_terms_and_phrases() {
+        assert_eq!(
+            parse_text_query("login \"jwt token\" auth").unwrap(),
+            vec![
+                TextQueryTerm::Substring("login".to_string()),
+                TextQueryTerm::Phrase("jwt token".to_string()),
+                TextQueryTerm::Substring("auth".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_text_query_unterminated_quote_is_an_error() {
+        assert!(parse_text_query("\"login").is_err());
+        assert!(parse_text_query("login \"jwt").is_err());
+    }
+
+    #[test]
+    fn parse_text_query_empty_phrase_is_an_error() {
+        assert!(parse_text_query("\"\"").is_err());
+        assert!(parse_text_query("login \"\" mobile").is_err());
+    }
+
+    #[test]
+    fn filter_by_text_query_matches_title_substring() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            Status::Todo,
+        );
+        let jwt = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "JWT token auth",
+            Status::Todo,
+        );
+        let terms = parse_text_query("jwt").unwrap();
+        let out = filter_by_text_query(&[login, jwt], &terms);
+        assert_eq!(
+            ids(&out),
+            vec![uuid("22222222-2222-3333-4444-555555555555")]
+        );
+    }
+
+    #[test]
+    fn filter_by_text_query_matches_description() {
+        let login = issue_with_description(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            "The button does not respond to clicks",
+            Status::Todo,
+        );
+        let terms = parse_text_query("clicks").unwrap();
+        let out = filter_by_text_query(&[login.clone()], &terms);
+        assert_eq!(ids(&out), vec![login.id]);
+    }
+
+    #[test]
+    fn filter_by_text_query_is_case_insensitive() {
+        let csv = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Export users to CSV",
+            Status::Done,
+        );
+        let terms = parse_text_query("csv").unwrap();
+        assert_eq!(
+            ids(&filter_by_text_query(&[csv.clone()], &terms)),
+            vec![csv.id]
+        );
+        let terms = parse_text_query("EXPORT").unwrap();
+        assert_eq!(
+            ids(&filter_by_text_query(&[csv.clone()], &terms)),
+            vec![csv.id]
+        );
+    }
+
+    #[test]
+    fn filter_by_text_query_issue_without_description_matches_title_only() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            Status::Todo,
+        );
+        let terms = parse_text_query("clicks").unwrap();
+        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+        let terms = parse_text_query("login").unwrap();
+        assert_eq!(
+            ids(&filter_by_text_query(&[login.clone()], &terms)),
+            vec![login.id]
+        );
+    }
+
+    #[test]
+    fn filter_by_text_query_terms_are_anded() {
+        let a = issue_with_description(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            "Mobile app",
+            Status::Todo,
+        );
+        let b = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Mobile app",
+            Status::Todo,
+        );
+        let terms = parse_text_query("login mobile").unwrap();
+        let out = filter_by_text_query(&[a.clone(), b], &terms);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_text_query_phrase_matches_verbatim_not_terms() {
+        // 'jwt based' with a single space is not a substring of 'JWT-based';
+        // the phrase matches nothing while the ANDed terms both match.
+        let mut jwt = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "JWT token auth",
+            Status::Todo,
+        );
+        jwt.description = Some("Design and implement JWT-based authentication".to_string());
+        let phrase = parse_text_query("\"jwt based\"").unwrap();
+        assert!(filter_by_text_query(&[jwt.clone()], &phrase).is_empty());
+        let terms = parse_text_query("jwt based").unwrap();
+        assert_eq!(
+            ids(&filter_by_text_query(&[jwt.clone()], &terms)),
+            vec![jwt.id]
+        );
+    }
+
+    #[test]
+    fn filter_by_text_query_phrase_and_term_are_anded() {
+        let a = issue_with_description(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            "JWT token system",
+            Status::Todo,
+        );
+        let b = issue_with_description(
+            "22222222-2222-3333-4444-555555555555",
+            "Login page",
+            "JWT token system",
+            Status::Todo,
+        );
+        let terms = parse_text_query("button \"jwt token\"").unwrap();
+        let out = filter_by_text_query(&[a.clone(), b], &terms);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_text_query_blank_query_matches_nothing() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        let terms = parse_text_query("").unwrap();
+        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+        let terms = parse_text_query("   ").unwrap();
+        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+    }
+
+    #[test]
+    fn filter_by_text_query_preserves_input_order() {
+        // No relevance ranking (unlike --search): matches keep the list's
+        // updated_at-descending order (r[issue-ordering]).
+        let mut newer = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        let mut older = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Login app",
+            Status::Todo,
+        );
+        newer.updated_at = chrono::Utc::now();
+        older.updated_at = chrono::Utc::now() - chrono::Duration::seconds(60);
+        let terms = parse_text_query("login").unwrap();
+        let out = filter_by_text_query(&[newer.clone(), older.clone()], &terms);
+        assert_eq!(ids(&out), vec![newer.id, older.id]);
     }
 }

@@ -67,15 +67,22 @@ pub enum Commands {
 
         #[arg(
             long,
-            help = "Fuzzy-match issue titles against this query (case-insensitive; composes with --status, --issue-type, and --tag)"
+            help = "Fuzzy-match issue titles against this query (case-insensitive; composes with --status, --issue-type, --tag, --metadata, and --grep)"
         )]
         search: Option<String>,
 
         #[arg(
             long,
+            value_name = "QUERY",
+            help = "Full-text search over titles and descriptions: space-separated terms are ANDed (each a case-insensitive substring), double-quoted phrases match verbatim. Composes with --status, --issue-type, --search, --tag, and --metadata."
+        )]
+        grep: Option<String>,
+
+        #[arg(
+            long,
             value_name = "TAG",
             action = clap::ArgAction::Append,
-            help = "Keep issues carrying this tag (exact, case-sensitive). Repeatable: every given tag must be present (AND). Composes with --status, --issue-type, --search, and --metadata."
+            help = "Keep issues carrying this tag (exact, case-sensitive). Repeatable: every given tag must be present (AND). Composes with --status, --issue-type, --search, --metadata, and --grep."
         )]
         tag: Vec<String>,
 
@@ -83,7 +90,7 @@ pub enum Commands {
             long,
             value_name = "KEY=VALUE",
             action = clap::ArgAction::Append,
-            help = "Keep issues whose metadata carries this key=value pair (exact, case-sensitive; split at the first '='). Repeatable: every given pair must be present (AND). Composes with --status, --issue-type, --search, and --tag."
+            help = "Keep issues whose metadata carries this key=value pair (exact, case-sensitive; split at the first '='). Repeatable: every given pair must be present (AND). Composes with --status, --issue-type, --search, --tag, and --grep."
         )]
         metadata: Vec<String>,
 

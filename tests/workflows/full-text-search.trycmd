@@ -1,0 +1,205 @@
+# Full-text search
+
+`pebbles list --grep <query>` searches issue titles AND descriptions with a
+small query syntax: space-separated terms are ANDed (each matches as a
+case-insensitive substring), double-quoted phrases match verbatim (internal
+spacing and word order preserved), and results keep the list's
+updated_at-descending order (--grep adds no ranking, unlike --search, which
+sorts by fuzzy-match quality). It composes with --status, --issue-type,
+--search, --tag, and --metadata.
+
+Fixture store: 111 (Login button doesn't respond on mobile, todo bug,
+description "The login button doesn't respond to clicks on mobile devices",
+tag mobile, metadata priority=high), 222 (JWT token authentication system,
+todo design, description "Design and implement JWT-based authentication"),
+333 (User can login with email and password, in progress usecase), 444
+(Export users to CSV, done usecase).
+
+## Baseline list (updated_at descending)
+
+```console
+$ pebbles list
+111 [bug] [TODO] Login button doesn't respond on mobile
+222 [des] [TODO] JWT token authentication system
+333 [uc] [IN PROGRESS] User can login with email and password
+444 [uc] [DONE] Export users to CSV
+
+```
+
+## Title substring match
+
+```console
+$ pebbles list --grep jwt
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Description-only match
+
+The word "clicks" appears only in 111's description, not in any title.
+
+```console
+$ pebbles list --grep clicks
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Case-insensitive matching
+
+```console
+$ pebbles list --grep CSV
+444 [uc] [DONE] Export users to CSV
+
+```
+```console
+$ pebbles list --grep Mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Space-separated terms are ANDed
+
+Both given terms must match: "login" matches 111 and 333, "mobile" matches
+111 only, so only 111 survives. The query is one quoted argument; each
+space-separated word becomes a separate term.
+
+```console
+$ pebbles list --grep "login mobile"
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+```console
+$ pebbles list --grep "jwt auth"
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Quoted phrases match verbatim
+
+A phrase is a single substring: "jwt based" is not a substring of
+"JWT-based" (the hyphen), while the ANDed terms "jwt" and "based" both match
+222's description. A phrase's internal spacing is part of the match:
+"login  button" (two spaces) is not a substring of 111's title.
+
+```console
+$ pebbles list --grep '"jwt based"'
+No issues found.
+
+```
+```console
+$ pebbles list --grep "jwt based"
+222 [des] [TODO] JWT token authentication system
+
+```
+```console
+$ pebbles list --grep '"login  button"'
+No issues found.
+
+```
+```console
+$ pebbles list --grep "login button"
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Matches keep the updated_at-descending order
+
+```console
+$ pebbles list --grep login
+111 [bug] [TODO] Login button doesn't respond on mobile
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+
+## Search composes with --status
+
+```console
+$ pebbles list --grep login --status todo
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with --issue-type
+
+```console
+$ pebbles list --grep auth --issue-type design
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Search composes with --search
+
+```console
+$ pebbles list --search login
+111 [bug] [TODO] Login button doesn't respond on mobile
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+```console
+$ pebbles list --search login --grep mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with --tag
+
+```console
+$ pebbles list --grep login --tag mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with --metadata
+
+```console
+$ pebbles list --grep login --metadata priority=high
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with several filters at once
+
+```console
+$ pebbles list --grep login --status todo --issue-type bug --tag mobile --metadata priority=high
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## No match
+
+```console
+$ pebbles list --grep zzzz
+No issues found.
+
+```
+
+## Blank query matches nothing
+
+An explicitly blank --grep is a distinct filter, not the unfiltered list.
+
+```console
+$ pebbles list --grep ""
+No issues found.
+
+```
+
+## Unterminated quote is an error
+
+```console
+$ pebbles list --grep \"login
+? failed
+Error: Unterminated quote in --grep query: missing closing "
+
+```
+
+## Empty phrase is an error
+
+An empty phrase would match every issue, so it is rejected rather than
+silently meaning "all".
+
+```console
+$ pebbles list --grep '""'
+? failed
+Error: Empty phrase in --grep query: "" is not a selector
+
+```

@@ -291,17 +291,47 @@ r[new-issues-default-proposed]
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 r[list-filter]
-- `list` - List all issues with optional `--status`, `--issue-type`, repeatable `--tag`, and repeatable `--metadata` filters  
+- `list` - List all issues with optional `--status`, `--issue-type`, `--search`,
+  repeatable `--tag`, repeatable `--metadata`, and `--grep` filters  
+  `--search <query>` fuzzy-matches issue titles (case-insensitive
+  subsequence with word-boundary bonuses) and sorts by match quality, best
+  first (as implemented in d5c; see `filter_by_title_query`).
   `--tag` keeps issues carrying every given tag (AND) and composes with the
-  other filters and with `--search` (r[tag-filter-and]); an empty `--tag`
-  value is an error.
+  other filters and with `--search` and `--grep` (r[tag-filter-and]); an
+  empty `--tag` value is an error.
   `--metadata <key>=<value>` keeps issues whose metadata carries every given
   pair (exact, case-sensitive match on both sides; r[metadata-filter-and]).
   Each value is split at the first `=`, so values may contain `=`; both sides
   are trimmed, and a pair without `=` or with an empty key is an error
   (r[metadata-filter-parse]). Composes with `--status`, `--issue-type`,
-  `--search`, and `--tag`.
-  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag), [metadata-management](tests/workflows/metadata-management.trycmd#filter-by-metadata)
+  `--search`, `--tag`, and `--grep`.
+  `--grep <query>` keeps issues whose title or description contains every
+  term of the query (case-insensitive substring; see r[grep-query-syntax]).
+  Composes with `--status`, `--issue-type`, `--search`, `--tag`, and
+  `--metadata`.
+  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag), [metadata-management](tests/workflows/metadata-management.trycmd#filter-by-metadata), [full-text-search](tests/workflows/full-text-search.trycmd)
+
+r[grep-query-syntax]
+`pebbles list --grep <query>` runs a full-text search over issue titles and
+descriptions with a small query syntax:
+- Space-separated terms are ANDed: every term must match, as a
+  case-insensitive substring, somewhere in the issue's title or description.
+  An issue without a description has only its title to match.
+- A double-quoted segment is a phrase: it must appear verbatim (internal
+  spacing and word order preserved, still case-insensitive) as a substring.
+- Matched issues keep the list's ordering (r[issue-ordering]: `updated_at`
+  descending); `--grep` adds no relevance ranking of its own, unlike
+  `--search` which sorts by fuzzy-match quality.
+
+r[grep-query-parse]
+A malformed `--grep` query is an error, not a silent fallback: an
+unterminated quote (a `"` with no closing `"`) and an empty phrase (`""`,
+which would match every issue) both fail the whole request atomically,
+before any listing. An empty or whitespace-only query is valid but matches
+nothing (r[continuity]): it is a distinct filter, not the unfiltered list,
+mirroring `--search ""`.
+
+Implementation: [`parse_text_query()`](src/operations.rs), [`filter_by_text_query()`](src/operations.rs) | Test: [operations unit tests](src/operations.rs), [full-text-search](tests/workflows/full-text-search.trycmd)
 
 - `show <id>` - Show issue details  
   Example: [Quick Start](README.md#view-details) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details)
@@ -596,9 +626,6 @@ updates; edit JSON manually only if the CLI is failing.
 ## Future Considerations
 
 Features mentioned in historical documentation but not yet implemented:
-- Fuzzy search
-- View commands (graph, route)
-- Full-text search
 - Export/import functionality
 - Templates per issue type
 

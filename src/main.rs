@@ -59,6 +59,7 @@ fn main() -> Result<()> {
             status,
             issue_type,
             search,
+            grep,
             tag,
             metadata,
             tree,
@@ -88,17 +89,31 @@ fn main() -> Result<()> {
                 .iter()
                 .map(|pair| operations::parse_metadata_filter(pair))
                 .collect::<Result<Vec<_>>>()?;
+            // r[grep-query-parse] - the full-text query is parsed BEFORE
+            // listing so a malformed query fails the whole request
+            // atomically, like the other filters (r[metadata-filter-parse]).
+            let grep_terms = match &grep {
+                Some(query) => Some(operations::parse_text_query(query)?),
+                None => None,
+            };
             let filter_applied = status_filter.is_some()
                 || type_filter.is_some()
                 || !tag_filter.is_empty()
                 || !metadata_filter.is_empty()
                 || orphaned
-                || search.is_some();
+                || search.is_some()
+                || grep.is_some();
             let (mut issues, warnings) = ops.list(status_filter, type_filter)?;
             print_warnings(&warnings);
 
             if let Some(query) = search {
                 issues = operations::filter_by_title_query(&issues, &query);
+            }
+
+            // r[grep-query-syntax] - --grep terms are ANDed, and the
+            // filter composes with every other filter.
+            if let Some(terms) = &grep_terms {
+                issues = operations::filter_by_text_query(&issues, terms);
             }
 
             // r[tag-filter-and]
