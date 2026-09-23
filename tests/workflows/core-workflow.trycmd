@@ -6,10 +6,10 @@ This test demonstrates the core pebbles workflow: listing, showing, updating, li
 
 ```console
 $ pebbles list
-444 [epic] [TODO] User Authentication Epic (0/0)
-333 [des] [TODO] JWT token authentication system
-222 [uc] [TODO] User can login with email and password
-111 [bug] [TODO] Login button doesn't respond on mobile
+444 [epic] [TODO] User Authentication Epic ✓ (0/0)
+333 [des] [TODO] JWT token authentication system ✓
+222 [uc] [TODO] User can login with email and password ✓
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -18,10 +18,10 @@ $ pebbles list
 r[verify list-filter]
 ```console
 $ pebbles list --status todo
-444 [epic] [TODO] User Authentication Epic (0/0, 0/0 total)
-333 [des] [TODO] JWT token authentication system
-222 [uc] [TODO] User can login with email and password
-111 [bug] [TODO] Login button doesn't respond on mobile
+444 [epic] [TODO] User Authentication Epic ✓ (0/0, 0/0 total)
+333 [des] [TODO] JWT token authentication system ✓
+222 [uc] [TODO] User can login with email and password ✓
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -29,7 +29,7 @@ $ pebbles list --status todo
 
 ```console
 $ pebbles list --issue-type bug
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -193,7 +193,7 @@ Child Issues:
 
 ```console
 $ pebbles list --status in_progress
-333 [des] [IN PROGRESS] JWT token authentication system
+333 [des] [IN PROGRESS] JWT token authentication system → (blocking: 222)
 
 ```
 
@@ -225,7 +225,7 @@ Tip: Add dependencies with: pebbles link [..] required_for <other-id>
 
 ```console
 $ pebbles list --issue-type bug
-[..] [bug] [PROPOSED] Temporary test issue
+[..] [bug] [PROPOSED] Temporary test issue ✓
 111 [bug] [DONE] Fix mobile login button click handler
 
 ```

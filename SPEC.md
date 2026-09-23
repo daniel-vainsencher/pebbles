@@ -332,6 +332,29 @@ r[list-filter]
   `--metadata`.
   Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag), [metadata-management](tests/workflows/metadata-management.trycmd#filter-by-metadata), [full-text-search](tests/workflows/full-text-search.trycmd)
 
+r[blocker-indicators]
+Every `list` row (flat list, `next`, and `review`; the tree and epic-child
+views keep their own layouts) ends with a dependency/blocker indicator
+when the issue carries `required_for` relationships:
+- `✓` (ready): the issue has no incomplete `required_for` dependencies
+  (whether it has none at all or they are all `done`) and is itself not
+  `done`.
+- `⚠ (blocked by: <ids>)`: the issue depends, via `required_for`, on issues
+  that are not `done`; `<ids>` are the minimal unambiguous ID prefixes of
+  those open prerequisites (r[appropriate-length-id]).
+- `→ (blocking: <ids>)`: other open issues depend on this one via
+  `required_for`; informational only, so an issue that is blocked shows the
+  blocked marker and never the blocking marker, and a `done` issue shows no
+  marker at all.
+`part_of` is containment, not a prerequisite, and never produces a marker.
+Like `next` (see `get_unblocked_issues`), the status is computed over the
+full issue set, so a prerequisite outside the current view still marks the
+row. `scheduled_before` is a scheduling hint and likewise produces no
+marker.
+Implementation: [`build_blocker_status()`](src/operations.rs) (pure) |
+Rendering: [`format_blocker_indicator()`](src/display.rs) (pure) | Test:
+[core-workflow](tests/workflows/core-workflow.trycmd)
+
 r[grep-query-syntax]
 `pebbles list --grep <query>` runs a full-text search over issue titles and
 descriptions with a small query syntax:

@@ -7,7 +7,7 @@ This test demonstrates the proposed status lifecycle: new issues start as propos
 r[verify review-command]
 ```console
 $ pebbles review
-aaa [bug] [PROPOSED] Proposed bug
+aaa [bug] [PROPOSED] Proposed bug ✓
 
 ```
 
@@ -15,7 +15,7 @@ aaa [bug] [PROPOSED] Proposed bug
 
 ```console
 $ pebbles list --status proposed
-aaa [bug] [PROPOSED] Proposed bug
+aaa [bug] [PROPOSED] Proposed bug ✓
 
 ```
 
@@ -23,7 +23,7 @@ aaa [bug] [PROPOSED] Proposed bug
 
 ```console
 $ pebbles list --status todo
-bbb [uc] [TODO] Approved usecase
+bbb [uc] [TODO] Approved usecase ✓
 
 ```
 
@@ -104,7 +104,7 @@ File: uc-[..]-approved-now.json
 
 ```console
 $ pebbles review
-[..] [bug] [PROPOSED] Fresh idea
+[..] [bug] [PROPOSED] Fresh idea ✓
 
 ```
 
@@ -112,8 +112,8 @@ $ pebbles review
 
 ```console
 $ pebbles list --status todo
-[..] [uc] [TODO] Approved now
-aaa [bug] [TODO] Proposed bug
-bbb [uc] [TODO] Approved usecase
+[..] [uc] [TODO] Approved now ✓
+aaa [bug] [TODO] Proposed bug ✓
+bbb [uc] [TODO] Approved usecase ✓
 
 ```

@@ -161,7 +161,15 @@ fn main() -> Result<()> {
             if tree {
                 print_issue_tree(&issues, &full_epic_counts, filter_applied, &id_prefixes);
             } else {
-                print_issue_list(&issues, &full_epic_counts, filter_applied, &id_prefixes);
+                // r[blocker-indicators]
+                let blocker_statuses = ops.blocker_status()?;
+                print_issue_list(
+                    &issues,
+                    &full_epic_counts,
+                    filter_applied,
+                    &id_prefixes,
+                    &blocker_statuses,
+                );
             }
         }
 
@@ -429,7 +437,15 @@ fn main() -> Result<()> {
             let full_epic_counts = ops.epic_counts()?;
             // r[impl appropriate-length-id]
             let id_prefixes = ops.id_prefixes()?;
-            print_issue_list(&issues, &full_epic_counts, true, &id_prefixes);
+            // r[blocker-indicators]
+            let blocker_statuses = ops.blocker_status()?;
+            print_issue_list(
+                &issues,
+                &full_epic_counts,
+                true,
+                &id_prefixes,
+                &blocker_statuses,
+            );
         }
 
         // r[impl review-command]
@@ -440,7 +456,15 @@ fn main() -> Result<()> {
             let full_epic_counts = ops.epic_counts()?;
             // r[impl appropriate-length-id]
             let id_prefixes = ops.id_prefixes()?;
-            print_issue_list(&issues, &full_epic_counts, true, &id_prefixes);
+            // r[blocker-indicators]
+            let blocker_statuses = ops.blocker_status()?;
+            print_issue_list(
+                &issues,
+                &full_epic_counts,
+                true,
+                &id_prefixes,
+                &blocker_statuses,
+            );
         }
 
         Commands::Convert { id, new_type } => {

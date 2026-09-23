@@ -15,9 +15,9 @@ untagged initially.
 
 ```console
 $ pebbles list
-111 [bug] [TODO] Login button doesn't respond on mobile
-222 [des] [TODO] JWT token authentication system
-333 [uc] [IN PROGRESS] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+222 [des] [TODO] JWT token authentication system ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 444 [uc] [DONE] Export users to CSV
 
 ```
@@ -65,13 +65,13 @@ File: des-22222222-jwt-token-authentication-system.json
 
 ```console
 $ pebbles list --tag mobile
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
 ```console
 $ pebbles list --tag backend
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -96,8 +96,8 @@ File: uc-33333333-user-can-login-with-email-and-password.json
 
 ```console
 $ pebbles list --tag backend
-333 [uc] [IN PROGRESS] User can login with email and password
-222 [des] [TODO] JWT token authentication system
+333 [uc] [IN PROGRESS] User can login with email and password ✓
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -105,7 +105,7 @@ $ pebbles list --tag backend
 
 ```console
 $ pebbles list --tag backend --status todo
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -113,7 +113,7 @@ $ pebbles list --tag backend --status todo
 
 ```console
 $ pebbles list --tag backend --search jwt
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 

@@ -19,9 +19,9 @@ todo design, description "Design and implement JWT-based authentication"),
 
 ```console
 $ pebbles list
-111 [bug] [TODO] Login button doesn't respond on mobile
-222 [des] [TODO] JWT token authentication system
-333 [uc] [IN PROGRESS] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+222 [des] [TODO] JWT token authentication system ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 444 [uc] [DONE] Export users to CSV
 
 ```
@@ -30,7 +30,7 @@ $ pebbles list
 
 ```console
 $ pebbles list --grep jwt
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -40,7 +40,7 @@ The word "clicks" appears only in 111's description, not in any title.
 
 ```console
 $ pebbles list --grep clicks
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -53,7 +53,7 @@ $ pebbles list --grep CSV
 ```
 ```console
 $ pebbles list --grep Mobile
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -65,12 +65,12 @@ space-separated word becomes a separate term.
 
 ```console
 $ pebbles list --grep "login mobile"
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 ```console
 $ pebbles list --grep "jwt auth"
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -88,7 +88,7 @@ No issues found.
 ```
 ```console
 $ pebbles list --grep "jwt based"
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 ```console
@@ -98,7 +98,7 @@ No issues found.
 ```
 ```console
 $ pebbles list --grep "login button"
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -106,8 +106,8 @@ $ pebbles list --grep "login button"
 
 ```console
 $ pebbles list --grep login
-111 [bug] [TODO] Login button doesn't respond on mobile
-333 [uc] [IN PROGRESS] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 
@@ -115,7 +115,7 @@ $ pebbles list --grep login
 
 ```console
 $ pebbles list --grep login --status todo
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -123,7 +123,7 @@ $ pebbles list --grep login --status todo
 
 ```console
 $ pebbles list --grep auth --issue-type design
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -131,13 +131,13 @@ $ pebbles list --grep auth --issue-type design
 
 ```console
 $ pebbles list --search login
-111 [bug] [TODO] Login button doesn't respond on mobile
-333 [uc] [IN PROGRESS] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 ```console
 $ pebbles list --search login --grep mobile
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -145,7 +145,7 @@ $ pebbles list --search login --grep mobile
 
 ```console
 $ pebbles list --grep login --tag mobile
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -153,7 +153,7 @@ $ pebbles list --grep login --tag mobile
 
 ```console
 $ pebbles list --grep login --metadata priority=high
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -161,7 +161,7 @@ $ pebbles list --grep login --metadata priority=high
 
 ```console
 $ pebbles list --grep login --status todo --issue-type bug --tag mobile --metadata priority=high
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 

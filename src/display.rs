@@ -1,5 +1,5 @@
 use crate::models::{build_epic_counts, Issue, IssueType, RelationType, Status};
-use crate::operations::{CreationGuidance, ProjectSummary};
+use crate::operations::{BlockerStatus, CreationGuidance, ProjectSummary};
 use colored::*;
 use std::collections::HashMap;
 use uuid::Uuid;
@@ -26,11 +26,54 @@ fn format_epic_count(
     }
 }
 
+/// Render the dependency/blocker indicator (SPEC r[blocker-indicators]).
+///
+/// Returns the trailing row text for one issue:
+/// - " ✓" (check) when the issue has no incomplete `required_for`
+///   dependency and is itself still open (not Done);
+/// - " ⚠ (blocked by: <ids>)" when it depends on incomplete issues;
+/// - " → (blocking: <ids>)" when other open issues depend on it.
+/// An issue that is both blocked and blocking only shows the blocked
+/// marker; done issues show no marker at all.
+///
+/// Pure: no I/O, so the indicator rendering is unit-testable.
+fn format_blocker_indicator(
+    status: &BlockerStatus,
+    display_status: Status,
+    id_prefixes: &HashMap<Uuid, String>,
+) -> String {
+    if display_status == Status::Done {
+        return String::new();
+    }
+    let prefix = |id: &Uuid| {
+        id_prefixes
+            .get(id)
+            .cloned()
+            .unwrap_or_else(|| id.to_string()[..8].to_string())
+    };
+    if !status.blocked_by.is_empty() {
+        let ids: Vec<String> = status.blocked_by.iter().map(prefix).collect();
+        format!(" ⚠ (blocked by: {})", ids.join(", "))
+            .yellow()
+            .to_string()
+    } else if !status.blocking.is_empty() {
+        let ids: Vec<String> = status.blocking.iter().map(prefix).collect();
+        format!(" → (blocking: {})", ids.join(", "))
+            .cyan()
+            .to_string()
+    } else if status.ready {
+        " ✓".green().to_string()
+    } else {
+        String::new()
+    }
+}
+
 pub fn print_issue_list(
     issues: &[Issue],
     full_epic_counts: &HashMap<Uuid, (usize, usize)>,
     filter_applied: bool,
     id_prefixes: &HashMap<Uuid, String>,
+    blocker_statuses: &HashMap<Uuid, BlockerStatus>,
 ) {
     if issues.is_empty() {
         println!("{}", "No issues found.".dimmed());
@@ -79,12 +122,18 @@ pub fn print_issue_list(
 
         let type_badge = format!("[{}]", type_str);
         let status_badge = format!("[{}]", status_str);
+        // r[blocker-indicators] - per-row dependency/blocker marker.
+        let indicator = blocker_statuses
+            .get(&issue.id)
+            .map(|s| format_blocker_indicator(s, issue.status, id_prefixes))
+            .unwrap_or_default();
         println!(
-            "{} {} {} {}{}",
+            "{} {} {} {}{}{}",
             id_short.dimmed(),
             type_badge,
             status_badge,
             issue.title.bold(),
+            indicator,
             count_str
         );
     }
@@ -586,7 +635,79 @@ pub fn print_summary(summary: &ProjectSummary) {
 
 #[cfg(test)]
 mod tests {
-    use super::format_epic_count;
+    use super::{format_blocker_indicator, format_epic_count};
+    use crate::models::Status;
+    use crate::operations::BlockerStatus;
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    fn uuid(s: &str) -> Uuid {
+        Uuid::parse_str(s).unwrap()
+    }
+
+    fn prefixes() -> HashMap<Uuid, String> {
+        let mut m = HashMap::new();
+        m.insert(
+            uuid("11111111-2222-3333-4444-555555555555"),
+            "111".to_string(),
+        );
+        m.insert(
+            uuid("22222222-2222-3333-4444-555555555555"),
+            "222".to_string(),
+        );
+        m
+    }
+
+    fn ready_status() -> BlockerStatus {
+        BlockerStatus {
+            ready: true,
+            blocked_by: vec![],
+            blocking: vec![],
+        }
+    }
+
+    #[test]
+    fn blocker_indicator_ready_shows_check() {
+        let s = format_blocker_indicator(&ready_status(), Status::Todo, &prefixes());
+        assert!(s.contains("✓"), "got: {s}");
+    }
+
+    #[test]
+    fn blocker_indicator_done_shows_nothing() {
+        let s = format_blocker_indicator(&ready_status(), Status::Done, &prefixes());
+        assert_eq!(s, "");
+    }
+
+    #[test]
+    fn blocker_indicator_blocked_shows_warn_with_ids() {
+        let mut status = ready_status();
+        status.ready = false;
+        status.blocked_by = vec![
+            uuid("11111111-2222-3333-4444-555555555555"),
+            uuid("22222222-2222-3333-4444-555555555555"),
+        ];
+        let s = format_blocker_indicator(&status, Status::Todo, &prefixes());
+        assert!(s.contains("(blocked by: 111, 222)"), "got: {s}");
+    }
+
+    #[test]
+    fn blocker_indicator_blocking_shows_arrow_with_ids() {
+        let mut status = ready_status();
+        status.blocking = vec![uuid("11111111-2222-3333-4444-555555555555")];
+        let s = format_blocker_indicator(&status, Status::Todo, &prefixes());
+        assert!(s.contains("(blocking: 111)"), "got: {s}");
+    }
+
+    #[test]
+    fn blocker_indicator_blocked_takes_precedence_over_blocking() {
+        let mut status = ready_status();
+        status.ready = false;
+        status.blocked_by = vec![uuid("11111111-2222-3333-4444-555555555555")];
+        status.blocking = vec![uuid("22222222-2222-3333-4444-555555555555")];
+        let s = format_blocker_indicator(&status, Status::Todo, &prefixes());
+        assert!(s.contains("(blocked by: 111)"), "got: {s}");
+        assert!(!s.contains("blocking"), "got: {s}");
+    }
 
     #[test]
     fn test_epic_count_format_is_always_done_over_total() {

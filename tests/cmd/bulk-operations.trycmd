@@ -12,10 +12,10 @@ composition) is covered by the `bulk-*-stdin` cases next to this file.
 
 ```console
 $ PEBBLES_DB_PATH=.pebbles pebbles list
-444 [epic] [TODO] Bulk epic (0/0)
-333 [des] [TODO] Design task
-222 [bug] [TODO] Second bug
-111 [bug] [TODO] Login bug
+444 [epic] [TODO] Bulk epic ✓ (0/0)
+333 [des] [TODO] Design task ✓
+222 [bug] [TODO] Second bug ✓
+111 [bug] [TODO] Login bug ✓
 
 ```
 

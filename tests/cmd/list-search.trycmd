@@ -14,11 +14,11 @@ todo design), 111 (Login button doesn't respond on mobile, todo bug).
 
 ```console
 $ pebbles list
-555 [des] [PROPOSED] Log out flow design
+555 [des] [PROPOSED] Log out flow design ✓
 444 [uc] [DONE] Export users to CSV
-333 [uc] [IN PROGRESS] User can login with email and password
-222 [des] [TODO] JWT token authentication system
-111 [bug] [TODO] Login button doesn't respond on mobile
+333 [uc] [IN PROGRESS] User can login with email and password ✓
+222 [des] [TODO] JWT token authentication system ✓
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -30,9 +30,9 @@ The query matches contiguously in "Login button..." and "User can login
 
 ```console
 $ pebbles list --search login
-111 [bug] [TODO] Login button doesn't respond on mobile
-333 [uc] [IN PROGRESS] User can login with email and password
-555 [des] [PROPOSED] Log out flow design
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
+555 [des] [PROPOSED] Log out flow design ✓
 
 ```
 
@@ -40,7 +40,7 @@ $ pebbles list --search login
 
 ```console
 $ pebbles list --search login --status todo
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -48,7 +48,7 @@ $ pebbles list --search login --status todo
 
 ```console
 $ pebbles list --search login --issue-type bug
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -56,7 +56,7 @@ $ pebbles list --search login --issue-type bug
 
 ```console
 $ pebbles list --search login --status in_progress --issue-type usecase
-333 [uc] [IN PROGRESS] User can login with email and password
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 

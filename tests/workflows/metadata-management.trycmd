@@ -17,9 +17,9 @@ initially.
 
 ```console
 $ pebbles list
-111 [bug] [TODO] Login button doesn't respond on mobile
-222 [des] [TODO] JWT token authentication system
-333 [uc] [IN PROGRESS] User can login with email and password
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+222 [des] [TODO] JWT token authentication system ✓
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 444 [uc] [DONE] Export users to CSV
 
 ```
@@ -164,17 +164,17 @@ File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
 
 ```console
 $ pebbles list --metadata priority=low
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 ```console
 $ pebbles list --metadata priority=high
-333 [uc] [IN PROGRESS] User can login with email and password
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 ```console
 $ pebbles list --metadata team=backend
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -182,7 +182,7 @@ $ pebbles list --metadata team=backend
 
 ```console
 $ pebbles list --metadata priority=low --status todo
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -210,7 +210,7 @@ File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
 ```
 ```console
 $ pebbles list --metadata priority=low --tag mobile
-111 [bug] [TODO] Login button doesn't respond on mobile
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
 
 ```
 
@@ -218,7 +218,7 @@ $ pebbles list --metadata priority=low --tag mobile
 
 ```console
 $ pebbles list --metadata team=backend --search jwt
-222 [des] [TODO] JWT token authentication system
+222 [des] [TODO] JWT token authentication system ✓
 
 ```
 
@@ -245,7 +245,7 @@ File: uc-33333333-user-can-login-with-email-and-password.json
 ```
 ```console
 $ pebbles list --metadata priority=high --metadata team=backend
-333 [uc] [IN PROGRESS] User can login with email and password
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 ```console
@@ -304,7 +304,7 @@ File: uc-33333333-user-can-login-with-email-and-password.json
 ```
 ```console
 $ pebbles list --metadata triage=
-333 [uc] [IN PROGRESS] User can login with email and password
+333 [uc] [IN PROGRESS] User can login with email and password ✓
 
 ```
 

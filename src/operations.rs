@@ -207,6 +207,100 @@ pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
     unblocked_issues
 }
 
+/// Per-issue dependency/blocker status for `pebbles list` (SPEC
+/// r[blocker-indicators]).
+///
+/// A `required_for` edge from A to B means B requires A to be done before
+/// it can start: A is a prerequisite of B. "Blocked" here is the opposite
+/// direction of the classic relation names and matches `next`: B is blocked
+/// by its still-open prerequisites.
+/// - `blocked_by` lists the non-Done issues this issue depends on (the
+///   sources of its incoming `required_for` edges); empty means the issue
+///   is not blocked.
+/// - `blocking` lists the non-Done issues that depend on this one (the
+///   targets of its outgoing `required_for` edges); informational only,
+///   and empty once this issue is Done.
+/// - `ready` is true when `blocked_by` is empty, i.e. the issue has no
+///   incomplete `required_for` dependencies.
+///
+/// Only `required_for` counts as a blocker here (`part_of` is containment
+/// and never a prerequisite; `scheduled_before` is a scheduling hint, not
+/// a prerequisite). Both lists deduplicate; `blocked_by` keeps incoming
+/// relationship order, `blocking` is sorted by ID.
+///
+/// Pure: no storage access, so the indicator computation is unit-testable
+/// without I/O (ARCHITECTURE: functional core, imperative shell).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockerStatus {
+    /// True when the issue has no incomplete `required_for` dependencies.
+    pub ready: bool,
+    /// IDs of the non-Done prerequisites this issue depends on (sources of
+    /// its incoming `required_for` edges), deduplicated in edge order.
+    pub blocked_by: Vec<Uuid>,
+    /// IDs of the non-Done issues that depend on this one (targets of its
+    /// outgoing `required_for` edges), sorted and deduplicated. Empty when
+    /// this issue is itself Done (nothing is still waiting on it).
+    pub blocking: Vec<Uuid>,
+}
+
+/// Compute the dependency/blocker status of every issue in `issues`.
+///
+/// Returns a map keyed by issue ID. Issues with no outgoing `required_for`
+/// relationships get an empty `blocked_by` (ready); issues with no incoming
+/// `required_for` from non-Done sources get an empty `blocking` list.
+pub fn build_blocker_status(issues: &[Issue]) -> HashMap<Uuid, BlockerStatus> {
+    let incoming_map = build_incoming_relationships_map(issues);
+    let mut statuses: HashMap<Uuid, BlockerStatus> = HashMap::new();
+
+    for issue in issues {
+        // Blocked by every non-Done issue whose `required_for` points at
+        // this one (incoming edges): those are the prerequisites this issue
+        // depends on and that are still open.
+        let mut blocked_by: Vec<Uuid> = incoming_map
+            .get(&issue.id)
+            .map(|incoming| {
+                incoming
+                    .iter()
+                    .filter(|rel| rel.relation_type == RelationType::RequiredFor)
+                    .filter(|rel| rel.source_status != Status::Done)
+                    .map(|rel| rel.source_id)
+                    .collect()
+            })
+            .unwrap_or_default();
+        blocked_by.sort_unstable();
+        blocked_by.dedup();
+
+        // Blocks every non-Done issue that this issue's `required_for`
+        // points at (outgoing edges): those depend on this issue.
+        let mut blocking: Vec<Uuid> = issue
+            .relationships
+            .iter()
+            .filter(|_| issue.status != Status::Done) // done blocks nothing
+            .filter(|rel| rel.relation_type == RelationType::RequiredFor)
+            .filter(|rel| {
+                issues
+                    .iter()
+                    .find(|other| other.id == rel.target_id)
+                    .map(|other| other.status != Status::Done)
+                    .unwrap_or(true) // dangling targets count as incomplete
+            })
+            .map(|rel| rel.target_id)
+            .collect();
+        let mut seen = HashSet::new();
+        blocking.retain(|id| seen.insert(*id));
+
+        statuses.insert(
+            issue.id,
+            BlockerStatus {
+                ready: blocked_by.is_empty(),
+                blocked_by,
+                blocking,
+            },
+        );
+    }
+    statuses
+}
+
 /// The issues from `issues` whose title fuzzy-matches `query`, sorted by
 /// match score descending; equal scores break by `updated_at` descending,
 /// keeping the established ordering rule (r[impl issue-ordering]) within a
@@ -1600,6 +1694,15 @@ impl Operations {
         Ok(build_epic_counts(&all_issues))
     }
 
+    /// Dependency/blocker status computed over the FULL issue set,
+    /// independent of any view filter, so a marker is not lost when the
+    /// blocking issue falls outside the current view (e.g. a proposal
+    /// blocking a todo). See SPEC r[blocker-indicators].
+    pub fn blocker_status(&self) -> Result<HashMap<Uuid, BlockerStatus>> {
+        let (all_issues, _) = self.storage.load_all_issues()?;
+        Ok(build_blocker_status(&all_issues))
+    }
+
     pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
         let mut titles = HashMap::new();
         for rel in &issue.relationships {
@@ -2130,6 +2233,182 @@ mod tests {
         newer.updated_at = chrono::Utc::now();
         let out = get_unblocked_issues(&[older.clone(), newer.clone()]);
         assert_eq!(ids(&out), vec![newer.id, older.id]);
+    }
+
+    // -- build_blocker_status -------------------------------------------------
+
+    #[test]
+    fn build_blocker_status_ready_when_no_incomplete_dependencies() {
+        let done_dep = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Done dep",
+            Status::Done,
+        );
+        let mut ready = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Ready",
+            Status::Todo,
+        );
+        relate(&mut ready, RelationType::RequiredFor, &done_dep);
+        let map = build_blocker_status(&[done_dep, ready.clone()]);
+        let status = &map[&ready.id];
+        assert!(status.ready);
+        assert!(status.blocked_by.is_empty());
+        assert!(status.blocking.is_empty());
+    }
+
+    #[test]
+    fn build_blocker_status_blocked_by_incomplete_dependency() {
+        let mut blocker = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Todo blocker",
+            Status::Todo,
+        );
+        let blocked = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Blocked",
+            Status::Todo,
+        );
+        relate(&mut blocker, RelationType::RequiredFor, &blocked);
+        let map = build_blocker_status(&[blocker.clone(), blocked.clone()]);
+        // The blocker is a prerequisite the blocked issue depends on, so the
+        // blocked issue lists it in blocked_by and is not ready.
+        let status = &map[&blocked.id];
+        assert!(!status.ready);
+        assert_eq!(status.blocked_by, vec![blocker.id]);
+        assert!(status.blocking.is_empty());
+        // The blocker is shown as blocking its dependent.
+        let blocker_status = &map[&blocker.id];
+        assert!(blocker_status.ready);
+        assert_eq!(blocker_status.blocking, vec![blocked.id]);
+    }
+
+    #[test]
+    fn build_blocker_status_unique_ids_in_display_order() {
+        let mut blocker1 = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "blocker1",
+            Status::Todo,
+        );
+        let mut blocker2 = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "blocker2",
+            Status::InProgress,
+        );
+        let blocked = issue_with(
+            "33333333-2222-3333-4444-555555555555",
+            "Blocked",
+            Status::Todo,
+        );
+        relate(&mut blocker1, RelationType::RequiredFor, &blocked);
+        relate(&mut blocker2, RelationType::RequiredFor, &blocked);
+        relate(&mut blocker1, RelationType::RequiredFor, &blocked); // duplicate edge
+        let map = build_blocker_status(&[blocker1.clone(), blocker2.clone(), blocked.clone()]);
+        let blocked_status = &map[&blocked.id];
+        assert_eq!(blocked_status.blocked_by, vec![blocker1.id, blocker2.id]);
+        // Each blocker lists the single dependent once (dup edge deduped).
+        let status1 = &map[&blocker1.id];
+        assert_eq!(status1.blocking, vec![blocked.id]);
+        let status2 = &map[&blocker2.id];
+        assert_eq!(status2.blocking, vec![blocked.id]);
+    }
+
+    #[test]
+    fn build_blocker_status_done_dependency_does_not_block() {
+        let mut dep = issue_with("11111111-2222-3333-4444-555555555555", "dep", Status::Done);
+        let target = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "target",
+            Status::Todo,
+        );
+        relate(&mut dep, RelationType::RequiredFor, &target);
+        let map = build_blocker_status(&[dep.clone(), target.clone()]);
+        // The dependency is Done, so the dependent is not blocked. The done
+        // dependency is itself not blocked and blocks nothing.
+        assert!(map[&target.id].ready);
+        assert!(map[&target.id].blocked_by.is_empty());
+        assert!(map[&dep.id].ready);
+        assert!(map[&dep.id].blocked_by.is_empty());
+        assert!(map[&dep.id].blocking.is_empty());
+    }
+
+    #[test]
+    fn build_blocker_status_ready_issue_free_of_relationships_is_ready() {
+        let standalone = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Standalone",
+            Status::Todo,
+        );
+        let map = build_blocker_status(&[standalone.clone()]);
+        assert!(map[&standalone.id].ready);
+        assert!(map[&standalone.id].blocked_by.is_empty());
+        assert!(map[&standalone.id].blocking.is_empty());
+    }
+
+    #[test]
+    fn build_blocker_status_blocking_lists_dependents() {
+        let mut fuzzy = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Fuzzy search",
+            Status::Todo,
+        );
+        let bulk = issue_with(
+            "33333333-2222-3333-4444-555555555555",
+            "Bulk operations",
+            Status::Todo,
+        );
+        relate(&mut fuzzy, RelationType::RequiredFor, &bulk);
+        let map = build_blocker_status(&[fuzzy.clone(), bulk.clone()]);
+        // Fuzzy search is required_for bulk operations: bulk cannot start
+        // until fuzzy is done, so bulk is blocked by fuzzy, and fuzzy is
+        // shown as blocking bulk.
+        let bulk_status = &map[&bulk.id];
+        assert!(!bulk_status.ready);
+        assert_eq!(bulk_status.blocked_by, vec![fuzzy.id]);
+        assert!(bulk_status.blocking.is_empty());
+        let fuzzy_status = &map[&fuzzy.id];
+        assert!(fuzzy_status.ready);
+        assert!(fuzzy_status.blocked_by.is_empty());
+        assert_eq!(fuzzy_status.blocking, vec![bulk.id]);
+    }
+
+    #[test]
+    fn build_blocker_status_done_dependent_not_listed_as_blocking() {
+        // A required_for B; B is Done so A no longer blocks anything.
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Done);
+        relate(&mut a, RelationType::RequiredFor, &b);
+        let map = build_blocker_status(&[a.clone(), b.clone()]);
+        // The dependent B is Done, so A blocks nothing (B no longer waits).
+        assert!(map[&a.id].blocking.is_empty());
+        assert!(map[&a.id].ready);
+        assert!(map[&a.id].blocked_by.is_empty());
+        // B is a Done issue that depends on the incomplete A, so it is not
+        // ready (it still carries an incomplete required_for dependency).
+        assert!(!map[&b.id].ready);
+        assert_eq!(map[&b.id].blocked_by, vec![a.id]);
+    }
+
+    #[test]
+    fn build_blocker_status_part_of_does_not_block() {
+        let epic = issue_with_type(
+            "11111111-2222-3333-4444-555555555555",
+            "Epic",
+            Status::Todo,
+            IssueType::Epic,
+        );
+        let mut child = issue_with_type(
+            "22222222-2222-3333-4444-555555555555",
+            "Child",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut child, RelationType::PartOf, &epic);
+        let map = build_blocker_status(&[epic.clone(), child.clone()]);
+        assert!(map[&epic.id].ready);
+        assert!(map[&epic.id].blocking.is_empty());
+        assert!(map[&child.id].ready);
+        assert!(map[&child.id].blocked_by.is_empty());
     }
 
     // -- match_id_prefix ------------------------------------------------------

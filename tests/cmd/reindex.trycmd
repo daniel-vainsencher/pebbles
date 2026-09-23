@@ -25,9 +25,9 @@ The rebuilt index is order-preserving, but the list sorts by updated time.
 ```console
 $ PEBBLES_DB_PATH=.pebbles pebbles list
 Warning: Issue des-33333333-design-task.json has unknown key(s) not in the schema: assignee, priority; the file is loaded but the key(s) will be dropped on the next rewrite. Fix the file to remove them.
-111 [bug] [TODO] Login bug
-222 [uc] [TODO] Second issue
-333 [des] [TODO] Design task
+111 [bug] [TODO] Login bug ✓
+222 [uc] [TODO] Second issue ✓
+333 [des] [TODO] Design task ✓
 
 ```
 
