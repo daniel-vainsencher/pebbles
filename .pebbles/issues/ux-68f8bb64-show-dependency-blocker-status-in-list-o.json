@@ -1,7 +1,7 @@
 {
   "id": "68f8bb64-0f56-46f7-9abf-5fea88cc2943",
   "title": "Show dependency/blocker status in list output",
-  "description": "Display blocker indicators in list view to show which issues are ready vs blocked:\n\nExample:\n  4622175c [uc] [TODO] Documentation ✓\n  0c580f95 [uc] [TODO] Bulk operations ⚠ (blocked by: d5c4b02b)\n  d5c4b02b [uc] [TODO] Fuzzy search → (blocking: 0c580f95)\n\nIndicators:\n- ✓ or (ready) - No incomplete required_for dependencies\n- ⚠ or (blocked by: <ids>) - Has required_for pointing to incomplete issues\n- → or (blocking: <ids>) - Other issues depend on this (informational)\n\nBenefits:\n- See at a glance what's actionable\n- Understand why issues can't be started\n- Prioritize work based on blockers\n\nComplements 'pebbles next' command by showing status inline.",
+  "description": "Display blocker indicators in list view to show which issues are ready vs blocked:\n\nExample:\n  4622175c [uc] [TODO] Documentation ✓\n  0c580f95 [uc] [TODO] Bulk operations ⚠ (blocked by: d5c4b02b)\n  d5c4b02b [uc] [TODO] Fuzzy search → (blocking: 0c580f95)\n\nIndicators:\n- ✓ or (ready) - No incomplete required_for dependencies\n- ⚠ or (blocked by: <ids>) - Has required_for pointing to incomplete issues\n- → or (blocking: <ids>) - Other issues depend on this (informational)\n\nBenefits:\n- See at a glance what's actionable\n- Understand why issues can't be started\n- Prioritize work based on blockers\n\nComplements 'pebbles next' command by showing status inline.\n\nRelationships:\n  part of ad694828 (Navigation and Project Visibility Epic)\n\nNOTE 2026-09-23 (manager): an unmerged Feb-2026 implementation exists in the repo (commit msllzmxpqvzo 'Implement dependency/blocker status indicators', orphaned since before v1.0.0). Not abandoned; port or supersede it before implementing.",
   "status": "todo",
   "issue_type": "ux_problem",
   "tags": [],
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:07:29.053827496Z",
-  "updated_at": "2026-01-11T03:09:56.563070017Z"
+  "updated_at": "2026-09-23T13:50:26.527562100Z"
 }
