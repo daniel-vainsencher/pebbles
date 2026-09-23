@@ -166,10 +166,16 @@ fn issue_id_prefix(id: Uuid, id_prefixes: &HashMap<Uuid, String>) -> String {
 }
 
 /// Render layout as text in columns
+///
+/// `_goal` is the goal issue whose critical chain should be highlighted.
+/// Threading it here is the seam for the --goal loan (e4937f0b); the
+/// highlighting itself is implemented in that loan, which renames this
+/// parameter to `goal` as it consumes it.
 pub fn render_text(
     issues: &[Issue],
     layout: &FlowLayout,
     id_prefixes: &HashMap<Uuid, String>,
+    _goal: Option<Uuid>,
 ) -> String {
     if layout.coordinates.is_empty() {
         return "No issues to visualize.".to_string();
@@ -254,10 +260,16 @@ pub fn render_text(
 }
 
 /// Render layout as SVG
+///
+/// `_goal` is the goal issue whose critical chain should be highlighted.
+/// Threading it here is the seam for the --goal loan (e4937f0b); the
+/// highlighting itself is implemented in that loan, which renames this
+/// parameter to `goal` as it consumes it.
 pub fn render_svg(
     issues: &[Issue],
     layout: &FlowLayout,
     id_prefixes: &HashMap<Uuid, String>,
+    _goal: Option<Uuid>,
 ) -> String {
     let padding = 20.0;
     let svg_width = layout.width + 2.0 * padding;
@@ -404,7 +416,7 @@ mod tests {
             _index_to_issue: HashMap::new(),
         };
         let issues = vec![issue("Fix <script> & \"quotes\" bug")];
-        let svg = render_svg(&issues, &layout, &HashMap::new());
+        let svg = render_svg(&issues, &layout, &HashMap::new(), None);
         assert!(!svg.contains("<script>"), "raw markup leaked into SVG");
         assert!(svg.contains("&lt;script&gt;"), "escaped text missing");
         assert!(svg.contains("&amp;"), "& not escaped");

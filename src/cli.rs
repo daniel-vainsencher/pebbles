@@ -199,10 +199,53 @@ pub enum Commands {
 
     #[command(about = "Visualize project flow (EXPERIMENTAL)")]
     Flow {
-        #[arg(long, help = "Output format (text, svg)")]
-        format: Option<String>,
+        #[arg(
+            long,
+            value_enum,
+            default_value_t = FlowFormat::Text,
+            help = "Output format (text, svg, json, dot)"
+        )]
+        format: FlowFormat,
 
-        #[arg(short, long, help = "Output file path")]
+        #[arg(
+            short,
+            long,
+            help = "Output file path (required for svg, json, and dot; text defaults to stdout)"
+        )]
         output: Option<String>,
+
+        #[arg(long, help = "Include completed issues (default: hide them)")]
+        show_done: bool,
+
+        #[arg(
+            long,
+            value_name = "ID",
+            help = "Highlight the critical chain to this goal issue (full UUID or prefix)"
+        )]
+        goal: Option<String>,
     },
+}
+
+/// Output format for `pebbles flow` (r[flow-format]). `json` and `dot` are
+/// accepted by the CLI today but their backends are separate loans
+/// (e7dd87ca for JSON, ea4b09f2 for DOT); the current binary rejects them
+/// with a clear not-implemented error.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum FlowFormat {
+    Text,
+    Svg,
+    Json,
+    Dot,
+}
+
+impl std::fmt::Display for FlowFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            FlowFormat::Text => "text",
+            FlowFormat::Svg => "svg",
+            FlowFormat::Json => "json",
+            FlowFormat::Dot => "dot",
+        };
+        write!(f, "{}", name)
+    }
 }

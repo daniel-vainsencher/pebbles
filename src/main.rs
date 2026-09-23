@@ -339,22 +339,53 @@ fn main() -> Result<()> {
             print_summary(&summary);
         }
 
-        Commands::Flow { format, output } => {
+        Commands::Flow {
+            format,
+            output,
+            show_done,
+            goal,
+        } => {
+            // The json and dot backends are separate loans (e7dd87ca,
+            // ea4b09f2). The flags parse and dispatch today; each backend
+            // lands by replacing its bail below with a render call.
+            if matches!(format, cli::FlowFormat::Json | cli::FlowFormat::Dot) {
+                anyhow::bail!(
+                    "{} output is not implemented yet; only 'text' and 'svg' are available",
+                    format
+                );
+            }
+            if format != cli::FlowFormat::Text && output.is_none() {
+                anyhow::bail!(
+                    "--output <path> is required for the '{}' format (only text writes to stdout)",
+                    format
+                );
+            }
+
+            // --goal threads the resolved goal issue into the renderers;
+            // the critical-chain highlighting itself is loan e4937f0b.
+            let goal = match &goal {
+                Some(id) => Some(ops.resolve_ids(&[id])?[0]),
+                None => None,
+            };
+
             // Load all issues
-            let (issues, warnings) = ops.list(None, None)?;
+            let (mut issues, warnings) = ops.list(None, None)?;
             print_warnings(&warnings);
+
+            // Completed issues are hidden unless --show-done is given.
+            if !show_done {
+                issues.retain(|issue| issue.status != Status::Done);
+            }
 
             // Compute layout
             let layout = flow::compute_flow_layout(&issues)?;
 
-            // Determine output format
-            let fmt = format.as_deref().unwrap_or("text");
             // r[impl appropriate-length-id]
             let id_prefixes = ops.id_prefixes()?;
-            let content = match fmt {
-                "svg" => flow::render_svg(&issues, &layout, &id_prefixes),
-                "text" => flow::render_text(&issues, &layout, &id_prefixes),
-                other => anyhow::bail!("Invalid format '{}': expected 'text' or 'svg'", other),
+            let content = match format {
+                cli::FlowFormat::Text => flow::render_text(&issues, &layout, &id_prefixes, goal),
+                cli::FlowFormat::Svg => flow::render_svg(&issues, &layout, &id_prefixes, goal),
+                cli::FlowFormat::Json | cli::FlowFormat::Dot => unreachable!(),
             };
 
             // Output to file or stdout
