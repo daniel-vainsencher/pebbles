@@ -1,0 +1,12 @@
+{
+  "id": "a5eeeeee-1111-4111-8111-111111111111",
+  "title": "Chain Two End Y",
+  "description": "Disconnected pattern, chain two, end Y. Not blocked because its only predecessor X is done. Expected layer 0 (default view).",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-06T12:04:00Z",
+  "updated_at": "2026-02-06T12:04:00Z"
+}

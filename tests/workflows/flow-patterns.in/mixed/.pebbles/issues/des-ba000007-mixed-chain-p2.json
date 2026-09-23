@@ -1,0 +1,29 @@
+{
+  "id": "ba000007-1111-4111-8111-111111111111",
+  "title": "Mixed Chain P2",
+  "description": "Mixed pattern, chain second node that fans out to three branches. Expected layer 4.",
+  "status": "in_progress",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "bb000008-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "required_for",
+      "target_id": "bc000009-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "required_for",
+      "target_id": "bd00000a-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "part_of",
+      "target_id": "aa000001-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-05T12:06:00Z",
+  "updated_at": "2026-02-05T12:06:00Z"
+}

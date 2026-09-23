@@ -1,0 +1,17 @@
+{
+  "id": "c3cccccc-1111-4111-8111-111111111111",
+  "title": "Chain Step C",
+  "description": "Chain pattern, step C. C blocks D. Expected layer 2.",
+  "status": "in_progress",
+  "issue_type": "design",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "c4dddddd-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-04T12:02:00Z",
+  "updated_at": "2026-02-04T12:02:00Z"
+}

@@ -1,0 +1,36 @@
+{
+  "issues": [
+    {
+      "id": "a4dddddd-1111-4111-8111-111111111111",
+      "file_name": "bug-a4dddddd-chain-two-start-x.json"
+    },
+    {
+      "id": "a2bbbbbb-1111-4111-8111-111111111111",
+      "file_name": "des-a2bbbbbb-chain-one-middle-b.json"
+    },
+    {
+      "id": "a1aaaaaa-1111-4111-8111-111111111111",
+      "file_name": "uc-a1aaaaaa-chain-one-start-a.json"
+    },
+    {
+      "id": "a5eeeeee-1111-4111-8111-111111111111",
+      "file_name": "uc-a5eeeeee-chain-two-end-y.json"
+    },
+    {
+      "id": "a7a7a7a7-1111-4111-8111-111111111111",
+      "file_name": "uc-a7a7a7a7-chain-three-end-n.json"
+    },
+    {
+      "id": "a8b8b8b8-1111-4111-8111-111111111111",
+      "file_name": "ux-a8b8b8b8-disconnected-solo-q.json"
+    },
+    {
+      "id": "a3cccccc-1111-4111-8111-111111111111",
+      "file_name": "val-a3cccccc-chain-one-end-c.json"
+    },
+    {
+      "id": "a6ffffff-1111-4111-8111-111111111111",
+      "file_name": "val-a6ffffff-chain-three-start-m.json"
+    }
+  ]
+}

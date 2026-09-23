@@ -1,0 +1,21 @@
+{
+  "id": "ad000004-1111-4111-8111-111111111111",
+  "title": "Mixed Diamond Right",
+  "description": "Mixed pattern, diamond right path. Converges at Mixed Diamond Merge. Part_of the epic. Expected layer 1.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "ae000005-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "part_of",
+      "target_id": "aa000001-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-05T12:03:00Z",
+  "updated_at": "2026-02-05T12:03:00Z"
+}

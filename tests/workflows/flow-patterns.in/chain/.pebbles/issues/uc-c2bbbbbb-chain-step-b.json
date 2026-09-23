@@ -1,0 +1,17 @@
+{
+  "id": "c2bbbbbb-1111-4111-8111-111111111111",
+  "title": "Chain Step B",
+  "description": "Chain pattern, step B. B's predecessor A is done, so B is not blocked. B non-done blocks C. Expected layer 1.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "c3cccccc-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-04T12:01:00Z",
+  "updated_at": "2026-02-04T12:01:00Z"
+}

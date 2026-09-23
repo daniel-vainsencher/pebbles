@@ -1,0 +1,17 @@
+{
+  "id": "a4dddddd-1111-4111-8111-111111111111",
+  "title": "Chain Two Start X",
+  "description": "Disconnected pattern, chain two, start X (done). Done source: X's required_for edge does NOT block Y. Hidden from the default flow view; --show-done restores the 2-node chain.",
+  "status": "done",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "a5eeeeee-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-06T12:03:00Z",
+  "updated_at": "2026-02-06T12:03:00Z"
+}

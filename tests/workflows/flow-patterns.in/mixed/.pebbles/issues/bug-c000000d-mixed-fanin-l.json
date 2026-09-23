@@ -1,0 +1,21 @@
+{
+  "id": "c000000d-1111-4111-8111-111111111111",
+  "title": "Mixed Fanin L",
+  "description": "Mixed pattern, fan-in source L via scheduled_before. L -> M still blocks. Part_of the epic. Expected layer 0 of the fan-in component.",
+  "status": "in_progress",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "scheduled_before",
+      "target_id": "c1000001-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "part_of",
+      "target_id": "aa000001-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-05T12:12:00Z",
+  "updated_at": "2026-02-05T12:12:00Z"
+}

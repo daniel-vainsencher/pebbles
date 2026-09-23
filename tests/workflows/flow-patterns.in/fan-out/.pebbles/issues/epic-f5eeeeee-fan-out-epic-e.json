@@ -1,0 +1,12 @@
+{
+  "id": "f5eeeeee-1111-4111-8111-111111111111",
+  "title": "Fan-out Epic E",
+  "description": "Fan-out epic. Epics never block and part_of children do not create flow edges, so this node renders standalone.",
+  "status": "todo",
+  "issue_type": "epic",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-02-02T12:04:00Z",
+  "updated_at": "2026-02-02T12:04:00Z"
+}

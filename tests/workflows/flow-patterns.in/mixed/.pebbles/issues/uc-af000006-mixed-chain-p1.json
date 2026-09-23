@@ -1,0 +1,21 @@
+{
+  "id": "af000006-1111-4111-8111-111111111111",
+  "title": "Mixed Chain P1",
+  "description": "Mixed pattern, chain first node. Expected layer 3.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "ba000007-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "part_of",
+      "target_id": "aa000001-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-05T12:05:00Z",
+  "updated_at": "2026-02-05T12:05:00Z"
+}

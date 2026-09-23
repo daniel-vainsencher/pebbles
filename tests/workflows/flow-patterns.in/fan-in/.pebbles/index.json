@@ -1,0 +1,24 @@
+{
+  "issues": [
+    {
+      "id": "b3cccccc-1111-4111-8111-111111111111",
+      "file_name": "bug-b3cccccc-fan-in-source-c.json"
+    },
+    {
+      "id": "b1aaaaaa-1111-4111-8111-111111111111",
+      "file_name": "des-b1aaaaaa-fan-in-source-a.json"
+    },
+    {
+      "id": "b2bbbbbb-1111-4111-8111-111111111111",
+      "file_name": "uc-b2bbbbbb-fan-in-source-b.json"
+    },
+    {
+      "id": "b4dddddd-1111-4111-8111-111111111111",
+      "file_name": "uc-b4dddddd-fan-in-merge-d.json"
+    },
+    {
+      "id": "b5eeeeee-1111-4111-8111-111111111111",
+      "file_name": "ux-b5eeeeee-fan-in-cleanup-e.json"
+    }
+  ]
+}

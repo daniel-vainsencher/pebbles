@@ -1,0 +1,17 @@
+{
+  "id": "d3cccccc-1111-4111-8111-111111111111",
+  "title": "Diamond Right C",
+  "description": "Diamond pattern, node C (right converging path). C is non-done so its required_for edge blocks D along this path. Expected layer 1.",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "d4dddddd-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-01T12:02:00Z",
+  "updated_at": "2026-02-01T12:02:00Z"
+}

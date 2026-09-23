@@ -1,0 +1,24 @@
+{
+  "issues": [
+    {
+      "id": "c4dddddd-1111-4111-8111-111111111111",
+      "file_name": "bug-c4dddddd-chain-step-d.json"
+    },
+    {
+      "id": "c3cccccc-1111-4111-8111-111111111111",
+      "file_name": "des-c3cccccc-chain-step-c.json"
+    },
+    {
+      "id": "c2bbbbbb-1111-4111-8111-111111111111",
+      "file_name": "uc-c2bbbbbb-chain-step-b.json"
+    },
+    {
+      "id": "c5eeeeee-1111-4111-8111-111111111111",
+      "file_name": "ux-c5eeeeee-chain-step-e.json"
+    },
+    {
+      "id": "c1aaaaaa-1111-4111-8111-111111111111",
+      "file_name": "val-c1aaaaaa-chain-step-a.json"
+    }
+  ]
+}

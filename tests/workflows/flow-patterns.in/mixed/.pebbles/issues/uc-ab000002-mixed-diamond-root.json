@@ -1,0 +1,21 @@
+{
+  "id": "ab000002-1111-4111-8111-111111111111",
+  "title": "Mixed Diamond Root",
+  "description": "Mixed pattern, diamond root. Fans out to two converging paths that rejoin at Mixed Diamond Merge. Expected layer 0.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "ac000003-1111-4111-8111-111111111111"
+    },
+    {
+      "relation_type": "required_for",
+      "target_id": "ad000004-1111-4111-8111-111111111111"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2026-02-05T12:01:00Z",
+  "updated_at": "2026-02-05T12:01:00Z"
+}

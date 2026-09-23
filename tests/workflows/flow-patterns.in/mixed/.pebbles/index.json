@@ -1,0 +1,68 @@
+{
+  "issues": [
+    {
+      "id": "bb000008-1111-4111-8111-111111111111",
+      "file_name": "bug-bb000008-mixed-fanout-g.json"
+    },
+    {
+      "id": "c000000d-1111-4111-8111-111111111111",
+      "file_name": "bug-c000000d-mixed-fanin-l.json"
+    },
+    {
+      "id": "ac000003-1111-4111-8111-111111111111",
+      "file_name": "des-ac000003-mixed-diamond-left.json"
+    },
+    {
+      "id": "ba000007-1111-4111-8111-111111111111",
+      "file_name": "des-ba000007-mixed-chain-p2.json"
+    },
+    {
+      "id": "c3c3c3c3-1111-4111-8111-111111111111",
+      "file_name": "des-c3c3c3c3-mixed-island-o.json"
+    },
+    {
+      "id": "aa000001-1111-4111-8111-111111111111",
+      "file_name": "epic-aa000001-mixed-epic.json"
+    },
+    {
+      "id": "ab000002-1111-4111-8111-111111111111",
+      "file_name": "uc-ab000002-mixed-diamond-root.json"
+    },
+    {
+      "id": "ad000004-1111-4111-8111-111111111111",
+      "file_name": "uc-ad000004-mixed-diamond-right.json"
+    },
+    {
+      "id": "af000006-1111-4111-8111-111111111111",
+      "file_name": "uc-af000006-mixed-chain-p1.json"
+    },
+    {
+      "id": "bf00000c-1111-4111-8111-111111111111",
+      "file_name": "uc-bf00000c-mixed-fanin-k.json"
+    },
+    {
+      "id": "c1000001-1111-4111-8111-111111111111",
+      "file_name": "uc-c1000001-mixed-fanin-merge-m.json"
+    },
+    {
+      "id": "c2c2c2c2-1111-4111-8111-111111111111",
+      "file_name": "uc-c2c2c2c2-mixed-island-n.json"
+    },
+    {
+      "id": "bc000009-1111-4111-8111-111111111111",
+      "file_name": "ux-bc000009-mixed-fanout-h.json"
+    },
+    {
+      "id": "ae000005-1111-4111-8111-111111111111",
+      "file_name": "val-ae000005-mixed-diamond-merge.json"
+    },
+    {
+      "id": "bd00000a-1111-4111-8111-111111111111",
+      "file_name": "val-bd00000a-mixed-fanout-i.json"
+    },
+    {
+      "id": "be00000b-1111-4111-8111-111111111111",
+      "file_name": "val-be00000b-mixed-fanin-j.json"
+    }
+  ]
+}
