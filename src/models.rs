@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 // r[impl status-serialization]
@@ -217,7 +217,10 @@ pub struct Issue {
     pub tags: Vec<String>,
     pub relationships: Vec<Relationship>,
     #[serde(default)]
-    pub metadata: HashMap<String, String>,
+    /// Free-form `string -> string` metadata. A `BTreeMap` so on-disk
+    /// serialization is deterministic (keys sorted), keeping issue files
+    /// stable for diffs and merges (r[metadata-file-order]).
+    pub metadata: BTreeMap<String, String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -246,7 +249,7 @@ impl Issue {
             issue_type,
             tags: Vec::new(),
             relationships: Vec::new(),
-            metadata: HashMap::new(),
+            metadata: BTreeMap::new(),
             created_at: now,
             updated_at: now,
         }

@@ -1,0 +1,390 @@
+# Metadata management workflow
+
+`pebbles metadata set <id> <key> <value>` upserts one metadata field on an
+issue; `pebbles metadata unset <id> <key>` removes one (a no-op when
+absent); `pebbles metadata get <id> [<key>]` prints all pairs or a single
+value. `pebbles list --metadata <key>=<value>` filters by metadata
+(repeatable, AND) and composes with --status, --issue-type, --search, and
+--tag. Keys and values are trimmed on entry; keys must be non-empty, values
+may be empty; matching is exact and case-sensitive.
+
+Fixture store: 111 (Login button..., todo bug), 222 (JWT token
+authentication system, todo design), 333 (User can login..., in progress
+usecase), 444 (Export users to CSV, done usecase). All without metadata
+initially.
+
+## Baseline list (updated_at descending)
+
+```console
+$ pebbles list
+111 [bug] [TODO] Login button doesn't respond on mobile
+222 [des] [TODO] JWT token authentication system
+333 [uc] [IN PROGRESS] User can login with email and password
+444 [uc] [DONE] Export users to CSV
+
+```
+## Set metadata on an issue
+
+r[verify metadata-set-upsert]
+```console
+$ pebbles metadata set 11111111 priority high
+✓ Set metadata: priority = high
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+
+Metadata:
+  priority: high
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles metadata set 22222222 team backend
+✓ Set metadata: team = backend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 22222222-1111-1111-1111-111111111111
+Title: JWT token authentication system
+Type: Design
+Status: TODO
+Description: Design and implement JWT-based authentication
+
+Metadata:
+  team: backend
+
+Created: 2026-01-10 09:00:00
+Updated: [..]
+File: des-22222222-jwt-token-authentication-system.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles metadata set 33333333 priority high
+✓ Set metadata: priority = high
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 33333333-1111-1111-1111-111111111111
+Title: User can login with email and password
+Type: Usecase
+Status: IN PROGRESS
+
+Metadata:
+  priority: high
+
+Created: 2026-01-10 08:00:00
+Updated: [..]
+File: uc-33333333-user-can-login-with-email-and-password.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Get all metadata
+
+r[verify metadata-get-sorted]
+```console
+$ pebbles metadata get 11111111
+priority: high
+
+```
+
+## Get one key
+
+```console
+$ pebbles metadata get 11111111 priority
+high
+
+```
+
+## Getting a missing key fails
+
+```console
+$ pebbles metadata get 11111111 nope
+? failed
+Error: No metadata key 'nope' on issue 11111111
+
+```
+
+## Setting the same value is a no-op
+
+```console
+$ pebbles metadata set 11111111 priority high
+No changes: metadata priority already has this value
+
+```
+
+## Set upserts (replaces the value)
+
+```console
+$ pebbles metadata set 11111111 priority low
+✓ Set metadata: priority = low
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+
+Metadata:
+  priority: low
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## show displays metadata
+
+```console
+$ pebbles show 11111111
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+
+Metadata:
+  priority: low
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Filter by metadata
+
+```console
+$ pebbles list --metadata priority=low
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+```console
+$ pebbles list --metadata priority=high
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+```console
+$ pebbles list --metadata team=backend
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Metadata filter composes with --status
+
+```console
+$ pebbles list --metadata priority=low --status todo
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Metadata filter composes with --tag
+
+```console
+$ pebbles tag add 11111111 mobile
+✓ Added tags: mobile
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+Tags: mobile
+
+Metadata:
+  priority: low
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata priority=low --tag mobile
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Metadata filter composes with --search
+
+```console
+$ pebbles list --metadata team=backend --search jwt
+222 [des] [TODO] JWT token authentication system
+
+```
+
+## Repeatable --metadata is AND (issue must carry every pair)
+
+```console
+$ pebbles metadata set 33333333 team backend
+✓ Set metadata: team = backend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 33333333-1111-1111-1111-111111111111
+Title: User can login with email and password
+Type: Usecase
+Status: IN PROGRESS
+
+Metadata:
+  priority: high
+  team: backend
+
+Created: 2026-01-10 08:00:00
+Updated: [..]
+File: uc-33333333-user-can-login-with-email-and-password.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata priority=high --metadata team=backend
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+```console
+$ pebbles list --metadata priority=low --metadata team=backend
+No issues found.
+
+```
+
+## Values may contain =
+
+```console
+$ pebbles metadata set 44444444 formula a=b
+✓ Set metadata: formula = a=b
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 44444444-1111-1111-1111-111111111111
+Title: Export users to CSV
+Type: Usecase
+Status: DONE
+
+Metadata:
+  formula: a=b
+
+Created: 2026-01-10 07:00:00
+Updated: [..]
+File: uc-44444444-export-users-to-csv.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata formula=a=b
+444 [uc] [DONE] Export users to CSV
+
+```
+
+## An empty value is a presence marker
+
+```console
+$ pebbles metadata set 33333333 triage ""
+✓ Set metadata: triage = 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 33333333-1111-1111-1111-111111111111
+Title: User can login with email and password
+Type: Usecase
+Status: IN PROGRESS
+
+Metadata:
+  priority: high
+  team: backend
+  triage: 
+
+Created: 2026-01-10 08:00:00
+Updated: [..]
+File: uc-33333333-user-can-login-with-email-and-password.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata triage=
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+
+## Metadata matching is case-sensitive
+
+```console
+$ pebbles list --metadata Priority=low
+No issues found.
+
+```
+```console
+$ pebbles list --metadata priority=High
+No issues found.
+
+```
+
+## Empty keys are rejected
+
+```console
+$ pebbles metadata set 11111111 "" v
+? failed
+Error: Metadata key cannot be empty
+
+```
+
+## A malformed --metadata filter is rejected
+
+```console
+$ pebbles list --metadata priority
+? failed
+Error: Metadata filter must be KEY=VALUE (got "priority")
+
+```
+```console
+$ pebbles list --metadata =high
+? failed
+Error: Metadata key cannot be empty
+
+```
+
+## Unknown issue IDs fail with the standard error
+
+```console
+$ pebbles metadata set 99999999 k v
+? failed
+Error: No issue found with ID starting with '99999999'
+
+```
+```console
+$ pebbles metadata get 99999999
+? failed
+Error: No issue found with ID starting with '99999999'
+
+```
+
+## Unset a metadata key
+
+```console
+$ pebbles metadata unset 11111111 priority
+✓ Removed metadata: priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 11111111-1111-1111-1111-111111111111
+Title: Login button doesn't respond on mobile
+Type: Bug
+Status: TODO
+Description: The login button doesn't respond to clicks on mobile devices
+Tags: mobile
+
+Created: 2026-01-10 10:00:00
+Updated: [..]
+File: bug-11111111-login-button-doesn-t-respond-on-mobile.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Unsetting an absent key is a no-op
+
+```console
+$ pebbles metadata unset 11111111 priority
+No changes: issue does not have metadata key priority
+
+```
+

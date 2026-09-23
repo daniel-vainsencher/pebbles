@@ -12,7 +12,7 @@ use crate::models::{Issue, Status};
 use crate::storage::LoadWarning;
 use anyhow::{bail, Result};
 use clap::Parser;
-use cli::{Cli, Commands, TagCommand};
+use cli::{Cli, Commands, MetadataCommand, TagCommand};
 use display::{
     print_epic_view, print_issue_detail, print_issue_list, print_issue_tree, print_summary,
 };
@@ -60,6 +60,7 @@ fn main() -> Result<()> {
             issue_type,
             search,
             tag,
+            metadata,
             tree,
             orphaned,
         } => {
@@ -79,9 +80,18 @@ fn main() -> Result<()> {
             if tag_filter.iter().any(|t| t.is_empty()) {
                 anyhow::bail!("Tag filter cannot be empty");
             }
+            // r[metadata-filter-parse] - each --metadata value must be a
+            // KEY=VALUE pair with a non-empty key (r[continuity]: a blank
+            // key is not a selector for anything). Parsed BEFORE listing so
+            // a bad filter fails the whole request atomically.
+            let metadata_filter: Vec<(String, String)> = metadata
+                .iter()
+                .map(|pair| operations::parse_metadata_filter(pair))
+                .collect::<Result<Vec<_>>>()?;
             let filter_applied = status_filter.is_some()
                 || type_filter.is_some()
                 || !tag_filter.is_empty()
+                || !metadata_filter.is_empty()
                 || orphaned
                 || search.is_some();
             let (mut issues, warnings) = ops.list(status_filter, type_filter)?;
@@ -94,6 +104,11 @@ fn main() -> Result<()> {
             // r[tag-filter-and]
             if !tag_filter.is_empty() {
                 issues = operations::filter_by_tags(&issues, &tag_filter);
+            }
+
+            // r[metadata-filter-and]
+            if !metadata_filter.is_empty() {
+                issues = operations::filter_by_metadata(&issues, &metadata_filter);
             }
 
             if orphaned {
@@ -307,6 +322,61 @@ fn main() -> Result<()> {
                     print_issue_detail(&issue, &related_titles, &incoming);
                 } else {
                     println!("No changes: issue does not have these tags");
+                }
+            }
+        },
+
+        Commands::Metadata { command } => match command {
+            MetadataCommand::Set { id, key, value } => {
+                let outcome = ops.set_metadata(&id, &key, &value)?;
+                print_warnings(&outcome.warnings);
+                if outcome.value {
+                    let issue = ops.show(&id)?;
+                    let related_titles = ops.get_related_titles(&issue);
+                    let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                    print_warnings(&warnings);
+                    println!("✓ Set metadata: {} = {}", key, value);
+                    print_issue_detail(&issue, &related_titles, &incoming);
+                } else {
+                    println!("No changes: metadata {} already has this value", key);
+                }
+            }
+            MetadataCommand::Unset { id, key } => {
+                let outcome = ops.unset_metadata(&id, &key)?;
+                print_warnings(&outcome.warnings);
+                if outcome.value {
+                    let issue = ops.show(&id)?;
+                    let related_titles = ops.get_related_titles(&issue);
+                    let (incoming, warnings) = ops.get_incoming_relationships(&issue.id)?;
+                    print_warnings(&warnings);
+                    println!("✓ Removed metadata: {}", key);
+                    print_issue_detail(&issue, &related_titles, &incoming);
+                } else {
+                    println!("No changes: issue does not have metadata key {}", key);
+                }
+            }
+            MetadataCommand::Get { id, key } => {
+                let issue = ops.show(&id)?;
+                match key {
+                    Some(key) => {
+                        let key = key.trim().to_string();
+                        operations::validate_metadata_key(&key)?;
+                        match issue.metadata.get(&key) {
+                            Some(value) => println!("{}", value),
+                            None => anyhow::bail!(
+                                "No metadata key '{}' on issue {}",
+                                key,
+                                issue.short_id()
+                            ),
+                        }
+                    }
+                    None => {
+                        // r[metadata-get-sorted] - deterministic output:
+                        // HashMap iteration order is unspecified.
+                        for (k, v) in operations::sorted_metadata(&issue) {
+                            println!("{}: {}", k, v);
+                        }
+                    }
                 }
             }
         },

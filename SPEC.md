@@ -291,11 +291,17 @@ r[new-issues-default-proposed]
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
 r[list-filter]
-- `list` - List all issues with optional `--status`, `--issue-type`, and repeatable `--tag` filters  
+- `list` - List all issues with optional `--status`, `--issue-type`, repeatable `--tag`, and repeatable `--metadata` filters  
   `--tag` keeps issues carrying every given tag (AND) and composes with the
   other filters and with `--search` (r[tag-filter-and]); an empty `--tag`
   value is an error.
-  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag)
+  `--metadata <key>=<value>` keeps issues whose metadata carries every given
+  pair (exact, case-sensitive match on both sides; r[metadata-filter-and]).
+  Each value is split at the first `=`, so values may contain `=`; both sides
+  are trimmed, and a pair without `=` or with an empty key is an error
+  (r[metadata-filter-parse]). Composes with `--status`, `--issue-type`,
+  `--search`, and `--tag`.
+  Example: [Quick Start](README.md#list-and-filter) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#list-all-issues), [tag-management](tests/workflows/tag-management.trycmd#filter-by-tag), [metadata-management](tests/workflows/metadata-management.trycmd#filter-by-metadata)
 
 - `show <id>` - Show issue details  
   Example: [Quick Start](README.md#view-details) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#show-issue-details)
@@ -334,6 +340,30 @@ r[tag-add-dedupe]
   tags that are not present are ignored, and when none are present the
   command reports no changes and writes nothing. Empty tags are an error.
   Test: [tag-management](tests/workflows/tag-management.trycmd#remove-a-tag)
+
+r[metadata-set-upsert]
+- `metadata set <id> <key> <value>` - Set one metadata field on an issue  
+  Upserts: a new key is inserted and an existing key's value is replaced in
+  place. Keys and values are trimmed on entry; a key that is empty or
+  whitespace-only is an error, and values may be empty (an empty value is a
+  presence marker). When the key already carries exactly this value the
+  command reports no changes and writes nothing. Exact, case-sensitive keys:
+  `Priority` and `priority` are distinct fields.
+  Test: [metadata-management](tests/workflows/metadata-management.trycmd#set-metadata-on-an-issue)
+
+r[metadata-unset-absent]
+- `metadata unset <id> <key>` - Remove one metadata field from an issue  
+  Removes the key (exact, case-sensitive match); a key that is not present is
+  a no-op that reports no changes and writes nothing. Empty keys are an
+  error.
+  Test: [metadata-management](tests/workflows/metadata-management.trycmd#unset-a-metadata-key)
+
+r[metadata-get-sorted]
+- `metadata get <id> [<key>]` - Show an issue's metadata  
+  Without `<key>`, prints every pair as `key: value`, one per line, sorted by
+  key (deterministic output). With `<key>`, prints just the value (script
+  friendly); a key that is not set is an error. Empty keys are an error.
+  Test: [metadata-management](tests/workflows/metadata-management.trycmd#get-all-metadata)
 
 - `epic <id>` - Show epic with all child issues  
   Test: [core-workflow](tests/workflows/core-workflow.trycmd#view-epic-with-all-child-issues)
@@ -530,12 +560,26 @@ r[no-jj-skip]
 
 ### Custom Metadata
 
-The `metadata` field is a `HashMap<String, String>` that can store arbitrary key-value pairs. This allows for:
+The `metadata` field is a `string -> string` map that can store arbitrary
+key-value pairs. This allows for:
 - Type-specific fields without schema changes
 - User-defined attributes
 - Tool-specific data
 
-**Access:** The CLI is the preferred way to update issues (see [CLI Interface](#cli-interface)); dedicated metadata commands are not yet implemented. Prefer scripting with `jq` for metadata. Edit JSON manually only if the CLI is failing — manual edits bypass pebbles' validation rules and jj commits.
+Manage metadata through the CLI: `pebbles metadata set <id> <key> <value>`
+upserts one field (r[metadata-set-upsert]), `pebbles metadata unset <id>
+<key>` removes one field (a no-op when absent; r[metadata-unset-absent]), and
+`pebbles metadata get <id> [<key>]` prints all pairs or a single value
+(r[metadata-get-sorted]). `pebbles list --metadata <key>=<value>` filters by
+metadata: the flag is repeatable with AND semantics (an issue must carry
+every given pair, matched exactly and case-sensitively on both sides) and
+composes with `--status`, `--issue-type`, `--search`, and `--tag`
+(r[metadata-filter-and], r[metadata-filter-parse]). Keys and values are
+trimmed on entry; keys must be non-empty, values may be empty. Stored as a
+`BTreeMap` so on-disk serialization is deterministic, keys sorted, keeping
+issue files stable for diffs and merges (r[metadata-file-order]). Use the CLI
+for all supported updates; edit JSON manually only if the CLI is failing —
+manual edits bypass pebbles' validation rules and jj commits.
 
 ### Tags
 
@@ -552,7 +596,6 @@ updates; edit JSON manually only if the CLI is failing.
 ## Future Considerations
 
 Features mentioned in historical documentation but not yet implemented:
-- Metadata management CLI commands
 - Fuzzy search
 - View commands (graph, route)
 - Full-text search

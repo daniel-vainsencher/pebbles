@@ -75,9 +75,17 @@ pub enum Commands {
             long,
             value_name = "TAG",
             action = clap::ArgAction::Append,
-            help = "Keep issues carrying this tag (exact, case-sensitive). Repeatable: every given tag must be present (AND). Composes with --status, --issue-type, and --search."
+            help = "Keep issues carrying this tag (exact, case-sensitive). Repeatable: every given tag must be present (AND). Composes with --status, --issue-type, --search, and --metadata."
         )]
         tag: Vec<String>,
+
+        #[arg(
+            long,
+            value_name = "KEY=VALUE",
+            action = clap::ArgAction::Append,
+            help = "Keep issues whose metadata carries this key=value pair (exact, case-sensitive; split at the first '='). Repeatable: every given pair must be present (AND). Composes with --status, --issue-type, --search, and --tag."
+        )]
+        metadata: Vec<String>,
 
         #[arg(
             long,
@@ -182,6 +190,12 @@ pub enum Commands {
         command: TagCommand,
     },
 
+    #[command(about = "Manage an issue's metadata (set, unset, or get; per-issue, non-bulk)")]
+    Metadata {
+        #[command(subcommand)]
+        command: MetadataCommand,
+    },
+
     #[command(about = "Show an epic with all its child issues")]
     Epic {
         #[arg(help = "Epic ID (full UUID or prefix)")]
@@ -280,6 +294,47 @@ pub enum TagCommand {
             help = "Tag(s) to remove"
         )]
         tags: Vec<String>,
+    },
+}
+
+/// Subcommands of `pebbles metadata`: set, unset, and get metadata fields
+/// on a single issue.
+///
+/// Metadata is a free-form `string -> string` map; keys and values are
+/// trimmed on entry, keys must be non-empty, and values may be empty. `set`
+/// upserts one key (replacing an existing value), `unset` removes one key (a
+/// no-op when absent), and `get` prints all pairs or a single value. Keys are
+/// matched exactly and case-sensitively (r[metadata-set-upsert]).
+#[derive(Subcommand)]
+pub enum MetadataCommand {
+    #[command(about = "Set a metadata key on an issue (upserts: replaces an existing value)")]
+    Set {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(value_name = "KEY", help = "Metadata key (trimmed; must be non-empty)")]
+        key: String,
+
+        #[arg(value_name = "VALUE", help = "Metadata value (trimmed; may be empty)")]
+        value: String,
+    },
+
+    #[command(about = "Remove a metadata key from an issue (no-op when absent)")]
+    Unset {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(value_name = "KEY", help = "Metadata key (trimmed; must be non-empty)")]
+        key: String,
+    },
+
+    #[command(about = "Get an issue's metadata (all keys; or one key's value)")]
+    Get {
+        #[arg(help = "Issue ID (full UUID or prefix)")]
+        id: String,
+
+        #[arg(value_name = "KEY", help = "Metadata key (all keys when omitted)")]
+        key: Option<String>,
     },
 }
 

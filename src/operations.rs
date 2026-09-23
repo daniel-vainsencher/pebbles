@@ -361,6 +361,151 @@ pub fn filter_by_tags(issues: &[Issue], filter: &[String]) -> Vec<Issue> {
         .collect()
 }
 
+/// Reject metadata keys that would store a meaningless selector: a key that
+/// is empty or whitespace-only (after trimming) is an error. Called by the
+/// mutating metadata commands and by `list --metadata` BEFORE any resolution
+/// or write, so a bad key fails the whole request atomically. Values are
+/// free-form strings and may be empty; only the key identifies the field
+/// (r[metadata-set-upsert]). Pure: no storage access.
+///
+/// ```rust
+/// # use pebbles::operations::validate_metadata_key;
+/// assert!(validate_metadata_key("priority").is_ok());
+/// assert!(validate_metadata_key("").is_err());
+/// assert!(validate_metadata_key("  ").is_err());
+/// ```
+pub fn validate_metadata_key(key: &str) -> Result<()> {
+    if key.trim().is_empty() {
+        bail!("Metadata key cannot be empty");
+    }
+    Ok(())
+}
+
+/// Parse one `--metadata KEY=VALUE` filter into its (key, value) pair
+/// (r[metadata-filter-parse]). The pair is split at the FIRST `=` so values
+/// may contain `=`; both sides are trimmed on entry and the key is
+/// validated. A pair without `=` or with a blank key is an error: it is not
+/// a selector for anything (r[continuity]). Pure: no storage access.
+///
+/// ```rust
+/// # use pebbles::operations::parse_metadata_filter;
+/// let pair = parse_metadata_filter("priority=high").unwrap();
+/// assert_eq!(pair, ("priority".to_string(), "high".to_string()));
+/// assert!(parse_metadata_filter("priority").is_err());
+/// assert!(parse_metadata_filter("=high").is_err());
+/// ```
+pub fn parse_metadata_filter(input: &str) -> Result<(String, String)> {
+    let (key, value) = input
+        .split_once('=')
+        .ok_or_else(|| anyhow::anyhow!("Metadata filter must be KEY=VALUE (got {:?})", input))?;
+    let key = key.trim().to_string();
+    let value = value.trim().to_string();
+    validate_metadata_key(&key)?;
+    Ok((key, value))
+}
+
+/// Set `key` to `value` in `issue.metadata`, upserting: a new key is
+/// inserted and an existing key's value is replaced in place
+/// (r[metadata-set-upsert]). Keys and values are expected pre-trimmed
+/// (callers validate the key first). Returns true when the map changed (new
+/// key or different value); false when the key already carried exactly this
+/// value, so the caller can report no changes and write nothing. Empty
+/// values are allowed: `set` with an empty value is a presence marker, not
+/// an error. Pure: no storage access, so the upsert rules are unit-testable
+/// without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::set_metadata_on_issue;
+/// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
+/// assert!(set_metadata_on_issue(&mut issue, "priority", "high"));
+/// assert!(!set_metadata_on_issue(&mut issue, "priority", "high"));
+/// assert_eq!(issue.metadata.get("priority").map(String::as_str), Some("high"));
+/// ```
+// r[impl metadata-set-upsert]
+pub fn set_metadata_on_issue(issue: &mut Issue, key: &str, value: &str) -> bool {
+    match issue.metadata.get(key) {
+        Some(existing) if existing == value => false,
+        _ => {
+            issue.metadata.insert(key.to_string(), value.to_string());
+            true
+        }
+    }
+}
+
+/// Remove `key` from `issue.metadata` (exact, case-sensitive match). Returns
+/// true when the key was present and removed; false when it was absent (a
+/// silent no-op, r[metadata-unset-absent]). Keys are expected pre-trimmed
+/// (the caller validates the key first). Pure: no storage access, so the
+/// removal rules are unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::unset_metadata_on_issue;
+/// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
+/// assert!(!unset_metadata_on_issue(&mut issue, "priority"));
+/// ```
+// r[impl metadata-unset-absent]
+pub fn unset_metadata_on_issue(issue: &mut Issue, key: &str) -> bool {
+    issue.metadata.remove(key).is_some()
+}
+
+/// The issues from `issues` whose metadata carries EVERY (key, value) pair
+/// in `filters` (exact, case-sensitive match on both key and value;
+/// r[metadata-filter-and]). Input order is preserved: the caller produces a
+/// sorted list and this retains the slice. An empty filter returns every
+/// issue (vacuous AND); the CLI rejects malformed `--metadata` values before
+/// this is reachable. Pure: no storage access, so the filter rules are
+/// unit-testable without I/O.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::filter_by_metadata;
+/// let mut a = Issue::new("A".to_string(), None, IssueType::Bug);
+/// let mut b = Issue::new("B".to_string(), None, IssueType::Bug);
+/// set_metadata_on_issue(&mut a, "priority", "high");
+/// set_metadata_on_issue(&mut b, "priority", "low");
+/// let out = filter_by_metadata(&[a, b], &[("priority".to_string(), "high".to_string())]);
+/// assert_eq!(out.len(), 1);
+/// assert_eq!(out[0].title, "A");
+/// ```
+// r[metadata-filter-and]
+pub fn filter_by_metadata(issues: &[Issue], filters: &[(String, String)]) -> Vec<Issue> {
+    issues
+        .iter()
+        .filter(|issue| {
+            filters.iter().all(|(key, value)| {
+                issue.metadata.get(key).map(String::as_str) == Some(value.as_str())
+            })
+        })
+        .cloned()
+        .collect()
+}
+
+/// The issue's metadata as (key, value) pairs sorted by key, for
+/// deterministic display: HashMap iteration order is unspecified, and
+/// `metadata get <id>` must print the same order every run
+/// (r[metadata-get-sorted]). Pure: no storage access.
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType};
+/// # use pebbles::operations::sorted_metadata;
+/// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
+/// set_metadata_on_issue(&mut issue, "zeta", "1");
+/// set_metadata_on_issue(&mut issue, "alpha", "2");
+/// assert_eq!(sorted_metadata(&issue)[0].0, "alpha");
+/// ```
+// r[impl metadata-get-sorted]
+pub fn sorted_metadata(issue: &Issue) -> Vec<(String, String)> {
+    let mut pairs: Vec<(String, String)> = issue
+        .metadata
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    pairs.sort_by(|a, b| a.0.cmp(&b.0));
+    pairs
+}
+
 pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
     let total_issues = issues.len();
 
@@ -791,6 +936,112 @@ impl Operations {
 
         Ok(MutationOutcome {
             value: removed,
+            warnings,
+        })
+    }
+
+    /// Set one metadata key on an issue (`pebbles metadata set`): resolve
+    /// and load the issue, reject an empty key up front (nothing is written
+    /// on a bad key), apply the pure upsert rule, then save and commit.
+    /// Returns true when the metadata changed (new key or different value);
+    /// false when the key already carried exactly this value (no file write,
+    /// no jj commit). Values are trimmed on entry but may be empty.
+    pub fn set_metadata(&self, id: &str, key: &str, value: &str) -> Result<MutationOutcome<bool>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        // Trim and validate before touching anything: an empty key fails the
+        // whole request atomically, with nothing written.
+        let key = key.trim().to_string();
+        let value = value.trim().to_string();
+        validate_metadata_key(&key)?;
+
+        let uuid = self.resolve_id(id)?;
+        let mut issue = self.storage.load_issue(&uuid)?;
+
+        let changed = set_metadata_on_issue(&mut issue, &key, &value);
+        if !changed {
+            return Ok(MutationOutcome {
+                value: false,
+                warnings: Vec::new(),
+            });
+        }
+
+        issue.update();
+
+        let mut index = self.storage.load_index()?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
+        )?;
+
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!(
+                "Set metadata on {}: {} ({} = {})",
+                issue.issue_type, issue.title, key, value
+            ),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome {
+            value: true,
+            warnings,
+        })
+    }
+
+    /// Remove one metadata key from an issue (`pebbles metadata unset`):
+    /// resolve and load the issue, apply the pure removal rule (an absent
+    /// key is a silent no-op), then save and commit. Returns true when the
+    /// key was present and removed; false when it was absent (no file write,
+    /// no jj commit).
+    pub fn unset_metadata(&self, id: &str, key: &str) -> Result<MutationOutcome<bool>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let key = key.trim().to_string();
+        validate_metadata_key(&key)?;
+
+        let uuid = self.resolve_id(id)?;
+        let mut issue = self.storage.load_issue(&uuid)?;
+
+        let removed = unset_metadata_on_issue(&mut issue, &key);
+        if !removed {
+            return Ok(MutationOutcome {
+                value: false,
+                warnings: Vec::new(),
+            });
+        }
+
+        issue.update();
+
+        let mut index = self.storage.load_index()?;
+        let outcome = self.storage.save_issue(&issue, &mut index)?;
+        let mut warnings = Vec::new();
+        self.storage.save_index_stale_aware(
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
+        )?;
+
+        let paths = paths_for_save(&self.storage, &outcome);
+        self.commit_store_fallible(
+            &format!(
+                "Remove metadata from {}: {} ({})",
+                issue.issue_type, issue.title, key
+            ),
+            &as_path_refs(&paths),
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome {
+            value: true,
             warnings,
         })
     }
@@ -1952,5 +2203,221 @@ mod tests {
         let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
         let out = filter_by_tags(&[a.clone()], &[]);
         assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    // -- metadata helpers ----------------------------------------------------
+
+    #[test]
+    fn set_metadata_inserts_new_key() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        assert!(set_metadata_on_issue(&mut issue, "priority", "high"));
+        assert_eq!(
+            issue.metadata.get("priority").map(String::as_str),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn set_metadata_replaces_existing_value() {
+        // Upsert: setting an existing key replaces its value in place.
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        set_metadata_on_issue(&mut issue, "priority", "high");
+        assert!(set_metadata_on_issue(&mut issue, "priority", "low"));
+        assert_eq!(
+            issue.metadata.get("priority").map(String::as_str),
+            Some("low")
+        );
+        assert_eq!(issue.metadata.len(), 1);
+    }
+
+    #[test]
+    fn set_metadata_same_value_is_no_change() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        assert!(set_metadata_on_issue(&mut issue, "priority", "high"));
+        // Setting the identical value again changes nothing (no write, no commit).
+        assert!(!set_metadata_on_issue(&mut issue, "priority", "high"));
+        assert_eq!(
+            issue.metadata.get("priority").map(String::as_str),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn set_metadata_accepts_empty_value() {
+        // Values are free-form strings: an empty value is a valid presence
+        // marker (r[metadata-set-upsert]).
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        assert!(set_metadata_on_issue(&mut issue, "triage", ""));
+        assert_eq!(issue.metadata.get("triage").map(String::as_str), Some(""));
+    }
+
+    #[test]
+    fn unset_metadata_removes_key() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        set_metadata_on_issue(&mut issue, "priority", "high");
+        assert!(unset_metadata_on_issue(&mut issue, "priority"));
+        assert!(issue.metadata.is_empty());
+    }
+
+    #[test]
+    fn unset_metadata_absent_key_is_no_op() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        assert!(!unset_metadata_on_issue(&mut issue, "priority"));
+        assert!(issue.metadata.is_empty());
+    }
+
+    #[test]
+    fn unset_metadata_is_case_sensitive() {
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        set_metadata_on_issue(&mut issue, "priority", "high");
+        assert!(!unset_metadata_on_issue(&mut issue, "Priority"));
+        assert_eq!(
+            issue.metadata.get("priority").map(String::as_str),
+            Some("high")
+        );
+    }
+
+    #[test]
+    fn filter_by_metadata_keeps_issues_with_every_filter_pair() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let mut c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        set_metadata_on_issue(&mut a, "priority", "high");
+        set_metadata_on_issue(&mut a, "team", "backend");
+        set_metadata_on_issue(&mut b, "priority", "high");
+        set_metadata_on_issue(&mut c, "team", "backend");
+        // AND semantics: only A carries both pairs (r[metadata-filter-and]).
+        let out = filter_by_metadata(
+            &[a.clone(), b, c],
+            &[
+                ("priority".to_string(), "high".to_string()),
+                ("team".to_string(), "backend".to_string()),
+            ],
+        );
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_metadata_exact_match_on_key_and_value() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        set_metadata_on_issue(&mut a, "priority", "high");
+        set_metadata_on_issue(&mut b, "priority", "low"); // key present, value differs
+                                                          // c has no metadata at all.
+        let out = filter_by_metadata(
+            &[a.clone(), b, c],
+            &[("priority".to_string(), "high".to_string())],
+        );
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_metadata_is_case_sensitive() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        set_metadata_on_issue(&mut a, "priority", "high");
+        assert!(filter_by_metadata(
+            &[a.clone()],
+            &[("Priority".to_string(), "high".to_string())]
+        )
+        .is_empty());
+        assert!(filter_by_metadata(
+            &[a.clone()],
+            &[("priority".to_string(), "High".to_string())]
+        )
+        .is_empty());
+        assert_eq!(
+            ids(&filter_by_metadata(
+                &[a.clone()],
+                &[("priority".to_string(), "high".to_string())]
+            )),
+            vec![a.id]
+        );
+    }
+
+    #[test]
+    fn filter_by_metadata_matches_empty_value() {
+        // A pair with an empty value matches metadata that stores "" for that
+        // key (and nothing else) - the filter value is matched exactly.
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        set_metadata_on_issue(&mut a, "triage", "");
+        set_metadata_on_issue(&mut b, "triage", "no");
+        let out = filter_by_metadata(&[a.clone(), b], &[("triage".to_string(), "".to_string())]);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_metadata_empty_filter_returns_everything() {
+        // The CLI rejects a filter with a missing '=' or empty key before
+        // this is reachable; vacuously, an issue carries every pair in an
+        // empty filter.
+        let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let out = filter_by_metadata(&[a.clone()], &[]);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn filter_by_metadata_preserves_input_order() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        set_metadata_on_issue(&mut a, "priority", "high");
+        set_metadata_on_issue(&mut b, "priority", "high");
+        // Input order is preserved (the caller sorts by updated_at first).
+        let out = filter_by_metadata(
+            &[a.clone(), c, b.clone()],
+            &[("priority".to_string(), "high".to_string())],
+        );
+        assert_eq!(ids(&out), vec![a.id, b.id]);
+    }
+
+    #[test]
+    fn parse_metadata_filter_splits_on_first_equals() {
+        // Values may contain '=': the pair is split at the FIRST '='.
+        let pair = parse_metadata_filter("a=b=c").unwrap();
+        assert_eq!(pair, ("a".to_string(), "b=c".to_string()));
+        let pair = parse_metadata_filter("triage=").unwrap();
+        assert_eq!(pair, ("triage".to_string(), "".to_string()));
+    }
+
+    #[test]
+    fn parse_metadata_filter_trims_key_and_value() {
+        let pair = parse_metadata_filter("  priority = high  ").unwrap();
+        assert_eq!(pair, ("priority".to_string(), "high".to_string()));
+    }
+
+    #[test]
+    fn parse_metadata_filter_rejects_missing_equals_or_empty_key() {
+        // r[metadata-filter-parse]: a pair without '=' is not a selector, and
+        // neither is a blank key (r[continuity]).
+        assert!(parse_metadata_filter("priority").is_err());
+        assert!(parse_metadata_filter("=high").is_err());
+        assert!(parse_metadata_filter("  =high").is_err());
+    }
+
+    #[test]
+    fn validate_metadata_key_rejects_empty_and_whitespace() {
+        assert!(validate_metadata_key("priority").is_ok());
+        assert!(validate_metadata_key("").is_err());
+        assert!(validate_metadata_key("  ").is_err());
+    }
+
+    #[test]
+    fn sorted_metadata_orders_pairs_by_key() {
+        // HashMap iteration order is unspecified; display sorts for stable
+        // output (r[metadata-get-sorted]).
+        let mut issue = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        set_metadata_on_issue(&mut issue, "zeta", "1");
+        set_metadata_on_issue(&mut issue, "alpha", "2");
+        set_metadata_on_issue(&mut issue, "mid", "3");
+        assert_eq!(
+            sorted_metadata(&issue),
+            vec![
+                ("alpha".to_string(), "2".to_string()),
+                ("mid".to_string(), "3".to_string()),
+                ("zeta".to_string(), "1".to_string()),
+            ]
+        );
     }
 }
