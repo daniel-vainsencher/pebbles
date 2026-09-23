@@ -67,6 +67,37 @@ pub fn parse_id_input_line(line: &str) -> Vec<&str> {
     }
 }
 
+/// Resolve a full UUID or an unambiguous prefix against `known_ids`.
+///
+/// A full UUID that parses must be present in `known_ids` exactly (the
+/// error names the UUID). Any other input is prefix-matched
+/// case-insensitively against the lowercase UUID strings
+/// (SPEC r[short-id-input]): exactly one match resolves, zero matches and
+/// multiple matches are errors. Pure: no storage access, so the matching
+/// logic is unit-testable without a filesystem (ARCHITECTURE: functional
+/// core, imperative shell).
+pub fn match_id_prefix(id_str: &str, known_ids: &[Uuid]) -> Result<Uuid> {
+    if let Ok(uuid) = Uuid::parse_str(id_str) {
+        if known_ids.contains(&uuid) {
+            return Ok(uuid);
+        }
+        bail!("Issue with ID {} not found", uuid);
+    }
+
+    // Prefix matching is case-insensitive (SPEC r[short-id-input]).
+    let id_str = id_str.to_lowercase();
+    let matches: Vec<_> = known_ids
+        .iter()
+        .filter(|uuid| uuid.to_string().starts_with(&id_str))
+        .collect();
+
+    match matches.len() {
+        0 => bail!("No issue found with ID starting with '{}'", id_str),
+        1 => Ok(*matches[0]),
+        _ => bail!("Ambiguous ID '{}'. Multiple issues match.", id_str),
+    }
+}
+
 pub struct Operations {
     storage: Storage,
     jj: JJ,
@@ -91,6 +122,110 @@ fn paths_for_save(storage: &Storage, outcome: &SaveOutcome) -> Vec<PathBuf> {
 /// Convert a `Vec<PathBuf>` to a `Vec<&Path>` for passing to `JJ::commit`.
 fn as_path_refs(paths: &[PathBuf]) -> Vec<&Path> {
     paths.iter().map(|p| p.as_path()).collect()
+}
+
+/// The issues from `issues` that `pebbles next` shows: status `Todo` and
+/// not blocked by an incoming `required_for` or `scheduled_before`
+/// relationship from a non-Done issue (SPEC `next`). Sorted by
+/// `updated_at` descending (r[impl issue-ordering]). Pure: no storage
+/// access, so the blocking rules are unit-testable without I/O.
+pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
+    let incoming_map = build_incoming_relationships_map(issues);
+
+    let mut unblocked_issues: Vec<Issue> = issues
+        .iter()
+        .filter(|issue| issue.status == Status::Todo)
+        .filter(|issue| {
+            if let Some(incoming) = incoming_map.get(&issue.id) {
+                for rel in incoming {
+                    if (rel.relation_type == RelationType::RequiredFor
+                        || rel.relation_type == RelationType::ScheduledBefore)
+                        && rel.source_status != Status::Done
+                    {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
+        .cloned()
+        .collect();
+
+    // r[impl issue-ordering]
+    unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+
+    unblocked_issues
+}
+
+/// Aggregate `issues` into a `ProjectSummary`: total count, counts by
+/// status and type, per-epic child progress (`part_of` children, done
+/// count), the actionable (unblocked todo) count, and relationship totals
+/// by relation type. Pure: no storage access, so the aggregation and the
+/// actionability link to `get_unblocked_issues` are unit-testable without
+/// I/O.
+pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
+    let total_issues = issues.len();
+
+    // Count by status
+    let mut by_status: HashMap<Status, usize> = HashMap::new();
+    for issue in issues {
+        *by_status.entry(issue.status.clone()).or_insert(0) += 1;
+    }
+
+    // Count by type
+    let mut by_type: HashMap<IssueType, usize> = HashMap::new();
+    for issue in issues {
+        *by_type.entry(issue.issue_type.clone()).or_insert(0) += 1;
+    }
+
+    // Gather epic info
+    let epics: Vec<Issue> = issues
+        .iter()
+        .filter(|i| i.issue_type == IssueType::Epic)
+        .cloned()
+        .collect();
+
+    let mut epic_info = Vec::new();
+    for epic in epics {
+        let children: Vec<&Issue> = issues
+            .iter()
+            .filter(|issue| {
+                issue.relationships.iter().any(|rel| {
+                    rel.relation_type == RelationType::PartOf && rel.target_id == epic.id
+                })
+            })
+            .collect();
+
+        let total_children = children.len();
+        let done_children = children.iter().filter(|i| i.status == Status::Done).count();
+
+        epic_info.push((epic, total_children, done_children));
+    }
+
+    // Count actionable issues
+    let actionable_count = get_unblocked_issues(issues).len();
+
+    // Count relationships
+    let mut total_relationships = 0;
+    let mut by_relationship_type: HashMap<RelationType, usize> = HashMap::new();
+    for issue in issues {
+        for rel in &issue.relationships {
+            total_relationships += 1;
+            *by_relationship_type
+                .entry(rel.relation_type.clone())
+                .or_insert(0) += 1;
+        }
+    }
+
+    ProjectSummary {
+        total_issues,
+        by_status,
+        by_type,
+        epics: epic_info,
+        actionable_count,
+        total_relationships,
+        by_relationship_type,
+    }
 }
 
 impl Operations {
@@ -607,37 +742,7 @@ impl Operations {
         }
 
         let (all_issues, warnings) = self.storage.load_all_issues()?;
-        let incoming_map = build_incoming_relationships_map(&all_issues);
-
-        let todo_issues: Vec<Issue> = all_issues
-            .iter()
-            .filter(|issue| issue.status == Status::Todo)
-            .cloned()
-            .collect();
-
-        // An issue is blocked if it has an incoming RequiredFor or ScheduledBefore
-        // from an issue that is not Done.
-        let mut unblocked_issues: Vec<Issue> = todo_issues
-            .into_iter()
-            .filter(|issue| {
-                if let Some(incoming) = incoming_map.get(&issue.id) {
-                    for rel in incoming {
-                        if (rel.relation_type == RelationType::RequiredFor
-                            || rel.relation_type == RelationType::ScheduledBefore)
-                            && rel.source_status != Status::Done
-                        {
-                            return false;
-                        }
-                    }
-                }
-                true
-            })
-            .collect();
-
-        // r[impl issue-ordering]
-        unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
-
-        Ok((unblocked_issues, warnings))
+        Ok((get_unblocked_issues(&all_issues), warnings))
     }
 
     /// Returns `Ok(false)` when the issue already has the requested type
@@ -719,72 +824,7 @@ impl Operations {
         }
 
         let (all_issues, warnings) = self.storage.load_all_issues()?;
-        let total_issues = all_issues.len();
-
-        // Count by status
-        let mut by_status: HashMap<Status, usize> = HashMap::new();
-        for issue in &all_issues {
-            *by_status.entry(issue.status.clone()).or_insert(0) += 1;
-        }
-
-        // Count by type
-        let mut by_type: HashMap<IssueType, usize> = HashMap::new();
-        for issue in &all_issues {
-            *by_type.entry(issue.issue_type.clone()).or_insert(0) += 1;
-        }
-
-        // Gather epic info
-        let epics: Vec<Issue> = all_issues
-            .iter()
-            .filter(|i| i.issue_type == IssueType::Epic)
-            .cloned()
-            .collect();
-
-        let mut epic_info = Vec::new();
-        for epic in epics {
-            let children: Vec<&Issue> = all_issues
-                .iter()
-                .filter(|issue| {
-                    issue.relationships.iter().any(|rel| {
-                        rel.relation_type == RelationType::PartOf && rel.target_id == epic.id
-                    })
-                })
-                .collect();
-
-            let total_children = children.len();
-            let done_children = children.iter().filter(|i| i.status == Status::Done).count();
-
-            epic_info.push((epic, total_children, done_children));
-        }
-
-        // Count actionable issues
-        let (actionable, _) = self.next()?;
-        let actionable_count = actionable.len();
-
-        // Count relationships
-        let mut total_relationships = 0;
-        let mut by_relationship_type: HashMap<RelationType, usize> = HashMap::new();
-        for issue in &all_issues {
-            for rel in &issue.relationships {
-                total_relationships += 1;
-                *by_relationship_type
-                    .entry(rel.relation_type.clone())
-                    .or_insert(0) += 1;
-            }
-        }
-
-        Ok((
-            ProjectSummary {
-                total_issues,
-                by_status,
-                by_type,
-                epics: epic_info,
-                actionable_count,
-                total_relationships,
-                by_relationship_type,
-            },
-            warnings,
-        ))
+        Ok((calculate_summary(&all_issues), warnings))
     }
 
     /// Epic child progress `(total, done)` computed over the FULL issue set,
@@ -875,27 +915,7 @@ impl Operations {
     // r[impl short-id-input]
     fn resolve_id(&self, id_str: &str) -> Result<Uuid> {
         let index = self.storage.load_index()?;
-        let all_ids = index.all_ids();
-
-        if let Ok(uuid) = Uuid::parse_str(id_str) {
-            if all_ids.contains(&uuid) {
-                return Ok(uuid);
-            }
-            bail!("Issue with ID {} not found", uuid);
-        }
-
-        // Prefix matching is case-insensitive (SPEC r[short-id-input]).
-        let id_str = id_str.to_lowercase();
-        let matches: Vec<_> = all_ids
-            .iter()
-            .filter(|uuid| uuid.to_string().starts_with(&id_str))
-            .collect();
-
-        match matches.len() {
-            0 => bail!("No issue found with ID starting with '{}'", id_str),
-            1 => Ok(*matches[0]),
-            _ => bail!("Ambiguous ID '{}'. Multiple issues match.", id_str),
-        }
+        match_id_prefix(id_str, &index.all_ids())
     }
 
     /// Resolve a batch of ID inputs (full UUIDs or unambiguous prefixes)
@@ -957,6 +977,7 @@ impl Operations {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Relationship;
 
     #[test]
     fn parse_id_input_line_list_row() {
@@ -1002,6 +1023,355 @@ mod tests {
     fn parse_id_input_line_blank() {
         assert_eq!(parse_id_input_line(""), Vec::<&str>::new());
         assert_eq!(parse_id_input_line("   "), Vec::<&str>::new());
+    }
+
+    // -- calculate_summary ----------------------------------------------------
+
+    fn issue_with_type(id: &str, title: &str, status: Status, issue_type: IssueType) -> Issue {
+        let mut issue = Issue::new(title.to_string(), None, issue_type);
+        issue.id = uuid(id);
+        issue.status = status;
+        issue
+    }
+
+    #[test]
+    fn calculate_summary_aggregates_counts_epics_and_actionable() {
+        let epic = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Epic",
+            Status::Todo,
+            IssueType::Epic,
+        );
+        let mut child1 = issue_with_type(
+            "11111111-2222-3333-4444-555555555555",
+            "child1",
+            Status::Done,
+            IssueType::Bug,
+        );
+        relate(&mut child1, RelationType::PartOf, &epic);
+        let mut child2 = issue_with_type(
+            "22222222-2222-3333-4444-555555555555",
+            "child2",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut child2, RelationType::PartOf, &epic);
+        let mut blocker = issue_with_type(
+            "33333333-2222-3333-4444-555555555555",
+            "blocker",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut blocker, RelationType::RequiredFor, &child2);
+        let mut usecase = issue_with_type(
+            "44444444-2222-3333-4444-555555555555",
+            "usecase",
+            Status::InProgress,
+            IssueType::Usecase,
+        );
+        relate(&mut usecase, RelationType::ScheduledBefore, &child2);
+        let standalone = issue_with_type(
+            "55555555-2222-3333-4444-555555555555",
+            "standalone",
+            Status::Todo,
+            IssueType::Bug,
+        );
+
+        let issues = vec![epic.clone(), child1, child2, blocker, usecase, standalone];
+        let summary = calculate_summary(&issues);
+
+        assert_eq!(summary.total_issues, 6);
+
+        let expected_by_status: HashMap<Status, usize> = [
+            (Status::Todo, 4),
+            (Status::Done, 1),
+            (Status::InProgress, 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(summary.by_status, expected_by_status);
+
+        let expected_by_type: HashMap<IssueType, usize> = [
+            (IssueType::Bug, 4),
+            (IssueType::Epic, 1),
+            (IssueType::Usecase, 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(summary.by_type, expected_by_type);
+
+        // Epic progress: 2 children, 1 done.
+        assert_eq!(summary.epics.len(), 1);
+        let (summary_epic, total_children, done_children) = &summary.epics[0];
+        assert_eq!(summary_epic.id, epic.id);
+        assert_eq!(*total_children, 2);
+        assert_eq!(*done_children, 1);
+
+        // Actionable: epic, blocker, standalone (child2 is blocked).
+        assert_eq!(summary.actionable_count, 3);
+
+        // Relationships: 2 part_of, 1 required_for, 1 scheduled_before.
+        assert_eq!(summary.total_relationships, 4);
+        let expected_by_rel: HashMap<RelationType, usize> = [
+            (RelationType::PartOf, 2),
+            (RelationType::RequiredFor, 1),
+            (RelationType::ScheduledBefore, 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(summary.by_relationship_type, expected_by_rel);
+    }
+
+    #[test]
+    fn calculate_summary_empty_issue_set_is_zeroed() {
+        let summary = calculate_summary(&[]);
+        assert_eq!(summary.total_issues, 0);
+        assert!(summary.by_status.is_empty());
+        assert!(summary.by_type.is_empty());
+        assert!(summary.epics.is_empty());
+        assert_eq!(summary.actionable_count, 0);
+        assert_eq!(summary.total_relationships, 0);
+        assert!(summary.by_relationship_type.is_empty());
+    }
+
+    #[test]
+    fn calculate_summary_epic_without_children_reports_zero_progress() {
+        let epic = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Lone epic",
+            Status::Todo,
+            IssueType::Epic,
+        );
+        let summary = calculate_summary(&[epic]);
+        assert_eq!(summary.epics.len(), 1);
+        assert_eq!(summary.epics[0].1, 0);
+        assert_eq!(summary.epics[0].2, 0);
+    }
+
+    // -- get_unblocked_issues -------------------------------------------------
+
+    fn issue_with(id: &str, title: &str, status: Status) -> Issue {
+        let mut issue = Issue::new(title.to_string(), None, IssueType::Bug);
+        issue.id = uuid(id);
+        issue.status = status;
+        issue
+    }
+
+    /// Record `rel` from `source` pointing at `target` (as `pebbles link
+    /// <source> <rel> <target>` does): the relationship lives on the source
+    /// issue and the block lands on the target.
+    fn relate(source: &mut Issue, rel: RelationType, target: &Issue) {
+        source.relationships.push(Relationship {
+            relation_type: rel,
+            target_id: target.id,
+        });
+    }
+
+    fn ids(issues: &[Issue]) -> Vec<Uuid> {
+        issues.iter().map(|i| i.id).collect()
+    }
+
+    #[test]
+    fn get_unblocked_issues_includes_only_todo() {
+        let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let proposed = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "P",
+            Status::Proposed,
+        );
+        let done = issue_with("33333333-2222-3333-4444-555555555555", "D", Status::Done);
+        let out = get_unblocked_issues(&[a.clone(), proposed, done]);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_required_for_from_non_done_blocks() {
+        let mut blocker = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "blocker",
+            Status::Todo,
+        );
+        let blocked = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "blocked",
+            Status::Todo,
+        );
+        relate(&mut blocker, RelationType::RequiredFor, &blocked);
+        let out = get_unblocked_issues(&[blocker.clone(), blocked]);
+        assert_eq!(ids(&out), vec![blocker.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_scheduled_before_from_non_done_blocks() {
+        let mut blocker = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "blocker",
+            Status::Todo,
+        );
+        let blocked = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "blocked",
+            Status::Todo,
+        );
+        relate(&mut blocker, RelationType::ScheduledBefore, &blocked);
+        let out = get_unblocked_issues(&[blocker.clone(), blocked]);
+        assert_eq!(ids(&out), vec![blocker.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_done_source_does_not_block() {
+        let mut done = issue_with("11111111-2222-3333-4444-555555555555", "done", Status::Done);
+        let blocked = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "target",
+            Status::Todo,
+        );
+        relate(&mut done, RelationType::RequiredFor, &blocked);
+        let out = get_unblocked_issues(&[done, blocked.clone()]);
+        assert_eq!(ids(&out), vec![blocked.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_non_done_non_todo_source_blocks() {
+        let mut in_progress = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "in-progress",
+            Status::InProgress,
+        );
+        let blocked = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "target",
+            Status::Todo,
+        );
+        relate(&mut in_progress, RelationType::ScheduledBefore, &blocked);
+        let out = get_unblocked_issues(&[in_progress, blocked]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn get_unblocked_issues_part_of_does_not_block() {
+        // part_of is a grouping relationship, not a dependency: the target
+        // of a part_of edge stays actionable.
+        let mut source = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "source",
+            Status::Todo,
+        );
+        let target = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "target",
+            Status::Todo,
+        );
+        relate(&mut source, RelationType::PartOf, &target);
+        let mut sorted = vec![source.clone(), target.clone()];
+        sorted.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+        let out = get_unblocked_issues(&[source, target]);
+        assert_eq!(ids(&out), ids(&sorted));
+    }
+
+    #[test]
+    fn get_unblocked_issues_chain_traverses_blocking() {
+        // A required_for B, B required_for C: A is actionable, B and C are
+        // blocked one hop at a time through incoming non-Done sources.
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        relate(&mut a, RelationType::RequiredFor, &b);
+        relate(&mut b, RelationType::RequiredFor, &c);
+        let out = get_unblocked_issues(&[a.clone(), b, c]);
+        assert_eq!(ids(&out), vec![a.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_sorted_by_updated_at_desc() {
+        let mut older = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "older",
+            Status::Todo,
+        );
+        let mut newer = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "newer",
+            Status::Todo,
+        );
+        older.updated_at = chrono::Utc::now() - chrono::Duration::seconds(60);
+        newer.updated_at = chrono::Utc::now();
+        let out = get_unblocked_issues(&[older.clone(), newer.clone()]);
+        assert_eq!(ids(&out), vec![newer.id, older.id]);
+    }
+
+    // -- match_id_prefix ------------------------------------------------------
+
+    fn uuid(s: &str) -> Uuid {
+        Uuid::parse_str(s).unwrap()
+    }
+
+    fn known_ids(ids: &[&str]) -> Vec<Uuid> {
+        ids.iter().map(|s| uuid(s)).collect()
+    }
+
+    #[test]
+    fn match_id_prefix_full_uuid_found() {
+        let id1 = uuid("11111111-2222-3333-4444-555555555555");
+        let id2 = uuid("aaaaaaaa-1111-2222-3333-444444444444");
+        assert_eq!(match_id_prefix(&id1.to_string(), &[id1, id2]).unwrap(), id1);
+    }
+
+    #[test]
+    fn match_id_prefix_full_uuid_unknown_fails() {
+        let known = known_ids(&["11111111-2222-3333-4444-555555555555"]);
+        let unknown = uuid("99999999-8888-7777-6666-555555555555");
+        let err = match_id_prefix(&unknown.to_string(), &known).unwrap_err();
+        assert!(err.to_string().contains("not found"), "{}", err);
+    }
+
+    #[test]
+    fn match_id_prefix_unique_prefix_resolves() {
+        let id1 = uuid("11111111-2222-3333-4444-555555555555");
+        let id2 = uuid("aaaaaaaa-1111-2222-3333-444444444444");
+        assert_eq!(match_id_prefix("11111111-2222", &[id1, id2]).unwrap(), id1);
+    }
+
+    #[test]
+    fn match_id_prefix_ambiguous_prefix_fails() {
+        let id1 = uuid("11111111-2222-3333-4444-555555555555");
+        let id2 = uuid("11111111-9999-8888-7777-666666666666");
+        let err = match_id_prefix("11111111", &[id1, id2]).unwrap_err();
+        assert!(err.to_string().contains("Ambiguous"), "{}", err);
+    }
+
+    #[test]
+    fn match_id_prefix_unknown_prefix_fails() {
+        let known = known_ids(&["11111111-2222-3333-4444-555555555555"]);
+        let err = match_id_prefix("99999999", &known).unwrap_err();
+        assert!(err.to_string().contains("No issue found"), "{}", err);
+    }
+
+    #[test]
+    fn match_id_prefix_case_insensitive_prefix() {
+        let id = uuid("abcdef12-3456-7890-abcd-ef1234567890");
+        assert_eq!(match_id_prefix("ABCDEF12-3456", &[id]).unwrap(), id);
+        assert_eq!(match_id_prefix("abcdef12-3456", &[id]).unwrap(), id);
+    }
+
+    #[test]
+    fn match_id_prefix_case_insensitive_full_uuid() {
+        let id = uuid("abcdef12-3456-7890-abcd-ef1234567890");
+        assert_eq!(
+            match_id_prefix("ABCDEF12-3456-7890-ABCD-EF1234567890", &[id]).unwrap(),
+            id
+        );
+    }
+
+    #[test]
+    fn match_id_prefix_case_boundary_distinguishes_hex_letters() {
+        // The ids diverge at a hex letter: 'd' vs 'f'. Uppercase input must
+        // normalize to the same lowercase prefix boundary.
+        let id_d = uuid("abcdef12-3456-7890-abcd-ef1234567890");
+        let id_f = uuid("abcfef12-3456-7890-abcd-ef1234567890");
+        assert_eq!(match_id_prefix("ABCD", &[id_d, id_f]).unwrap(), id_d);
+        assert_eq!(match_id_prefix("ABCF", &[id_d, id_f]).unwrap(), id_f);
+        assert!(match_id_prefix("ABC", &[id_d, id_f]).is_err());
     }
 
     #[test]

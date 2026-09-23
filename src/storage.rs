@@ -22,6 +22,54 @@ pub struct SaveOutcome {
     pub index_modified: bool,
 }
 
+/// The rename/index-dirty decision `Storage::save_issue` applies when
+/// recording an issue under its new file name: whether the previous file
+/// must be removed (rename) and whether `.pebbles/index.json` must be
+/// rewritten. Pure data, produced by `plan_save_issue`.
+pub struct SavePlan {
+    /// Previous file name when the write renames the issue file (title or
+    /// type changed); the old file must be removed from disk.
+    pub renamed_from: Option<String>,
+    /// Whether `.pebbles/index.json` was modified (new issue or rename).
+    pub index_modified: bool,
+}
+
+/// Decide how `save_issue` should record an issue stored under
+/// `new_file_name` in `index`, applying the bookkeeping to `index`:
+///
+/// - No entry for `issue_id`: a new issue; the index gains an entry and is
+///   dirty (`index_modified`).
+/// - An entry with a different file name: a rename (title or type
+///   changed); the index entry is updated and is dirty.
+/// - An entry with the same file name: an in-place update; the index is
+///   unchanged.
+///
+/// Pure: no filesystem access. The file removal and write happen in
+/// `Storage::save_issue` from the returned plan.
+pub fn plan_save_issue(index: &mut Index, issue_id: Uuid, new_file_name: &str) -> SavePlan {
+    let old_name = index.get_file_name(&issue_id).map(|s| s.to_string());
+    match old_name.as_deref() {
+        Some(old) if old != new_file_name => {
+            index.update_file_name(&issue_id, new_file_name.to_string());
+            SavePlan {
+                renamed_from: old_name,
+                index_modified: true,
+            }
+        }
+        Some(_) => SavePlan {
+            renamed_from: None,
+            index_modified: false,
+        },
+        None => {
+            index.add(issue_id, new_file_name.to_string());
+            SavePlan {
+                renamed_from: None,
+                index_modified: true,
+            }
+        }
+    }
+}
+
 /// A per-item warning produced while loading the issue set or while writing
 /// a mutation: the affected `.pebbles` file name (empty when the warning is
 /// not specific to one file) and the warning text, without the `Warning: `
@@ -359,26 +407,14 @@ impl Storage {
         self.ensure_issues_dir()?;
 
         let new_file_name = issue.file_name();
-        let old_file_name = index.get_file_name(&issue.id).map(|s| s.to_string());
-
-        let mut renamed_from: Option<String> = None;
-        let mut index_modified = false;
+        let plan = plan_save_issue(index, issue.id, &new_file_name);
 
         // Handle file rename if title or type changed
-        if let Some(old_name) = old_file_name.as_deref() {
-            if old_name != new_file_name {
-                let old_path = self.issue_path(old_name);
-                if old_path.exists() {
-                    fs::remove_file(&old_path).context("Failed to remove old issue file")?;
-                }
-                index.update_file_name(&issue.id, new_file_name.clone());
-                renamed_from = Some(old_name.to_string());
-                index_modified = true;
+        if let Some(old_name) = &plan.renamed_from {
+            let old_path = self.issue_path(old_name);
+            if old_path.exists() {
+                fs::remove_file(&old_path).context("Failed to remove old issue file")?;
             }
-        } else {
-            // New issue
-            index.add(issue.id, new_file_name.clone());
-            index_modified = true;
         }
 
         let path = self.issue_path(&new_file_name);
@@ -390,8 +426,8 @@ impl Storage {
 
         Ok(SaveOutcome {
             new_file_name,
-            renamed_from,
-            index_modified,
+            renamed_from: plan.renamed_from,
+            index_modified: plan.index_modified,
         })
     }
 
@@ -692,6 +728,44 @@ mod tests {
             warning.cli_line(),
             "Warning: Failed to parse issue bug-11111111-x.json: nope"
         );
+    }
+
+    // -- plan_save_issue (pure rename/index-dirty decision) -------------------
+
+    #[test]
+    fn plan_save_issue_new_issue_adds_to_index_and_dirty() {
+        let mut index = Index::new();
+        let id = uuid("11111111-1111-1111-1111-111111111111");
+        let plan = plan_save_issue(&mut index, id, "bug-11111111-x.json");
+        assert_eq!(plan.renamed_from, None);
+        assert!(plan.index_modified);
+        assert_eq!(index.get_file_name(&id), Some("bug-11111111-x.json"));
+    }
+
+    #[test]
+    fn plan_save_issue_same_name_is_in_place_no_rename_no_dirty() {
+        let mut index = index_with(vec![(
+            "11111111-1111-1111-1111-111111111111",
+            "bug-11111111-x.json",
+        )]);
+        let id = uuid("11111111-1111-1111-1111-111111111111");
+        let plan = plan_save_issue(&mut index, id, "bug-11111111-x.json");
+        assert_eq!(plan.renamed_from, None);
+        assert!(!plan.index_modified);
+        assert_eq!(index.get_file_name(&id), Some("bug-11111111-x.json"));
+    }
+
+    #[test]
+    fn plan_save_issue_changed_name_renames_and_dirty() {
+        let mut index = index_with(vec![(
+            "11111111-1111-1111-1111-111111111111",
+            "bug-11111111-old.json",
+        )]);
+        let id = uuid("11111111-1111-1111-1111-111111111111");
+        let plan = plan_save_issue(&mut index, id, "bug-11111111-new.json");
+        assert_eq!(plan.renamed_from, Some("bug-11111111-old.json".to_string()));
+        assert!(plan.index_modified);
+        assert_eq!(index.get_file_name(&id), Some("bug-11111111-new.json"));
     }
 
     // -- reindex / stale-index (I/O-backed; tempdirs) ------------------------
