@@ -2,11 +2,11 @@
   "id": "7c6e8e5e-b2d3-4f6d-8fe8-c019a0630407",
   "title": "Implement full-text search",
   "description": "Search across issue titles and descriptions with query syntax",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-11T01:56:20.158110827Z",
-  "updated_at": "2026-01-11T01:56:20.158110827Z"
+  "updated_at": "2026-09-23T22:18:31.656592565Z"
 }
