@@ -210,7 +210,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed architecture documentation.
 
 ### Code Style
 
-- Follow Rust standard style (`cargo fmt`)
+- Committed code is always invariant to the current `cargo fmt`: `cargo fmt -- --check` passes on the committed tree. Run it before committing.
+- If `cargo fmt -- --check` fails on otherwise-unmodified committed code - for example the rustfmt toolchain changed - stop and ask the maintainer interactively what to do. Do not silently reformat the tree or pin a toolchain version on your own.
 - Use `clippy` and fix warnings (`cargo clippy`)
 - Write clear, descriptive variable names
 - Add comments for non-obvious logic
