@@ -178,11 +178,7 @@ pub fn print_issue_detail(
     println!("{}", "━".repeat(60).dimmed());
 }
 
-pub fn print_epic_view(
-    epic: &Issue,
-    child_issues: &[Issue],
-    id_prefixes: &HashMap<Uuid, String>,
-) {
+pub fn print_epic_view(epic: &Issue, child_issues: &[Issue], id_prefixes: &HashMap<Uuid, String>) {
     let status_str = match epic.status {
         Status::Proposed => "PROPOSED".white(),
         Status::Todo => "TODO".yellow(),
@@ -196,7 +192,11 @@ pub fn print_epic_view(
     println!(
         "{}: {}",
         "ID".bold(),
-        id_prefixes.get(&epic.id).cloned().unwrap_or_else(|| epic.short_id()).cyan()
+        id_prefixes
+            .get(&epic.id)
+            .cloned()
+            .unwrap_or_else(|| epic.short_id())
+            .cyan()
     );
     println!("{}: {}", "Status".bold(), status_str);
 
@@ -302,10 +302,10 @@ pub fn print_issue_tree(
         println!(
             "{} {} {} {}{}",
             id_prefixes
-                    .get(&epic.id)
-                    .cloned()
-                    .unwrap_or_else(|| epic.short_id())
-                    .dimmed(),
+                .get(&epic.id)
+                .cloned()
+                .unwrap_or_else(|| epic.short_id())
+                .dimmed(),
             "[epic]".yellow().bold(),
             status_badge,
             epic.title.bold(),

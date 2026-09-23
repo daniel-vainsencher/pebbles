@@ -166,7 +166,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -176,7 +178,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: issue, warnings })
+        Ok(MutationOutcome {
+            value: issue,
+            warnings,
+        })
     }
 
     // r[impl list-filter]
@@ -225,7 +230,10 @@ impl Operations {
         let mut issue = self.storage.load_issue(&uuid)?;
 
         if issue.status == new_status {
-            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
+            return Ok(MutationOutcome {
+                value: false,
+                warnings: Vec::new(),
+            });
         }
 
         let old_status = issue.status.clone();
@@ -236,7 +244,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -249,7 +259,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: true, warnings })
+        Ok(MutationOutcome {
+            value: true,
+            warnings,
+        })
     }
 
     // r[impl approve-command]
@@ -273,7 +286,10 @@ impl Operations {
         // Approving is a status change proposed -> todo, reusing the regular
         // status-update path (save + jj commit with the issue file path).
         let outcome = self.update_status(id, Status::Todo)?;
-        Ok(MutationOutcome { value: (), warnings: outcome.warnings })
+        Ok(MutationOutcome {
+            value: (),
+            warnings: outcome.warnings,
+        })
     }
 
     /// Returns `Ok(false)` when nothing changed (no file write, no jj commit).
@@ -308,7 +324,10 @@ impl Operations {
         }
 
         if !changed {
-            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
+            return Ok(MutationOutcome {
+                value: false,
+                warnings: Vec::new(),
+            });
         }
 
         issue.update();
@@ -317,7 +336,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -327,7 +348,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: true, warnings })
+        Ok(MutationOutcome {
+            value: true,
+            warnings,
+        })
     }
 
     /// Deletes the issue and returns its appropriate-length ID (computed
@@ -409,7 +433,8 @@ impl Operations {
         index.remove(&uuid);
         let mut warnings = Vec::new();
         let own_refs: Vec<&str> = own_files.iter().map(String::as_str).collect();
-        self.storage.save_index_stale_aware(&index, &own_refs, &mut warnings)?;
+        self.storage
+            .save_index_stale_aware(&index, &own_refs, &mut warnings)?;
         commit_paths.push(self.storage.index_path().clone());
 
         // Delete commits the (now-removed) issue file, every file touched by
@@ -421,7 +446,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: short, warnings })
+        Ok(MutationOutcome {
+            value: short,
+            warnings,
+        })
     }
 
     pub fn add_relationship(
@@ -467,7 +495,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&source_issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -480,7 +510,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: (), warnings })
+        Ok(MutationOutcome {
+            value: (),
+            warnings,
+        })
     }
 
     pub fn remove_relationship(
@@ -513,7 +546,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&source_issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -526,7 +561,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: (), warnings })
+        Ok(MutationOutcome {
+            value: (),
+            warnings,
+        })
     }
 
     pub fn epic(&self, id: &str) -> Result<(Issue, Vec<Issue>, Vec<LoadWarning>)> {
@@ -615,7 +653,10 @@ impl Operations {
         let old_type = issue.issue_type.clone();
 
         if old_type == new_type {
-            return Ok(MutationOutcome { value: false, warnings: Vec::new() });
+            return Ok(MutationOutcome {
+                value: false,
+                warnings: Vec::new(),
+            });
         }
 
         // Validate conversion
@@ -651,7 +692,9 @@ impl Operations {
         let outcome = self.storage.save_issue(&issue, &mut index)?;
         let mut warnings = Vec::new();
         self.storage.save_index_stale_aware(
-            &index, &[outcome.new_file_name.as_str()], &mut warnings
+            &index,
+            &[outcome.new_file_name.as_str()],
+            &mut warnings,
         )?;
 
         let paths = paths_for_save(&self.storage, &outcome);
@@ -664,7 +707,10 @@ impl Operations {
             &mut warnings,
         )?;
 
-        Ok(MutationOutcome { value: true, warnings })
+        Ok(MutationOutcome {
+            value: true,
+            warnings,
+        })
     }
 
     pub fn summary(&self) -> Result<(ProjectSummary, Vec<LoadWarning>)> {

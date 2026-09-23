@@ -821,7 +821,8 @@ impl App {
             reordered.push(self.projects.remove(pos));
         }
         self.projects = reordered;
-        self.ops_map.retain(|root, _| self.projects.iter().any(|p| p.root == *root));
+        self.ops_map
+            .retain(|root, _| self.projects.iter().any(|p| p.root == *root));
         self.settle_selection(same, next);
         Ok(())
     }
@@ -1429,7 +1430,10 @@ fn approve_selected(app: &mut App) -> Result<()> {
         Ok(outcome) => {
             let alid = ops.appropriate_length_id(&uuid)?;
             app.reload_project(&root)?;
-            app.message = Some(fold_warnings(format!("\u{2713} Approved {alid}"), &outcome.warnings));
+            app.message = Some(fold_warnings(
+                format!("\u{2713} Approved {alid}"),
+                &outcome.warnings,
+            ));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
@@ -1450,7 +1454,10 @@ fn delete_selected(app: &mut App) -> Result<()> {
     match ops.delete(&uuid.to_string(), false) {
         Ok(outcome) => {
             app.reload_project(&root)?;
-            app.message = Some(fold_warnings(format!("\u{2713} Deleted {}", outcome.value), &outcome.warnings));
+            app.message = Some(fold_warnings(
+                format!("\u{2713} Deleted {}", outcome.value),
+                &outcome.warnings,
+            ));
         }
         Err(e) => app.message = Some(format!("Error: {e}")),
     }
@@ -1546,21 +1553,38 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     };
     let id = edit.issue_id.to_string();
     let outcome = match edit.field {
-        EditField::Title => ops
-            .update(&id, Some(edit.buffer.clone()), None)
-            .map(|out| (out.value, fold_warnings("\u{2713} Updated title".to_string(), &out.warnings))),
-        EditField::Description => ops
-            .update(&id, None, Some(edit.buffer.clone()))
-            .map(|out| (out.value, fold_warnings("\u{2713} Updated description".to_string(), &out.warnings))),
+        EditField::Title => ops.update(&id, Some(edit.buffer.clone()), None).map(|out| {
+            (
+                out.value,
+                fold_warnings("\u{2713} Updated title".to_string(), &out.warnings),
+            )
+        }),
+        EditField::Description => ops.update(&id, None, Some(edit.buffer.clone())).map(|out| {
+            (
+                out.value,
+                fold_warnings("\u{2713} Updated description".to_string(), &out.warnings),
+            )
+        }),
         EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|out| {
             (
                 out.value,
-                fold_warnings(format!("\u{2713} Converted to {}", edit.pending_type), &out.warnings),
+                fold_warnings(
+                    format!("\u{2713} Converted to {}", edit.pending_type),
+                    &out.warnings,
+                ),
             )
         }),
         EditField::Status => ops
             .update_status(&id, edit.pending_status.clone())
-            .map(|out| (out.value, fold_warnings(format!("\u{2713} Status: {}", edit.pending_status), &out.warnings))),
+            .map(|out| {
+                (
+                    out.value,
+                    fold_warnings(
+                        format!("\u{2713} Status: {}", edit.pending_status),
+                        &out.warnings,
+                    ),
+                )
+            }),
     };
     match outcome {
         Ok((false, _)) => {
@@ -1765,7 +1789,10 @@ mod tests {
 
     #[test]
     fn fold_warnings_empty_is_message_unchanged() {
-        assert_eq!(fold_warnings("\u{2713} Done".to_string(), &[]), "\u{2713} Done");
+        assert_eq!(
+            fold_warnings("\u{2713} Done".to_string(), &[]),
+            "\u{2713} Done"
+        );
     }
 
     #[test]

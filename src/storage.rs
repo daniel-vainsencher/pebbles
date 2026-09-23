@@ -63,8 +63,16 @@ pub struct ReindexOutcome {
 /// key is a schema violation (r[schema-valid-issues]): reported at load,
 /// never silently dropped or preserved.
 pub const KNOWN_ISSUE_KEYS: [&str; 10] = [
-    "id", "title", "description", "status", "issue_type", "tags",
-    "relationships", "metadata", "created_at", "updated_at",
+    "id",
+    "title",
+    "description",
+    "status",
+    "issue_type",
+    "tags",
+    "relationships",
+    "metadata",
+    "created_at",
+    "updated_at",
 ];
 
 /// The top-level keys of an issue file's JSON object that are not part of
@@ -93,7 +101,10 @@ pub fn unknown_top_level_keys(content: &str) -> Vec<String> {
 /// name). File names always come from the scan - the on-disk files are the
 /// truth - so an issue file renamed outside pebbles is reindexed under its
 /// current name. Deterministic when the old index is unparsable.
-pub fn ordered_entries(entries: Vec<(Uuid, String)>, old_index: Option<&Index>) -> Vec<(Uuid, String)> {
+pub fn ordered_entries(
+    entries: Vec<(Uuid, String)>,
+    old_index: Option<&Index>,
+) -> Vec<(Uuid, String)> {
     let Some(old) = old_index else {
         return entries;
     };
@@ -211,12 +222,20 @@ impl Storage {
                 Ok(()) => Ok(()),
                 Err(e) => {
                     let _ = fs::remove_file(&tmp).ok();
-                    Err(anyhow::anyhow!("Failed to write {}: {}", path.to_string_lossy(), e))
+                    Err(anyhow::anyhow!(
+                        "Failed to write {}: {}",
+                        path.to_string_lossy(),
+                        e
+                    ))
                 }
             },
             Err(e) => {
                 let _ = fs::remove_file(&tmp).ok();
-                Err(anyhow::anyhow!("Failed to write {}: {}", path.to_string_lossy(), e))
+                Err(anyhow::anyhow!(
+                    "Failed to write {}: {}",
+                    path.to_string_lossy(),
+                    e
+                ))
             }
         }
     }
@@ -250,7 +269,8 @@ impl Storage {
         };
         let Some(baseline) = fs::metadata(&self.index_path)
             .and_then(|m| m.modified())
-            .ok() else {
+            .ok()
+        else {
             return Ok(None);
         };
         let mut known = HashSet::new();
@@ -269,9 +289,7 @@ impl Storage {
             {
                 continue;
             }
-            let Some(modified) = fs::metadata(&entry.path())
-                .and_then(|m| m.modified())
-                .ok() else {
+            let Some(modified) = fs::metadata(&entry.path()).and_then(|m| m.modified()).ok() else {
                 continue;
             };
             if modified > baseline {
@@ -412,7 +430,8 @@ impl Storage {
                                     "Issue {} has unknown key(s) not in the schema: {}; the \
                                      file is loaded but the key(s) will be dropped on the next \
                                      rewrite. Fix the file to remove them.",
-                                    metadata.file_name, unknown_keys.join(", ")
+                                    metadata.file_name,
+                                    unknown_keys.join(", ")
                                 ),
                             });
                         }
@@ -420,18 +439,12 @@ impl Storage {
                     }
                     Err(e) => warnings.push(LoadWarning {
                         file_name: metadata.file_name.clone(),
-                        message: format!(
-                            "Failed to parse issue {}: {}",
-                            metadata.file_name, e
-                        ),
+                        message: format!("Failed to parse issue {}: {}", metadata.file_name, e),
                     }),
                 },
                 Err(e) => warnings.push(LoadWarning {
                     file_name: metadata.file_name.clone(),
-                    message: format!(
-                        "Failed to load issue {}: {}",
-                        metadata.file_name, e
-                    ),
+                    message: format!("Failed to load issue {}: {}", metadata.file_name, e),
                 }),
             }
         }
@@ -460,7 +473,10 @@ impl Storage {
         let mut file_names: Vec<String> = Vec::new();
         if self.issues_dir.exists() {
             let Ok(entries) = fs::read_dir(&self.issues_dir) else {
-                bail!("Failed to list {} directory", self.issues_dir.to_string_lossy());
+                bail!(
+                    "Failed to list {} directory",
+                    self.issues_dir.to_string_lossy()
+                );
             };
             for entry in entries.flatten() {
                 let name = entry.file_name().to_string_lossy().to_string();
@@ -479,36 +495,26 @@ impl Storage {
             let path = self.issue_path(&file_name);
             match fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str::<Value>(&content) {
-                    Ok(value) => {
-                        match value.get("id") {
-                            None => {
-                                unparsable.push(format!(
-                                    "{}: missing 'id' field",
-                                    file_name
-                                ));
-                                continue;
-                            }
-                            Some(id_value) => match id_value {
-                                Value::String(id_str) => match Uuid::parse_str(&id_str) {
-                                    Ok(uuid) => {
-                                        if !seen.insert(uuid) {
-                                            duplicates.push(file_name.clone());
-                                        } else {
-                                            entries.push((uuid, file_name.clone()));
-                                        }
-                                    }
-                                    Err(_) => unparsable.push(format!(
-                                        "{}: 'id' is not a UUID: {}",
-                                        file_name, id_str
-                                    )),
-                                },
-                                _ => unparsable.push(format!(
-                                    "{}: 'id' is not a string",
-                                    file_name
-                                )),
-                            },
+                    Ok(value) => match value.get("id") {
+                        None => {
+                            unparsable.push(format!("{}: missing 'id' field", file_name));
+                            continue;
                         }
-                    }
+                        Some(id_value) => match id_value {
+                            Value::String(id_str) => match Uuid::parse_str(&id_str) {
+                                Ok(uuid) => {
+                                    if !seen.insert(uuid) {
+                                        duplicates.push(file_name.clone());
+                                    } else {
+                                        entries.push((uuid, file_name.clone()));
+                                    }
+                                }
+                                Err(_) => unparsable
+                                    .push(format!("{}: 'id' is not a UUID: {}", file_name, id_str)),
+                            },
+                            _ => unparsable.push(format!("{}: 'id' is not a string", file_name)),
+                        },
+                    },
                     Err(e) => unparsable.push(format!("{}: {}", file_name, e)),
                 },
                 Err(e) => unparsable.push(format!("{}: {}", file_name, e)),
@@ -573,11 +579,20 @@ mod tests {
     #[test]
     fn ordered_entries_without_old_index_is_scan_order() {
         let entries = vec![
-            (uuid("11111111-1111-1111-1111-111111111111"), "b.json".to_string()),
-            (uuid("22222222-2222-2222-2222-222222222222"), "a.json".to_string()),
+            (
+                uuid("11111111-1111-1111-1111-111111111111"),
+                "b.json".to_string(),
+            ),
+            (
+                uuid("22222222-2222-2222-2222-222222222222"),
+                "a.json".to_string(),
+            ),
         ];
         assert_eq!(
-            ordered_entries(entries.clone(), None).into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            ordered_entries(entries.clone(), None)
+                .into_iter()
+                .map(|(id, _)| id)
+                .collect::<Vec<_>>(),
             vec![
                 uuid("11111111-1111-1111-1111-111111111111"),
                 uuid("22222222-2222-2222-2222-222222222222"),
@@ -592,9 +607,18 @@ mod tests {
             ("33333333-3333-3333-3333-333333333333", "c.json"),
         ]);
         let entries = vec![
-            (uuid("11111111-1111-1111-1111-111111111111"), "b.json".to_string()),
-            (uuid("22222222-2222-2222-2222-222222222222"), "a.json".to_string()),
-            (uuid("33333333-3333-3333-3333-333333333333"), "c.json".to_string()),
+            (
+                uuid("11111111-1111-1111-1111-111111111111"),
+                "b.json".to_string(),
+            ),
+            (
+                uuid("22222222-2222-2222-2222-222222222222"),
+                "a.json".to_string(),
+            ),
+            (
+                uuid("33333333-3333-3333-3333-333333333333"),
+                "c.json".to_string(),
+            ),
         ];
         let ordered = ordered_entries(entries, Some(&old));
         assert_eq!(
@@ -611,8 +635,14 @@ mod tests {
     fn ordered_entries_takes_file_names_from_the_scan() {
         // The on-disk file names are the truth, even when the old index
         // names a different file for the same id.
-        let old = index_with(vec![("11111111-1111-1111-1111-111111111111", "old-name.json")]);
-        let entries = vec![(uuid("11111111-1111-1111-1111-111111111111"), "new-name.json".to_string())];
+        let old = index_with(vec![(
+            "11111111-1111-1111-1111-111111111111",
+            "old-name.json",
+        )]);
+        let entries = vec![(
+            uuid("11111111-1111-1111-1111-111111111111"),
+            "new-name.json".to_string(),
+        )];
         let ordered = ordered_entries(entries, Some(&old));
         assert_eq!(
             ordered.into_iter().map(|(_, f)| f).collect::<Vec<_>>(),
@@ -707,25 +737,31 @@ mod tests {
         // The old index exists and is parseable, but its order differs from
         // scan order, and it does not include every file.
         let mut old = Index::new();
-        old.add(issue_id("33333333-3333-3333-3333-333333333333"), "ccc-c.json".to_string());
-        old.add(issue_id("11111111-1111-1111-1111-111111111111"), "aaa-a.json".to_string());
+        old.add(
+            issue_id("33333333-3333-3333-3333-333333333333"),
+            "ccc-c.json".to_string(),
+        );
+        old.add(
+            issue_id("11111111-1111-1111-1111-111111111111"),
+            "aaa-a.json".to_string(),
+        );
         storage.save_index(&old).unwrap();
 
         let unchanged = storage.reindex().unwrap();
         assert_eq!(unchanged.entries, 3);
         assert_eq!(unchanged.unparsable.len(), 1, "{:?}", unchanged.unparsable);
-        assert!(unchanged.unparsable[0].contains("zzz-broken.json"), "{:?}", unchanged.unparsable);
+        assert!(
+            unchanged.unparsable[0].contains("zzz-broken.json"),
+            "{:?}",
+            unchanged.unparsable
+        );
         assert_eq!(unchanged.duplicates, vec!["yyy-dup.json".to_string()]);
         assert!(unchanged.wrote);
 
         // Old index order is preserved for known ids; new ids follow in scan
         // order; unparsable and duplicate files are excluded.
         let rebuilt = storage.load_index().unwrap();
-        let order: Vec<Uuid> = rebuilt
-            .issues
-            .iter()
-            .map(|m| m.id)
-            .collect::<Vec<_>>();
+        let order: Vec<Uuid> = rebuilt.issues.iter().map(|m| m.id).collect::<Vec<_>>();
         assert_eq!(
             order,
             vec![
@@ -782,7 +818,10 @@ mod tests {
         // Indexed file: even a later rewrite (newer mtime) is not staleness -
         // the index entry id -> file_name is still correct.
         let mut index = storage.load_index().unwrap();
-        index.add(issue_id("11111111-1111-1111-1111-111111111111"), "bug-11111111-x.json".to_string());
+        index.add(
+            issue_id("11111111-1111-1111-1111-111111111111"),
+            "bug-11111111-x.json".to_string(),
+        );
         storage.save_index(&index).unwrap();
         std::thread::sleep(std::time::Duration::from_millis(5));
         write_json_file(
@@ -801,7 +840,10 @@ mod tests {
             r#"{ "id": "22222222-2222-2222-2222-222222222222" }"#,
         );
         assert!(
-            storage.stale_index_warning(&["bug-22222222-own.json"]).unwrap().is_none(),
+            storage
+                .stale_index_warning(&["bug-22222222-own.json"])
+                .unwrap()
+                .is_none(),
             "own file must be excluded from the stale check"
         );
     }

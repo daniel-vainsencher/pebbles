@@ -136,7 +136,10 @@ mod tests {
 
     #[test]
     fn discover_scans_home_repos_and_extra_dirs_only_for_pebbles_dirs() {
-        let tmp = tempfile::Builder::new().prefix("pebbles-disc-").tempdir().unwrap();
+        let tmp = tempfile::Builder::new()
+            .prefix("pebbles-disc-")
+            .tempdir()
+            .unwrap();
         let home = tmp.path().to_path_buf();
         std::fs::create_dir_all(home.join("repos/alpha/.pebbles")).unwrap();
         std::fs::create_dir_all(home.join("repos/beta")).unwrap(); // no .pebbles
@@ -147,6 +150,9 @@ mod tests {
         let names: Vec<&str> = projects.iter().map(|p| p.name.as_str()).collect();
         assert!(names.contains(&"alpha"), "{names:?}");
         assert!(names.contains(&"gamma"), "{names:?}");
-        assert!(!names.contains(&"beta"), "dir without .pebbles is not a project: {names:?}");
+        assert!(
+            !names.contains(&"beta"),
+            "dir without .pebbles is not a project: {names:?}"
+        );
     }
 }

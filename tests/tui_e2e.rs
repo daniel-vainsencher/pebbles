@@ -349,9 +349,7 @@ fn add_issue_externally(
     // The index ends "<entries>]}"; splice the new entry in front of the "]}".
     let index_content = fs::read_to_string(pebbles.join("index.json")).unwrap();
     let mut updated = index_content[..index_content.len() - 2].to_string();
-    updated.push_str(
-        format!(",{{\"id\":\"{uuid}\",\"file_name\":\"{file}\"}}]}}").as_str(),
-    );
+    updated.push_str(format!(",{{\"id\":\"{uuid}\",\"file_name\":\"{file}\"}}]}}").as_str());
     fs::write(pebbles.join("index.json"), updated).expect("index update");
 }
 
@@ -465,8 +463,22 @@ fn tui_refresh_shows_external_changes_and_keeps_selection() -> termlens::Result<
     build_project(
         &home.join("repos/proj-a"),
         &[
-            ("alpha-idea", 0x11111111, "bug", "proposed", "Alpha idea", false),
-            ("beta-idea", 0x22222222, "usecase", "proposed", "Beta idea", false),
+            (
+                "alpha-idea",
+                0x11111111,
+                "bug",
+                "proposed",
+                "Alpha idea",
+                false,
+            ),
+            (
+                "beta-idea",
+                0x22222222,
+                "usecase",
+                "proposed",
+                "Beta idea",
+                false,
+            ),
         ],
     );
 
@@ -497,19 +509,39 @@ fn tui_refresh_shows_external_changes_and_keeps_selection() -> termlens::Result<
     // in-place status flip in proj-a, plus a brand-new project appearing
     // in the registry.
     let pebbles_a = home.join("repos/proj-a/.pebbles");
-    add_issue_externally(&pebbles_a, "gamma-idea", 0x33333333, "design", "proposed", "Gamma idea");
+    add_issue_externally(
+        &pebbles_a,
+        "gamma-idea",
+        0x33333333,
+        "design",
+        "proposed",
+        "Gamma idea",
+    );
     set_status_externally(&pebbles_a, "usecase-22222222-beta-idea.json", "done");
     build_project(
         &home.join("repos/proj-b"),
-        &[("delta-idea", 0x44444444, "usecase", "proposed", "Delta idea", false)],
+        &[(
+            "delta-idea",
+            0x44444444,
+            "usecase",
+            "proposed",
+            "Delta idea",
+            false,
+        )],
     );
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Load-once-per-invocation: with no key pressed the screen still shows
     // the startup issue set; the external changes are invisible.
     let stale = t.screen();
-    assert!(!stale.contains("Gamma idea"), "stale before refresh: {stale}");
-    assert!(stale.contains("Beta idea"), "Beta still proposed before refresh: {stale}");
+    assert!(
+        !stale.contains("Gamma idea"),
+        "stale before refresh: {stale}"
+    );
+    assert!(
+        stale.contains("Beta idea"),
+        "Beta still proposed before refresh: {stale}"
+    );
     assert!(!stale.contains("proj-b"), "stale before refresh: {stale}");
 
     // `p` reloads the changed project: Gamma appears under proj-a (its
@@ -573,7 +605,14 @@ fn tui_refresh_in_plain_tree_adds_projects_and_keeps_selection() -> termlens::Re
     let home = tempdir.path().to_path_buf();
     build_project(
         &home.join("repos/proj-a"),
-        &[("alpha-idea", 0x11111111, "bug", "proposed", "Alpha idea", false)],
+        &[(
+            "alpha-idea",
+            0x11111111,
+            "bug",
+            "proposed",
+            "Alpha idea",
+            false,
+        )],
     );
 
     let mut t = Terminal::builder()
@@ -605,13 +644,23 @@ fn tui_refresh_in_plain_tree_adds_projects_and_keeps_selection() -> termlens::Re
     );
     build_project(
         &home.join("repos/proj-b"),
-        &[("delta-idea", 0x44444444, "usecase", "proposed", "Delta idea", false)],
+        &[(
+            "delta-idea",
+            0x44444444,
+            "usecase",
+            "proposed",
+            "Delta idea",
+            false,
+        )],
     );
     std::thread::sleep(std::time::Duration::from_millis(100));
 
     // Still stale until a key is pressed.
     let stale = t.screen();
-    assert!(!stale.contains("Gamma idea"), "stale before refresh: {stale}");
+    assert!(
+        !stale.contains("Gamma idea"),
+        "stale before refresh: {stale}"
+    );
     assert!(!stale.contains("proj-b"), "stale before refresh: {stale}");
 
     // `p`: proj-a grows 1 -> 2 and shows Gamma, proj-b joins the registry,
