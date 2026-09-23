@@ -2,11 +2,11 @@
   "id": "66456e56-36c1-48af-9ca6-eedc6d80fff5",
   "title": "Enhance output with contextual guidance for users",
   "description": "Make pebbles output rich enough to guide beginner humans and LLMs to good usage:\n\n1. Enhanced help text for issue types: When showing --issue-type options, include brief guidance on when to use each type (e.g., 'bug - software defects requiring fixes', 'epic - container for grouping related issues')\n\n2. Smart suggestions after creating issues:\n   - If issue type can be part_of an epic and epics exist in the project, suggest: 'Tip: Link to an epic with: pebbles link <id> part_of <epic-id>'\n   - If no relationships are specified, suggest: 'Tip: Add dependencies with: pebbles link <id> required_for <other-id>'\n   - Show these as optional tips, not errors\n\n3. List available epics when relevant (e.g., after creating a bug/usecase that could be linked)\n\nGoal: Progressive disclosure - help users discover features naturally through usage.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-11T03:03:50.116681512Z",
-  "updated_at": "2026-01-11T03:03:50.116681512Z"
+  "updated_at": "2026-09-23T22:57:20.055195848Z"
 }
