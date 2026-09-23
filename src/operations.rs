@@ -5,6 +5,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
+use crate::export::{drop_missing_relationships, parse_export_bundle, validate_import};
 use crate::jj::JJ;
 use crate::models::{
     build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
@@ -1653,6 +1654,72 @@ impl Operations {
             }
             Err(e) => Err(e),
         }
+    }
+
+    /// Import the issues from a pebbles export JSON bundle (`pebbles
+    /// import`, r[import-semantics]): parse and validate the bundle with the
+    /// pure functions from `export` (every issue must pass the same schema
+    /// checks as a loaded issue file, duplicate bundle ids are rejected,
+    /// and an id that already exists in this store is an error), drop
+    /// relationships whose target is neither in the bundle nor in the store
+    /// (with a warning), then write every issue and commit the store change
+    /// in ONE jj commit. Additive only: existing issues are never
+    /// overwritten. Returns the number of issues imported and the warnings
+    /// (per-issue schema warnings + dropped-relationship warnings) as data
+    /// (r[load-warnings-as-data]); `source` names the bundle file in the
+    /// commit message.
+    pub fn import_bundle(&self, content: &str, source: &str) -> Result<MutationOutcome<usize>> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        // Validation before any write: the bundle parses, every issue
+        // passes the loaded-issue-file schema checks, and no id collides
+        // with the store or repeats inside the bundle.
+        let plan = parse_export_bundle(content)?;
+        let existing = self.storage.load_index()?;
+        validate_import(&plan.issues, &existing.all_ids())?;
+
+        // Relationships may only target an issue that exists after the
+        // import: the union of the bundle's ids and the store's ids.
+        let mut known = HashSet::new();
+        for id in existing.all_ids() {
+            known.insert(id);
+        }
+        for issue in &plan.issues {
+            known.insert(issue.id);
+        }
+        let (issues, mut warnings) = drop_missing_relationships(&plan.issues, &known);
+        for warning in &plan.warnings {
+            warnings.push(warning.clone());
+        }
+
+        // Write every issue, then the index, then commit the whole
+        // operation in one jj commit (r[jj-commit-complete-path-set]).
+        let mut index = self.storage.load_index()?;
+        let mut commit_paths: Vec<PathBuf> = Vec::new();
+        let mut own_files: Vec<String> = Vec::new();
+        for issue in &issues {
+            let outcome = self.storage.save_issue(issue, &mut index)?;
+            commit_paths.push(self.storage.issue_path(&outcome.new_file_name));
+            own_files.push(outcome.new_file_name.clone());
+        }
+        let own_refs: Vec<&str> = own_files.iter().map(String::as_str).collect();
+        self.storage
+            .save_index_stale_aware(&index, &own_refs, &mut warnings)?;
+        commit_paths.push(self.storage.index_path().clone());
+
+        let path_refs: Vec<&Path> = commit_paths.iter().map(|p| p.as_path()).collect();
+        self.commit_store_fallible(
+            &format!("Import {} issue(s) from {}", issues.len(), source),
+            &path_refs,
+            &mut warnings,
+        )?;
+
+        Ok(MutationOutcome {
+            value: issues.len(),
+            warnings,
+        })
     }
 
     /// Rebuild `.pebbles/index.json` from the issue files: the sanctioned

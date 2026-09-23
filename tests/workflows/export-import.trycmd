@@ -1,0 +1,107 @@
+# Export/import workflow
+
+`pebbles export` serializes the issue set as a JSON bundle, a flat CSV, or a
+Markdown document; `pebbles import` loads a JSON bundle additively.
+
+Fixture store: an epic (444, User Authentication Epic) with two children
+(111 Login button, 333 JWT auth) and two orphans (555 Export users to CSV,
+done; 222 User can login). A second, empty store lives at `blank/.pebbles`
+for the round-trip into a fresh store. `partial.json` carries two new
+issues, one of which references a target that exists only in the store
+(kept) and one that exists nowhere (dropped with a warning).
+
+## Export JSON to a file
+
+`export --output` writes the bundle and prints a confirmation; the file is
+asserted byte-for-byte in `.out/export.json`.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles export json -o export.json
+✓ Exported 5 issue(s) to export.json
+
+```
+
+## Export CSV to stdout
+
+r[verify csv-schema]
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles export csv
+id,title,description,status,issue_type,tags,relationships,metadata
+"11111111-1111-1111-1111-111111111111","Login button doesn't respond on mobile","The login button doesn't respond to clicks on mobile devices","todo","bug","[]","[{""relation_type"":""part_of"",""target_id"":""44444444-4444-4444-4444-444444444444""}]","{}"
+"22222222-2222-2222-2222-222222222222","User can login with email and password","","todo","usecase","[]","[]","{}"
+"33333333-3333-3333-3333-333333333333","JWT token authentication system","Design and implement JWT-based authentication","todo","design","[]","[{""relation_type"":""part_of"",""target_id"":""44444444-4444-4444-4444-444444444444""}]","{}"
+"44444444-4444-4444-4444-444444444444","User Authentication Epic","Implement complete user authentication system","todo","epic","[]","[]","{}"
+"55555555-5555-5555-5555-555555555555","Export users to CSV","","done","usecase","[]","[]","{}"
+
+```
+
+## Export Markdown to stdout
+
+r[verify export-markdown] Children render under their epic, done issues get
+`[x]`, and non-epic issues without a part_of relationship land in Orphans
+(both sorted by title).
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles export markdown
+# Pebbles Export
+
+## Epic: User Authentication Epic
+
+- [ ] 33333333-3333-3333-3333-333333333333 [des] [todo] JWT token authentication system
+- [ ] 11111111-1111-1111-1111-111111111111 [bug] [todo] Login button doesn't respond on mobile
+
+## Orphans
+
+- [x] 55555555-5555-5555-5555-555555555555 [uc] [done] Export users to CSV
+- [ ] 22222222-2222-2222-2222-222222222222 [uc] [todo] User can login with email and password
+
+```
+
+## Round-trip: the bundle imports into a fresh store
+
+r[verify import-semantics]
+```console
+$ PEBBLES_DB_PATH=blank/.pebbles pebbles import export.json
+✓ Imported 5 issue(s) from export.json
+
+```
+
+## Import is additive, preserving relationships to store issues
+
+r[verify import-semantics] The new issue keeps its part_of link to the epic
+that already exists in the store; the relationship to a target that exists
+neither in the bundle nor in the store is dropped with a warning.
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles import partial.json
+Warning: Import dropped relationship required_for -> 99999999-9999-9999-9999-999999999999 from 'API key rotation': target not found in the bundle or the store
+✓ Imported 2 issue(s) from partial.json
+
+```
+
+## A bundle colliding with the store is rejected atomically
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles import export.json
+? 1
+Error: Issue 11111111-1111-1111-1111-111111111111 already exists in this store; import is additive and never overwrites existing issues
+
+```
+
+## Duplicate ids inside a bundle are rejected
+
+```console
+$ PEBBLES_DB_PATH=blank/.pebbles pebbles import duplicate.json
+? 1
+Error: Export bundle contains duplicate issue id: 88888888-8888-8888-8888-888888888888
+
+```
+
+## A JSON file that is not an export bundle is rejected
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles import .pebbles/index.json
+? 1
+Error: Not a pebbles export bundle: missing "format" field
+
+```

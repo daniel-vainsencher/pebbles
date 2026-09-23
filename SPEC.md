@@ -411,6 +411,17 @@ r[review-command]
 
 - `summary` - Show project summary and statistics
 
+- `export <format> [-o <path>]` - Export all issues (`json`, `csv`, or
+  `markdown`; stdout by default, `-o <path>` writes the file instead)
+  See [Export and Import](#export-and-import) for the bundle format, CSV
+  schema, Markdown shape, and deterministic ordering.
+
+- `import <file>` - Import issues from a pebbles export JSON bundle
+  (additive; validated fully before any write)  
+  See [Export and Import](#export-and-import) for the validation rules,
+  the dropped-relationship behavior, and the one-commit-per-import write
+  path.
+
 See [`Commands` enum](src/cli.rs#L11-L99) for complete argument specifications.
 
 r[bulk-input]
@@ -571,6 +582,7 @@ Every mutating operation commits the changed files to jj with a descriptive mess
 - Link: "Add relationship: {source} {relation} {target}"
 - Unlink: "Remove relationship: {source} {relation} {target}"
 - Convert type: "Convert {title}: {old_type} → {new_type}"
+- Import: "Import {N} issue(s) from {file}" (one commit per import)
 
 r[jj-commit-complete-path-set]
 Each operation runs `jj commit -m "<message>" <paths...>`, passing the **complete** set of paths the operation affected. This is the contract: every path pebbles modified, deleted, or created in service of the operation must be in the commit, so the working copy is clean afterward and nothing pebbles changed outlives the commit. Concretely, the path set always includes the affected issue file(s), and additionally:
@@ -623,10 +635,96 @@ carry every given tag) and composes with `--status`, `--issue-type`, and
 (case-sensitive); empty tags are an error. Use the CLI for all supported
 updates; edit JSON manually only if the CLI is failing.
 
+## Export and Import
+
+r[export-order]
+Every export output is deterministic: JSON and CSV list issues in ascending
+id order (string order of the UUIDs), and the Markdown document lists
+epics, children, and orphans by title. Input order from storage never
+reaches the output, so exports are canonical and diff-friendly.
+
+### JSON bundle format
+
+r[export-bundle]
+`pebbles export json` writes the full issue set as a versioned JSON
+envelope, and `pebbles import` accepts exactly this format:
+
+```json
+{
+  "format": "pebbles-export",
+  "version": 1,
+  "issues": [ /* one Issue object per issue, as in the issue file schema */ ]
+}
+```
+
+- `format` must be exactly `"pebbles-export"` and `version` exactly `1`;
+  anything else, a missing or mis-typed field, or non-object/non-array
+  shapes are rejected up front. Unknown envelope keys are ignored.
+- Each `issues` element is one [`Issue`](src/models.rs) object preserving
+  id, title, description, status, issue_type, tags, relationships,
+  metadata, and both timestamps. The bundle is the only import format;
+  there is no generic "import from another tracker".
+- Issues are listed in ascending id order (string order of the UUIDs) so
+  exports are canonical and diff-friendly. Export is a pure function of
+  the stored issue set plus this ordering rule (r[export-order]); imports
+  write issues in bundle order.
+- Implementation: [`export.rs`](src/export.rs) | Tests: [export unit tests](src/export.rs), [export-import workflow](tests/workflows/export-import.trycmd)
+
+r[import-semantics]
+`pebbles import <file>` validates the bundle completely before writing
+anything:
+
+1. The file parses as the envelope above; an issue element that fails the
+   same schema checks as a loaded issue file (a `serde` deserialization
+   into `Issue`) fails the whole import naming its 1-based position.
+   Elements with keys outside the schema import with a warning naming the
+   keys, which are dropped on write - mirroring the store's load path.
+2. Duplicate ids inside the bundle are rejected.
+3. An id that already exists in the store is rejected: import is
+   additive and never overwrites. Rejections write nothing.
+4. A relationship whose target is neither in the bundle nor in the store
+   is **dropped with a warning** (the store's no-broken-links invariant,
+   r[impl no-broken-links], holds after the import). Relationships whose
+   target exists in the store are kept.
+5. Every accepted issue is written through the existing
+   `Storage::save_issue` path and the store change is committed to jj in
+   ONE commit: `Import N issue(s) from <file>` (r[jj-commit-complete-path-set]).
+
+Implementation: [`parse_export_bundle`](src/export.rs), [`validate_import`](src/export.rs), [`drop_missing_relationships`](src/export.rs), [`Operations::import_bundle()`](src/operations.rs) | Tests: [export unit tests](src/export.rs), [export-import workflow](tests/workflows/export-import.trycmd)
+
+### CSV schema
+
+r[csv-schema]
+`pebbles export csv` writes a flat, deterministic table:
+
+- One header row `id,title,description,status,issue_type,tags,relationships,metadata`,
+  then one row per issue sorted by id (r[export-order]).
+- Comma delimiter, RFC-4180 escaping: every field is double-quoted and
+  embedded double quotes are doubled (`""`). Records end with LF
+  (RFC-4180 specifies CRLF; LF is accepted by every CSV consumer and
+  keeps exports diff-friendly).
+- `description` is empty when the issue has none; `status` and
+  `issue_type` use their canonical on-disk spellings; `tags`,
+  `relationships`, and `metadata` are JSON-encoded so no information is
+  lost (e.g. `["a","b"]`, `[{"relation_type":"part_of","target_id":"..."}]`,
+  `{"priority":"high"}`). The CSV is a lossless, machine-readable
+  projection of the bundle.
+
+### Markdown document
+
+r[export-markdown]
+`pebbles export markdown` writes a readable document for humans
+(best-effort, not lossless): one `## Epic: <title>` section per epic with
+its part_of children as `- [ ] <id> [<type>] [<status>] <title>` rows
+(`[x]` for done issues), then an `## Orphans` section with every non-epic
+issue that is not a child of any epic in the export. Epics, children, and
+orphans sort by title (r[export-order]). Tags, metadata, descriptions, and
+non-epic relationships are not rendered; use `export json` or
+`export csv` for the complete data.
+
 ## Future Considerations
 
 Features mentioned in historical documentation but not yet implemented:
-- Export/import functionality
 - Templates per issue type
 
 These features are tracked as pebbles issues in the repository.

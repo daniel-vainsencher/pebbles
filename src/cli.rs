@@ -238,6 +238,24 @@ pub enum Commands {
     #[command(about = "Show project summary and statistics")]
     Summary,
 
+    #[command(about = "Export all issues as a JSON bundle, CSV, or Markdown document")]
+    Export {
+        #[arg(value_enum, help = "Output format (json, csv, markdown)")]
+        format: ExportFormat,
+
+        #[arg(short = 'o', long, help = "Output file path (default: stdout)")]
+        output: Option<String>,
+    },
+
+    #[command(
+        about = "Import issues from a pebbles export JSON bundle (additive; rejects clashes)",
+        long_about = "Import issues from a pebbles export JSON bundle written by 'pebbles export json'.\n\n        The bundle is fully validated before anything is written: the envelope must be a pebbles export\n        bundle (format pebbles-export, version 1), every issue must pass the same schema checks as a\n        loaded issue file, duplicate ids inside the bundle are rejected, and an id that already exists\n        in this store is an error (import is additive and never overwrites). Relationships whose target\n        is neither in the bundle nor in this store are dropped with a warning. All imported issues are\n        written and committed to jj in one operation."
+    )]
+    Import {
+        #[arg(help = "Path to a pebbles export JSON bundle")]
+        file: String,
+    },
+
     #[command(about = "Visualize project flow (EXPERIMENTAL)")]
     Flow {
         #[arg(
@@ -343,6 +361,28 @@ pub enum MetadataCommand {
         #[arg(value_name = "KEY", help = "Metadata key (all keys when omitted)")]
         key: Option<String>,
     },
+}
+
+/// Output format for `pebbles export` (r[export-bundle], r[csv-schema],
+/// r[export-markdown]): `json` writes the versioned bundle that `pebbles
+/// import` accepts; `csv` writes one flat RFC-4180 row per issue; and
+/// `markdown` writes a readable per-epic + orphans document.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
+pub enum ExportFormat {
+    Json,
+    Csv,
+    Markdown,
+}
+
+impl std::fmt::Display for ExportFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            ExportFormat::Json => "json",
+            ExportFormat::Csv => "csv",
+            ExportFormat::Markdown => "markdown",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 /// Output format for `pebbles flow` (r[flow-format]). `json` and `dot` are

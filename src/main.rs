@@ -1,5 +1,6 @@
 mod cli;
 mod display;
+mod export;
 mod flow;
 mod jj;
 mod models;
@@ -10,7 +11,7 @@ mod tui;
 
 use crate::models::{Issue, Status};
 use crate::storage::LoadWarning;
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands, MetadataCommand, TagCommand};
 use display::{
@@ -474,6 +475,30 @@ fn main() -> Result<()> {
             let (summary, warnings) = ops.summary()?;
             print_warnings(&warnings);
             print_summary(&summary);
+        }
+
+        Commands::Export { format, output } => {
+            let (issues, warnings) = ops.list(None, None)?;
+            print_warnings(&warnings);
+            let content = match format {
+                cli::ExportFormat::Json => export::export_json(&issues),
+                cli::ExportFormat::Csv => export::export_csv(&issues),
+                cli::ExportFormat::Markdown => export::export_markdown(&issues),
+            };
+            if let Some(path) = output {
+                std::fs::write(&path, content)?;
+                println!("✓ Exported {} issue(s) to {}", issues.len(), path);
+            } else {
+                print!("{}", content);
+            }
+        }
+
+        Commands::Import { file } => {
+            let content = std::fs::read_to_string(&file)
+                .with_context(|| format!("Failed to read export bundle: {}", file))?;
+            let outcome = ops.import_bundle(&content, &file)?;
+            print_warnings(&outcome.warnings);
+            println!("✓ Imported {} issue(s) from {}", outcome.value, file);
         }
 
         Commands::Flow {
