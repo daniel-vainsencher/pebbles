@@ -2,7 +2,7 @@
   "id": "70c871cf-f6f3-461a-a634-cae699ddd3d8",
   "title": "Refine flow CLI: add pager, improve flags",
   "description": "Improve flow command CLI based on spike learnings:\n\nRequired flags:\n- --format: text (default), svg, json, dot\n- --output: file path (default: stdout for text, required for svg/json/dot)\n- --show-done: include completed issues (default: hide)\n- --goal <id>: highlight critical chain to specific goal issue\n\nConsider for future:\n- --pager: pipe text output through less/bat for horizontal scrolling\n- --filter-status: filter by status\n- --filter-type: filter by type\n- --minimal: show only critical chain (with --goal)\n\nText output should go to stdout by default for pipeline friendliness.\nOther formats should require explicit --output to avoid accidents.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -29,5 +29,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:11:35.720668215Z",
-  "updated_at": "2026-09-23T19:07:49.533109799Z"
+  "updated_at": "2026-09-23T19:32:51.209010790Z"
 }
