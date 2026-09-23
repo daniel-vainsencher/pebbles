@@ -1,0 +1,88 @@
+# List title search
+
+`pebbles list --search <query>` fuzzy-matches issue titles
+(case-insensitive, subsequence matching with word-boundary bonuses) and
+sorts by match quality, best first. It composes with the existing
+--status and --issue-type filters.
+
+Fixture store: 555 (Log out flow design, proposed design),
+444 (Export users to CSV, done usecase), 333 (User can login with email
+and password, in progress usecase), 222 (JWT token authentication system,
+todo design), 111 (Login button doesn't respond on mobile, todo bug).
+
+## Baseline list (updated_at descending)
+
+```console
+$ pebbles list
+555 [des] [PROPOSED] Log out flow design
+444 [uc] [DONE] Export users to CSV
+333 [uc] [IN PROGRESS] User can login with email and password
+222 [des] [TODO] JWT token authentication system
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Fuzzy title match, best match first
+
+The query matches contiguously in "Login button..." and "User can login
+...", and as a subsequence in "Log out flow design" (the `i` and `n` of
+"design").
+
+```console
+$ pebbles list --search login
+111 [bug] [TODO] Login button doesn't respond on mobile
+333 [uc] [IN PROGRESS] User can login with email and password
+555 [des] [PROPOSED] Log out flow design
+
+```
+
+## Search composes with --status
+
+```console
+$ pebbles list --search login --status todo
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with --issue-type
+
+```console
+$ pebbles list --search login --issue-type bug
+111 [bug] [TODO] Login button doesn't respond on mobile
+
+```
+
+## Search composes with --status and --issue-type
+
+```console
+$ pebbles list --search login --status in_progress --issue-type usecase
+333 [uc] [IN PROGRESS] User can login with email and password
+
+```
+
+## Case-insensitive matching
+
+```console
+$ pebbles list --search CSV
+444 [uc] [DONE] Export users to CSV
+
+```
+
+## No match
+
+```console
+$ pebbles list --search zzzz
+No issues found.
+
+```
+
+## Blank query matches nothing
+
+An explicitly blank --search is a distinct filter, not the unfiltered
+list.
+
+```console
+$ pebbles list --search ""
+No issues found.
+
+```

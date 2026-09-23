@@ -20,6 +20,7 @@ libc = "0.2"
 crossterm = "0.29"
 ratatui = { version = "0.30", features = ["crossterm"] }
 tui-tree-widget = "=0.24.1"
+fuzzy-matcher = "0.3.7"
 
 [dev-dependencies]
 trycmd = "0.15"

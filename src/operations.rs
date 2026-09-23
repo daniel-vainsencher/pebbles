@@ -1,4 +1,6 @@
 use anyhow::{bail, Context, Result};
+use fuzzy_matcher::skim::SkimMatcherV2;
+use fuzzy_matcher::FuzzyMatcher;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -202,6 +204,55 @@ pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
     unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
 
     unblocked_issues
+}
+
+/// The issues from `issues` whose title fuzzy-matches `query`, sorted by
+/// match score descending; equal scores break by `updated_at` descending,
+/// keeping the established ordering rule (r[impl issue-ordering]) within a
+/// relevance class.
+///
+/// Matching is fuzzy-matcher's `SkimMatcherV2`: case-insensitive
+/// subsequence matching with word-boundary bonuses (a query does not have
+/// to be a contiguous substring of the title). An empty (or whitespace
+/// only) query matches nothing: `--search ""` is a distinct filter, not
+/// the unfiltered list (r[continuity]).
+///
+/// Pure: no storage access, so the matching and ordering logic is
+/// unit-testable without I/O (ARCHITECTURE: functional core, imperative
+/// shell).
+///
+/// ```rust
+/// # use pebbles::models::{Issue, IssueType, Status};
+/// # use pebbles::operations::filter_by_title_query;
+/// let mut a = Issue::new("Login button".to_string(), None, IssueType::Bug);
+/// let mut b = Issue::new("Export users to CSV".to_string(), None, IssueType::Bug);
+/// let out = filter_by_title_query(&[a.clone(), b.clone()], "login");
+/// assert_eq!(out.len(), 1);
+/// assert_eq!(out[0].id, a.id);
+/// ```
+pub fn filter_by_title_query(issues: &[Issue], query: &str) -> Vec<Issue> {
+    let query = query.trim();
+    if query.is_empty() {
+        return Vec::new();
+    }
+
+    // Always case-insensitive: a search for "LOGIN" finds "login" and
+    // vice versa (the matcher default is smart-case, which would treat an
+    // all-uppercase query as case-sensitive).
+    let matcher = SkimMatcherV2::default().ignore_case();
+    let mut scored: Vec<(i64, Issue)> = issues
+        .iter()
+        .filter_map(|issue| {
+            matcher
+                .fuzzy_match(&issue.title, query)
+                .map(|score| (score, issue.clone()))
+        })
+        .collect();
+    scored.sort_by(|a, b| {
+        b.0.cmp(&a.0)
+            .then_with(|| b.1.updated_at.cmp(&a.1.updated_at))
+    });
+    scored.into_iter().map(|(_, issue)| issue).collect()
 }
 
 /// Aggregate `issues` into a `ProjectSummary`: total count, counts by
@@ -1439,5 +1490,113 @@ mod tests {
             parse_id_input_line("111 [bug] [DONE] Fix mobile login"),
             vec!["111"]
         );
+    }
+
+    // -- filter_by_title_query ------------------------------------------------
+
+    #[test]
+    fn filter_by_title_query_matches_query_in_any_position() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login button",
+            Status::Todo,
+        );
+        let jwt = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "JWT token auth",
+            Status::Todo,
+        );
+        let email = issue_with(
+            "33333333-2222-3333-4444-555555555555",
+            "User can login with email",
+            Status::Todo,
+        );
+        let out = filter_by_title_query(&[login.clone(), jwt, email.clone()], "login");
+        let mut got = ids(&out);
+        got.sort();
+        let mut want = vec![login.id, email.id];
+        want.sort();
+        assert_eq!(got, want);
+    }
+
+    #[test]
+    fn filter_by_title_query_is_case_insensitive() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        let out = filter_by_title_query(&[login.clone()], "LOGIN");
+        assert_eq!(ids(&out), vec![login.id]);
+    }
+
+    #[test]
+    fn filter_by_title_query_matches_fuzzy_subsequence() {
+        // Subsequence matching: 'login' characters appear in order inside
+        // 'Login bug' even though the query is not a contiguous substring.
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        let out = filter_by_title_query(&[login.clone()], "lgb");
+        assert_eq!(ids(&out), vec![login.id]);
+    }
+
+    #[test]
+    fn filter_by_title_query_sorts_best_match_first() {
+        // The exact contiguous match scores higher than the same letters
+        // scattered with gaps, so it sorts first.
+        let exact = issue_with("11111111-2222-3333-4444-555555555555", "abc", Status::Todo);
+        let scattered = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "a-x-b-x-c",
+            Status::Todo,
+        );
+        let out = filter_by_title_query(&[scattered.clone(), exact.clone()], "abc");
+        assert_eq!(ids(&out), vec![exact.id, scattered.id]);
+    }
+
+    #[test]
+    fn filter_by_title_query_ties_break_by_updated_at_desc() {
+        // Equal scores keep the established ordering rule: newer issues
+        // first (r[impl issue-ordering]).
+        let mut newer = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        let mut older = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        newer.updated_at = chrono::Utc::now();
+        older.updated_at = chrono::Utc::now() - chrono::Duration::seconds(60);
+        let out = filter_by_title_query(&[older.clone(), newer.clone()], "login");
+        assert_eq!(ids(&out), vec![newer.id, older.id]);
+    }
+
+    #[test]
+    fn filter_by_title_query_no_match_returns_empty() {
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        assert!(filter_by_title_query(&[login.clone()], "zzzz").is_empty());
+    }
+
+    #[test]
+    fn filter_by_title_query_empty_query_matches_nothing() {
+        // A blank --search is a distinct filter (matches nothing), not a
+        // silent fallback to the unfiltered list.
+        let login = issue_with(
+            "11111111-2222-3333-4444-555555555555",
+            "Login bug",
+            Status::Todo,
+        );
+        assert!(filter_by_title_query(&[login.clone()], "").is_empty());
+        assert!(filter_by_title_query(&[login.clone()], "   ").is_empty());
     }
 }

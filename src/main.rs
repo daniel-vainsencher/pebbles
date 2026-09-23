@@ -58,6 +58,7 @@ fn main() -> Result<()> {
         Commands::List {
             status,
             issue_type,
+            search,
             tree,
             orphaned,
         } => {
@@ -71,9 +72,14 @@ fn main() -> Result<()> {
             } else {
                 None
             };
-            let filter_applied = status_filter.is_some() || type_filter.is_some() || orphaned;
+            let filter_applied =
+                status_filter.is_some() || type_filter.is_some() || orphaned || search.is_some();
             let (mut issues, warnings) = ops.list(status_filter, type_filter)?;
             print_warnings(&warnings);
+
+            if let Some(query) = search {
+                issues = operations::filter_by_title_query(&issues, &query);
+            }
 
             if orphaned {
                 issues.retain(|issue| {

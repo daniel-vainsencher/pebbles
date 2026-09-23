@@ -67,6 +67,12 @@ pub enum Commands {
 
         #[arg(
             long,
+            help = "Fuzzy-match issue titles against this query (case-insensitive; composes with --status and --issue-type)"
+        )]
+        search: Option<String>,
+
+        #[arg(
+            long,
             help = "Show hierarchical tree structure with epic relationships"
         )]
         tree: bool,
