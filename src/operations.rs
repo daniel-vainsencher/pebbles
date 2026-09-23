@@ -222,6 +222,11 @@ pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
 ///   and empty once this issue is Done.
 /// - `ready` is true when `blocked_by` is empty, i.e. the issue has no
 ///   incomplete `required_for` dependencies.
+/// - `circular` is true when the issue sits on a `required_for` or
+///   `scheduled_before` cycle (a self-reference is the minimal cycle);
+///   `pebbles link` rejects such edges (r[graph-acyclic]), so this flags
+///   data that reached the store some other way (manual edit + reindex,
+///   import).
 ///
 /// Only `required_for` counts as a blocker here (`part_of` is containment
 /// and never a prerequisite; `scheduled_before` is a scheduling hint, not
@@ -241,6 +246,43 @@ pub struct BlockerStatus {
     /// outgoing `required_for` edges), sorted and deduplicated. Empty when
     /// this issue is itself Done (nothing is still waiting on it).
     pub blocking: Vec<Uuid>,
+    /// True when the issue is part of a circular dependency (SPEC
+    /// r[blocker-colors]).
+    pub circular: bool,
+}
+
+/// The IDs of every issue that participates in a dependency cycle.
+///
+/// The dependency graph follows `build_dependency_adjacency`
+/// (`required_for` + `scheduled_before` edges); an issue is circular when
+/// it can reach itself (a self-referencing edge is the minimal cycle).
+/// `pebbles link` rejects edges that would close a cycle (r[graph-acyclic]),
+/// so circular data reaches the store only through other means (manual
+/// edit + reindex, import).
+///
+/// Pure: no storage access, so the cycle computation is unit-testable
+/// without I/O (ARCHITECTURE: functional core, imperative shell).
+pub fn build_circular_issues(issues: &[Issue]) -> HashSet<Uuid> {
+    let adjacency = build_dependency_adjacency(issues);
+    let mut circular: HashSet<Uuid> = HashSet::new();
+    for issue in issues {
+        // Walk forward from the issue; reaching it again means a cycle.
+        let mut stack = vec![issue.id];
+        let mut visited: HashSet<Uuid> = HashSet::new();
+        while let Some(node) = stack.pop() {
+            if node == issue.id && !visited.is_empty() {
+                circular.insert(issue.id);
+                break;
+            }
+            if !visited.insert(node) {
+                continue;
+            }
+            if let Some(nexts) = adjacency.get(&node) {
+                stack.extend(nexts.iter().copied());
+            }
+        }
+    }
+    circular
 }
 
 /// Compute the dependency/blocker status of every issue in `issues`.
@@ -250,6 +292,7 @@ pub struct BlockerStatus {
 /// `required_for` from non-Done sources get an empty `blocking` list.
 pub fn build_blocker_status(issues: &[Issue]) -> HashMap<Uuid, BlockerStatus> {
     let incoming_map = build_incoming_relationships_map(issues);
+    let circular_ids = build_circular_issues(issues);
     let mut statuses: HashMap<Uuid, BlockerStatus> = HashMap::new();
 
     for issue in issues {
@@ -295,6 +338,7 @@ pub fn build_blocker_status(issues: &[Issue]) -> HashMap<Uuid, BlockerStatus> {
                 ready: blocked_by.is_empty(),
                 blocked_by,
                 blocking,
+                circular: circular_ids.contains(&issue.id),
             },
         );
     }
@@ -2409,6 +2453,72 @@ mod tests {
         assert!(map[&epic.id].blocking.is_empty());
         assert!(map[&child.id].ready);
         assert!(map[&child.id].blocked_by.is_empty());
+    }
+
+    // -- build_circular_issues ------------------------------------------------
+
+    #[test]
+    fn build_circular_issues_dag_has_no_circle() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        relate(&mut a, RelationType::RequiredFor, &b);
+        assert!(build_circular_issues(&[a.clone(), b.clone()]).is_empty());
+    }
+
+    #[test]
+    fn build_circular_issues_detects_two_node_cycle() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        relate(&mut a, RelationType::RequiredFor, &b);
+        relate(&mut b, RelationType::RequiredFor, &a);
+        let circular = build_circular_issues(&[a.clone(), b.clone()]);
+        assert!(circular.contains(&a.id), "{circular:?}");
+        assert!(circular.contains(&b.id), "{circular:?}");
+    }
+
+    #[test]
+    fn build_circular_issues_detects_self_loop() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let a_id = a.id;
+        // `pebbles link` rejects a self-edge; push one directly to model
+        // hand-edited data.
+        a.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: a_id,
+        });
+        let circular = build_circular_issues(&[a]);
+        assert_eq!(circular.len(), 1);
+        assert!(circular.contains(&a_id));
+    }
+
+    #[test]
+    fn build_circular_issues_ignores_scheduled_before_hint_edges_by_default_dag() {
+        // scheduled_before participates in the dependency graph for cycle
+        // purposes (same adjacency as the flow layout) but never marks a
+        // plain DAG circular.
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        relate(&mut a, RelationType::ScheduledBefore, &b);
+        assert!(build_circular_issues(&[a, b]).is_empty());
+    }
+
+    #[test]
+    fn build_blocker_status_marks_circular_members() {
+        let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = issue_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        relate(&mut a, RelationType::RequiredFor, &b);
+        relate(&mut b, RelationType::RequiredFor, &a);
+        let map = build_blocker_status(&[a.clone(), b.clone(), c.clone()]);
+        assert!(map[&a.id].circular);
+        assert!(map[&b.id].circular);
+        assert!(!map[&c.id].circular);
+        // A DAG keeps all flags clear.
+        let mut d = issue_with("44444444-2222-3333-4444-555555555555", "D", Status::Todo);
+        relate(&mut d, RelationType::RequiredFor, &c);
+        let map = build_blocker_status(&[d.clone(), c.clone()]);
+        assert!(!map[&d.id].circular);
+        assert!(!map[&c.id].circular);
     }
 
     // -- match_id_prefix ------------------------------------------------------

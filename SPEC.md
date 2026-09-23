@@ -355,6 +355,57 @@ Implementation: [`build_blocker_status()`](src/operations.rs) (pure) |
 Rendering: [`format_blocker_indicator()`](src/display.rs) (pure) | Test:
 [core-workflow](tests/workflows/core-workflow.trycmd)
 
+r[blocker-colors]
+The relationship-health indicators (r[blocker-indicators]) and epic-membership
+rows carry a fixed terminal palette, rendered through the crate's existing
+`colored` abstraction in `display.rs`:
+
+- `✓` green - issue has no incomplete dependencies, ready to work on.
+- `⚠ (blocked by: ...)` yellow - issue is blocked by incomplete dependencies.
+- `⛔ (circular)` red - issue participates in a dependency cycle; red takes
+  precedence over the blocked/blocking markers.
+- `→ (blocking: ...)` blue - issue is blocking other issues (informational).
+- `[epic]` cyan; the child progress count `(done/total)` is colored by
+  completion percentage: green at >=50%, yellow below 50% with at least one
+  child done, red when nothing is done (0 done, including a childless
+  `0/0`).
+- Rows of non-epic issues that are part of no epic render gray when the
+  view contains epics (an issue counts as "in an epic" when it carries a
+  `part_of` relationship, matching `list --orphaned`); the health marker
+  stays colored. In the tree view, the orphaned-issues section grays its
+  rows under the same condition.
+
+The markers themselves are the plain text from r[blocker-indicators] (68f);
+color is an additive layer on top. Which issues can be circular:
+`pebbles link` rejects edges that close a cycle and rejects self-edges
+(r[graph-acyclic]), so a circular flag means the data
+reached the store some other way (manual edit + reindex, import). The cycle
+is computed over the dependency graph as `build_dependency_adjacency`
+does - `required_for` plus `scheduled_before` edges; a self-referencing edge
+is the minimal cycle. Implementation: [`build_circular_issues()`](src/operations.rs)
+(pure) | Color selection: [`epic_count_color()`](src/display.rs),
+[`epic_membership_gray()`](src/display.rs) (pure) | Verify: [display unit
+tests](src/display.rs), [operations unit tests](src/operations.rs)
+
+**No color when the terminal does not support it:** the `colored` crate
+decides at print time, so escape codes are emitted only when stdout is a
+terminal, `NO_COLOR` is unset, and `CLICOLOR` is not `0`. Piped output
+(including every trycmd fixture) and `NO_COLOR=1` therefore render the
+plain markers above with no escape codes. There is no `--no-color` CLI
+flag; the environment variables are the suppression mechanism (the flag
+would require main.rs wiring outside this loan's file set - documented
+limitation).
+
+**Invalid relationships in `show`:** the detail view prints its outgoing
+relationship lines with the target id cyan, but a self-referencing edge
+(source == target) or a dangling target (the target issue does not exist in
+the store) renders the id red (the self-edge is the minimal cycle of the
+acyclicity invariant r[graph-acyclic]). Longer dependency cycles
+are not visible to the detail view because it does not receive the
+relationship graph; those are flagged by the list markers instead.
+Implementation: [`show_relationship_health()`](src/display.rs) (pure) |
+Verify: [display unit tests](src/display.rs)
+
 r[grep-query-syntax]
 `pebbles list --grep <query>` runs a full-text search over issue titles and
 descriptions with a small query syntax:
