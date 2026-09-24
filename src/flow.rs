@@ -1,6 +1,7 @@
-use crate::models::{Issue, RelationType, Status};
+use crate::models::{Issue, IssueType, RelationType, Status};
 use anyhow::{bail, Result};
 use rust_sugiyama::configure::Config;
+use serde::Serialize;
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -732,10 +733,165 @@ pub fn render_dot(
     output
 }
 
+/// One node of the flow JSON export (r[flow-json-schema], documented in
+/// docs/flow-json-schema.md): the issue's full id, its 8-char `short_id`
+/// prefix, title, type, status, and layout position. `in_critical_path` is
+/// omitted when no goal thread is given; when `render_json` receives a goal
+/// the key is present as `false` for every node (the critical-chain
+/// computation is the separate loan e4937f0b).
+#[derive(Serialize)]
+struct FlowJsonNode {
+    id: String,
+    short_id: String,
+    title: String,
+    #[serde(rename = "type")]
+    issue_type: IssueType,
+    status: Status,
+    x: f64,
+    y: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    in_critical_path: Option<bool>,
+}
+
+/// One dependency edge of the flow JSON export: the source and target issue
+/// ids plus the relationship type that created the edge. `PartOf` edges are
+/// excluded, exactly as in `build_dependency_graph`.
+#[derive(Serialize)]
+struct FlowJsonEdge {
+    source: String,
+    target: String,
+    #[serde(rename = "type")]
+    relation_type: RelationType,
+}
+
+/// Layout summary of the flow JSON export: the layout's overall width and
+/// height plus the number of distinct dependency layers.
+#[derive(Serialize)]
+struct FlowJsonLayout {
+    width: f64,
+    height: f64,
+    layers: u64,
+}
+
+/// The flow JSON document: nodes, edges, and the layout summary
+/// (r[flow-json-schema]).
+#[derive(Serialize)]
+struct FlowJson {
+    nodes: Vec<FlowJsonNode>,
+    edges: Vec<FlowJsonEdge>,
+    layout: FlowJsonLayout,
+}
+
+/// Count distinct dependency layers in `layout`: the number of distinct
+/// `round(x / 50)` buckets over issues that have at least one dependency
+/// edge, matching the "Layer N:" columns the text renderer emits. Zero when
+/// no issue has a dependency edge.
+fn flow_layer_count(issues: &[Issue], layout: &FlowLayout) -> u64 {
+    let edges = build_dependency_graph(issues);
+    let mut has_edges = vec![false; issues.len()];
+    for &(source, target) in &edges {
+        has_edges[source as usize] = true;
+        has_edges[target as usize] = true;
+    }
+    let mut seen_layers: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    for &(idx, (x, _)) in &layout.coordinates {
+        if has_edges[idx] {
+            seen_layers.insert((x / 50.0).round() as i32);
+        }
+    }
+    seen_layers.len() as u64
+}
+
+/// Render `layout` as deterministic JSON for programmatic consumers. The
+/// document (r[flow-json-schema], documented in docs/flow-json-schema.md)
+/// carries `nodes` (one object per issue, in issue order; `x` is the
+/// node's layer coordinate in layout units and `y` its position within the
+/// layer), `edges` (one object per `required_for`/`scheduled_before`
+/// dependency, `PartOf` excluded, in the order `labeled_dependency_edges`
+/// yields), and `layout` (width, height, and dependency layer count).
+/// `goal` controls only whether each node carries `in_critical_path`:
+/// `Some` emits `false` for every issue, `None` omits the key (the
+/// critical-chain computation is loan e4937f0b). Output is stable: struct
+/// field order, 2-space indent, no timestamps. Pure: no storage or I/O.
+///
+/// ```rust
+/// # use pebbles::flow::{render_json, FlowLayout};
+/// # use pebbles::models::{Issue, IssueType};
+/// # use std::collections::HashMap;
+/// let layout = FlowLayout {
+///     coordinates: vec![(0, (0.0, 0.0))],
+///     width: 100.0,
+///     height: 30.0,
+/// };
+/// let json = render_json(
+///     &vec![Issue::new("A".to_string(), None, IssueType::Bug)],
+///     &layout,
+///     &HashMap::new(),
+///     None,
+/// );
+/// assert!(json.contains("\"nodes\""));
+/// assert!(json.contains("\"layout\""));
+/// ```
+pub fn render_json(
+    issues: &[Issue],
+    layout: &FlowLayout,
+    _id_prefixes: &HashMap<Uuid, String>,
+    goal: Option<Uuid>,
+) -> String {
+    // Index -> (x, y), as the text and SVG renderers use it.
+    let coord_map: HashMap<usize, (f64, f64)> = layout
+        .coordinates
+        .iter()
+        .map(|&(idx, coords)| (idx, coords))
+        .collect();
+
+    let in_critical_path = if goal.is_some() { Some(false) } else { None };
+    let mut nodes: Vec<FlowJsonNode> = Vec::new();
+    for (idx, issue) in issues.iter().enumerate() {
+        let (x, y) = match coord_map.get(&idx) {
+            Some(&(x, y)) => (x, y),
+            None => (0.0, 0.0),
+        };
+        nodes.push(FlowJsonNode {
+            id: issue.id.to_string(),
+            short_id: issue.short_id(),
+            title: issue.title.clone(),
+            issue_type: issue.issue_type.clone(),
+            status: issue.status.clone(),
+            x,
+            y,
+            in_critical_path,
+        });
+    }
+
+    let mut edges: Vec<FlowJsonEdge> = Vec::new();
+    for (source, target, relation_type) in labeled_dependency_edges(issues) {
+        edges.push(FlowJsonEdge {
+            source: issues[source as usize].id.to_string(),
+            target: issues[target as usize].id.to_string(),
+            relation_type: relation_type.clone(),
+        });
+    }
+
+    let document = FlowJson {
+        nodes,
+        edges,
+        layout: FlowJsonLayout {
+            width: layout.width,
+            height: layout.height,
+            layers: flow_layer_count(issues, layout),
+        },
+    };
+    let mut content = serde_json::to_string_pretty(&document).unwrap();
+    content.push('\n');
+    content
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::models::{Issue, IssueType, Status};
+    use serde_json::Value;
 
     fn issue(title: &str) -> Issue {
         Issue::new(title.to_string(), None, IssueType::Bug)
@@ -1098,5 +1254,194 @@ mod tests {
                 "}\n",
             ),
         );
+    }
+
+    fn issue_with_id(title: &str, id: &str) -> Issue {
+        let mut issue = issue(title);
+        issue.id = Uuid::parse_str(id).unwrap();
+        issue
+    }
+
+    /// `render_json` emits the full schema for a three-issue chain: one
+    /// node per issue with id, short_id, title, type, status, and layout
+    /// position; one edge per dependency with its relationship type
+    /// (`part_of` excluded); and the layout summary with the layer count.
+    #[test]
+    fn test_render_json_chain_fixture() {
+        let mut a = issue_with_id("Design auth flow", "11111111-1111-1111-1111-111111111111");
+        a.status = Status::Done;
+        a.issue_type = IssueType::Usecase;
+        let mut b = issue_with_id("Implement login", "22222222-2222-2222-2222-222222222222");
+        b.status = Status::InProgress;
+        b.issue_type = IssueType::UxProblem;
+        let c = issue_with_id("Login bug", "33333333-3333-3333-3333-333333333333");
+        a.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
+        b.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: c.id,
+        });
+        b.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: a.id,
+        });
+
+        let issues = vec![a, b, c];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0)), (1, (50.0, 30.0)), (2, (100.0, 60.0))],
+            width: 150.0,
+            height: 90.0,
+        };
+        let json = render_json(&issues, &layout, &HashMap::new(), None);
+        // The document parses as JSON.
+        let root = serde_json::from_str::<Value>(&json).unwrap();
+        assert!(root.is_object());
+
+        let nodes = root.get("nodes").unwrap().as_array().unwrap();
+        assert_eq!(nodes.len(), 3);
+        let n0 = nodes[0].clone();
+        assert_eq!(
+            n0.get("id").unwrap().as_str().unwrap(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(n0.get("short_id").unwrap().as_str().unwrap(), "11111111");
+        assert_eq!(
+            n0.get("title").unwrap().as_str().unwrap(),
+            "Design auth flow"
+        );
+        assert_eq!(n0.get("type").unwrap().as_str().unwrap(), "usecase");
+        assert_eq!(n0.get("status").unwrap().as_str().unwrap(), "done");
+        assert_eq!(n0.get("x").unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(n0.get("y").unwrap().as_f64().unwrap(), 0.0);
+        // Without a goal thread no node carries in_critical_path.
+        assert!(n0.get("in_critical_path").is_none());
+        let n1 = nodes[1].clone();
+        assert_eq!(n1.get("type").unwrap().as_str().unwrap(), "ux_problem");
+        assert_eq!(n1.get("status").unwrap().as_str().unwrap(), "in_progress");
+        assert_eq!(n1.get("x").unwrap().as_f64().unwrap(), 50.0);
+
+        let edges = root.get("edges").unwrap().as_array().unwrap();
+        assert_eq!(edges.len(), 2);
+        let e0 = edges[0].clone();
+        assert_eq!(
+            e0.get("source").unwrap().as_str().unwrap(),
+            "11111111-1111-1111-1111-111111111111"
+        );
+        assert_eq!(
+            e0.get("target").unwrap().as_str().unwrap(),
+            "22222222-2222-2222-2222-222222222222"
+        );
+        assert_eq!(e0.get("type").unwrap().as_str().unwrap(), "required_for");
+        let e1 = edges[1].clone();
+        assert_eq!(
+            e1.get("source").unwrap().as_str().unwrap(),
+            "22222222-2222-2222-2222-222222222222"
+        );
+        assert_eq!(
+            e1.get("target").unwrap().as_str().unwrap(),
+            "33333333-3333-3333-3333-333333333333"
+        );
+        assert_eq!(e1.get("type").unwrap().as_str().unwrap(), "required_for");
+
+        let layout_json = root.get("layout").unwrap();
+        assert_eq!(layout_json.get("width").unwrap().as_f64().unwrap(), 150.0);
+        assert_eq!(layout_json.get("height").unwrap().as_f64().unwrap(), 90.0);
+        assert_eq!(layout_json.get("layers").unwrap().as_u64().unwrap(), 3u64);
+    }
+
+    /// When a goal thread is given every node carries
+    /// `"in_critical_path": false` (the critical-chain computation itself
+    /// is loan e4937f0b).
+    #[test]
+    fn test_render_json_goal_thread_emits_in_critical_path() {
+        let a = issue_with_id("A", "11111111-1111-1111-1111-111111111111");
+        let b = issue_with_id("B", "22222222-2222-2222-2222-222222222222");
+        let issues = vec![a, b];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0)), (1, (0.0, 30.0))],
+            width: 100.0,
+            height: 60.0,
+        };
+        let json = render_json(&issues, &layout, &HashMap::new(), Some(issues[1].id));
+        let root = serde_json::from_str::<Value>(&json).unwrap();
+        let nodes = root.get("nodes").unwrap().as_array().unwrap();
+        assert_eq!(nodes.len(), 2);
+        for i in 0..nodes.len() {
+            assert_eq!(
+                nodes[i].get("in_critical_path").unwrap().as_bool().unwrap(),
+                false
+            );
+        }
+    }
+
+    /// An empty flow renders an empty document: no nodes, no edges, and a
+    /// zeroed layout.
+    #[test]
+    fn test_render_json_empty() {
+        let json = render_json(
+            &vec![],
+            &FlowLayout {
+                coordinates: Vec::new(),
+                width: 0.0,
+                height: 0.0,
+            },
+            &HashMap::new(),
+            None,
+        );
+        let root = serde_json::from_str::<Value>(&json).unwrap();
+        assert!(root.get("nodes").unwrap().as_array().unwrap().is_empty());
+        assert!(root.get("edges").unwrap().as_array().unwrap().is_empty());
+        let layout_json = root.get("layout").unwrap();
+        assert_eq!(layout_json.get("width").unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(layout_json.get("height").unwrap().as_f64().unwrap(), 0.0);
+        assert_eq!(layout_json.get("layers").unwrap().as_u64().unwrap(), 0u64);
+    }
+
+    /// `render_json` is deterministic: two calls with identical inputs
+    /// yield identical output bytes.
+    #[test]
+    fn test_render_json_deterministic() {
+        let mut a = issue_with_id("A", "11111111-1111-1111-1111-111111111111");
+        let b = issue_with_id("B", "22222222-2222-2222-2222-222222222222");
+        a.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::ScheduledBefore,
+            target_id: b.id,
+        });
+        let issues = vec![a, b];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0)), (1, (50.0, 0.0))],
+            width: 100.0,
+            height: 30.0,
+        };
+        let first = render_json(&issues, &layout, &HashMap::new(), None);
+        let second = render_json(&issues, &layout, &HashMap::new(), None);
+        assert_eq!(first, second);
+    }
+
+    /// Titles containing quotes and backslashes are JSON-escaped and
+    /// round-trip through a JSON parser unchanged.
+    #[test]
+    fn test_render_json_escapes_titles() {
+        let escaped = issue("Say \"hi\" \\ line");
+        let json = render_json(
+            &vec![escaped],
+            &FlowLayout {
+                coordinates: vec![(0, (0.0, 0.0))],
+                width: 100.0,
+                height: 30.0,
+            },
+            &HashMap::new(),
+            None,
+        );
+        assert!(json.contains("Say \\\"hi\\\" \\\\ line"));
+        let root = serde_json::from_str::<Value>(&json).unwrap();
+        let title = root.get("nodes").unwrap().as_array().unwrap()[0]
+            .get("title")
+            .unwrap()
+            .as_str()
+            .unwrap();
+        assert_eq!(title, "Say \"hi\" \\ line");
     }
 }

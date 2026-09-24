@@ -3,8 +3,7 @@
 `pebbles flow` renders the issue dependency graph. This fixture locks the
 flag surface of loan 70c871cf: `--format` (text default), `--output`
 (required for non-text formats), `--show-done`, and `--goal`. The dot
-backend is live (loan ea4b09f2); json is still not implemented (loan
-e7dd87ca) and fails with a clear error.
+backend (loan ea4b09f2) and the json backend (loan e7dd87ca) are live.
 
 The text layout renders each dependency layer as a column under one
 "Layer N:" header row. Each issue is one cell: an indicator glyph
@@ -67,11 +66,14 @@ Error: --output <path> is required for the 'svg' format (only text writes to std
 
 ```
 
-## json backend is not implemented yet (dot is live)
+## json requires --output like the other file formats
+
+The json backend is live (loan e7dd87ca) and writes to the `--output`
+file; like svg and dot it refuses to stream to stdout.
 
 ```console
-$ pebbles flow --format json -o flow.json
+$ pebbles flow --format json
 ? 1
-Error: json output is not implemented yet; only 'text' and 'svg' are available
+Error: --output <path> is required for the 'json' format (only text writes to stdout)
 
 ```

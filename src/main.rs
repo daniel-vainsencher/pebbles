@@ -595,14 +595,6 @@ fn main() -> Result<()> {
             show_done,
             goal,
         } => {
-            // The json backend is a separate loan (e7dd87ca); the dot
-            // backend (ea4b09f2) is implemented in this loan.
-            if matches!(format, cli::FlowFormat::Json) {
-                anyhow::bail!(
-                    "{} output is not implemented yet; only 'text' and 'svg' are available",
-                    format
-                );
-            }
             if format != cli::FlowFormat::Text && output.is_none() {
                 anyhow::bail!(
                     "--output <path> is required for the '{}' format (only text writes to stdout)",
@@ -635,7 +627,7 @@ fn main() -> Result<()> {
                 cli::FlowFormat::Text => flow::render_text(&issues, &layout, &id_prefixes, goal),
                 cli::FlowFormat::Svg => flow::render_svg(&issues, &layout, &id_prefixes, goal),
                 cli::FlowFormat::Dot => flow::render_dot(&issues, &layout, &id_prefixes, goal),
-                cli::FlowFormat::Json => unreachable!(),
+                cli::FlowFormat::Json => flow::render_json(&issues, &layout, &id_prefixes, goal),
             };
 
             // Output to file or stdout
