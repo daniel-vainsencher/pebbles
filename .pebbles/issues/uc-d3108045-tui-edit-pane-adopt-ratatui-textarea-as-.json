@@ -1,0 +1,12 @@
+{
+  "id": "d3108045-d27d-4f1a-8ca4-5a22253249a3",
+  "title": "TUI edit pane: adopt ratatui-textarea as the in-pane editor",
+  "description": "Follow-up to 293 (owner wants a real text-editing widget; the DIY EditBuffer shipped in 293 is the agreed fallback until this lands).\n\nWHY 293's worker fell back (technical): ratatui-textarea 0.9.2 compiles and renders into a buffer RECT (verified by the worker's probe), but the edit pane currently renders as a list of text rows (Paragraph per field/hint line). A widget must OWN a rectangle and draw itself with its own wrapping/scroll/cursor state; the probe showed it painting OVER the pane's Paragraph rows (overlay, not layout). Doing it right requires converting edit_pane_lines from row-list rendering to RECT-based layout: reserve a rect for the editor (height = wrapped line count of the active multiline Description), draw the other rows around it, render TextArea into its rect, and route the pane's crossterm key events to the widget (adapter to ratatui KeyEvent) while editing. The 293 worker's brief bounded the widget experiment to ~10 tool calls, which was too tight for this restructure; per the owner decision the widget path is now FIRST-CLASS with no artificial time bound.\n\nSCOPE:\n1. RECT-based edit pane layout (editor slot for the active field; other rows around it; no overlay).\n2. Key adapter: pane crossterm keys -> TextArea (arrows/Home/End/Backspace/Delete/enter-newline/char), keeping apply-on-Enter (cycled) and Tab-apply (multiline) from 293.\n3. Keep 293's live-non-active-rows + apply-on-Enter behaviors and the 30a derived-state discipline; tui_e2e (9) + new widget e2e green; SPEC r[tui-edit] updated.\n4. Dependency: ratatui-textarea ^0.9.2 (compatible with pinned ratatui 0.30.2 split-core, verified).\n\nOwner decision 2026-09-24: widget first-class; DIY remains only as last-resort if the rect layout proves unworkable (then explain why to owner before falling back).",
+  "status": "done",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-24T18:37:24.631113908Z",
+  "updated_at": "2026-09-24T19:13:53.363388869Z"
+}

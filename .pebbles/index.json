@@ -403,6 +403,42 @@
     {
       "id": "3ae7eeb0-cb7e-41a6-af74-e1168cfbfed9",
       "file_name": "uc-3ae7eeb0-cli-append-to-issue-description-update-a.json"
+    },
+    {
+      "id": "500a0ebd-0f99-4aa4-a582-40d5fbedd5e7",
+      "file_name": "des-500a0ebd-step-a-design.json"
+    },
+    {
+      "id": "7067b2d5-b815-4183-9ea1-21010efde3be",
+      "file_name": "des-7067b2d5-test-relationship.json"
+    },
+    {
+      "id": "28c18344-d6b1-433b-8148-fb49e2de2226",
+      "file_name": "epic-28c18344-test-epic.json"
+    },
+    {
+      "id": "38e08047-bc95-4ebf-a335-38bc741fdc67",
+      "file_name": "uc-38e08047-step-d-deploy.json"
+    },
+    {
+      "id": "4f835fa7-742f-4b3c-9e90-e2c4f8e49c35",
+      "file_name": "uc-4f835fa7-test-usecase.json"
+    },
+    {
+      "id": "99590607-75b0-4ee8-ace5-0fd8e46d3ee7",
+      "file_name": "uc-99590607-step-c-test.json"
+    },
+    {
+      "id": "bffdb48d-eb7e-41f4-9e12-048ddaef1f2e",
+      "file_name": "uc-bffdb48d-step-b-implement.json"
+    },
+    {
+      "id": "d3108045-d27d-4f1a-8ca4-5a22253249a3",
+      "file_name": "uc-d3108045-tui-edit-pane-adopt-ratatui-textarea-as-.json"
+    },
+    {
+      "id": "e4b6ab33-fd53-4d6b-bdd1-446f71d4197f",
+      "file_name": "ux-e4b6ab33-test-ux-issue.json"
     }
   ]
 }
