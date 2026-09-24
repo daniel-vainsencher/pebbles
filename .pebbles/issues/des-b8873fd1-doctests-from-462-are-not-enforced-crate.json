@@ -1,12 +1,12 @@
 {
   "id": "b8873fd1-5efc-4ea2-962a-23b3e5237e3e",
   "title": "Doctests from 462 are not enforced: crate is bin-only, cargo test never compiles them",
-  "description": "462 (landed 2026-09-23) added 16 doctests to src/models.rs, src/operations.rs, src/storage.rs written against pebbles::<module>:: paths. The crate is bin-only (Cargo.toml has no [lib]), so `cargo test --doc` reports 'no library targets found' and the doctests can rot unseen. Fix options: (a) add a [lib] target with src/lib.rs exposing the modules so doctests run in CI, or (b) convert doctests to plain docstring examples. (a) is the better long-term answer and matches the traditional Rust setup; it changes crate structure, so it needs owner sign-off. Verified 2026-09-23: all 16 doctests pass under a temporary [lib] scaffold.",
+  "description": "462 (landed 2026-09-23) added 16 doctests to src/models.rs, src/operations.rs, src/storage.rs written against pebbles::<module>:: paths. The crate is bin-only (Cargo.toml has no [lib]), so `cargo test --doc` reports 'no library targets found' and the doctests can rot unseen. Fix options: (a) add a [lib] target with src/lib.rs exposing the modules so doctests run in CI, or (b) convert doctests to plain docstring examples. (a) is the better long-term answer and matches the traditional Rust setup; it changes crate structure, so it needs owner sign-off. Verified 2026-09-23: all 16 doctests pass under a temporary [lib] scaffold.\n\nDecision (owner 2026-09-24): go with option (a) - add a [lib] target (src/lib.rs) so `cargo test` runs the doctests. ADDITIONAL REQUIREMENT: review the interface the lib would expose - list what becomes lib-public, decide what should NOT be exposed (prefer pub(crate) / #[doc(hidden)]), and consider whether the exposed interface can be improved. Any genuine interface judgment call -> discuss with the user before finalizing (do not unilaterally redesign public APIs).",
   "status": "todo",
   "issue_type": "design",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-23T19:47:03.493357916Z",
-  "updated_at": "2026-09-24T02:10:19.956242306Z"
+  "updated_at": "2026-09-24T02:10:20.100940028Z"
 }
