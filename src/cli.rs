@@ -156,6 +156,9 @@ pub enum Commands {
 
         #[arg(short, long, help = "New description")]
         description: Option<String>,
+
+        #[arg(long, help = "Append text to the description (newline-joined)")]
+        append_description: Option<String>,
     },
 
     #[command(

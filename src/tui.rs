@@ -1754,7 +1754,7 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     let id = edit.issue_id.to_string();
     let outcome = match edit.field {
         EditField::Title => ops
-            .update(&id, Some(edit.buffer.to_string()), None)
+            .update(&id, Some(edit.buffer.to_string()), None, None)
             .map(|out| {
                 (
                     out.value,
@@ -1762,7 +1762,7 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
                 )
             }),
         EditField::Description => ops
-            .update(&id, None, Some(edit.buffer.to_string()))
+            .update(&id, None, Some(edit.buffer.to_string()), None)
             .map(|out| {
                 (
                     out.value,

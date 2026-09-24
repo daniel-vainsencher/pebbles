@@ -123,6 +123,8 @@ pebbles status a1b2 done
 # Update title or description
 pebbles update a1b2 --title "New title"
 pebbles update a1b2 --description "New description"
+# Append a line to the description (newline-joined)
+pebbles update a1b2 --append-description "Reviewed again"
 ```
 
 #### Delete Issues

@@ -1,0 +1,130 @@
+# Test appending to the description
+
+This test verifies that `pebbles update --append-description` appends a line to
+the description (newline-joined), stores the text verbatim when there is no
+description, leaves the issue untouched when appending the empty string, and
+combines with `--description` (replacement first, then append).
+
+Fixture store: 12345678 (Test Issue, one-line description), 22222222 (Second
+Issue, no description). Both are todo bugs.
+
+## Show the initial description
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles show 12345678
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Bug
+Status: TODO
+Description: A test issue for trycmd validation
+
+Created: [..]
+Updated: [..]
+File: bug-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Append a line to the description
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles update 12345678 --append-description "Second line"
+✓ Updated issue
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Bug
+Status: TODO
+Description: A test issue for trycmd validation
+Second line
+
+Created: [..]
+Updated: [..]
+File: bug-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Append to an issue with no description
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles update 22222222 --append-description "Starts fresh"
+✓ Updated issue
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 22222222-2222-2222-2222-222222222222
+Title: Second Issue
+Type: Bug
+Status: TODO
+Description: Starts fresh
+
+Created: [..]
+Updated: [..]
+File: bug-22222222-second-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Appending the empty string is a no-op
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles update 12345678 --append-description ""
+No changes: nothing to update
+
+```
+
+## Replace then append in one update
+
+Note: trycmd normalizes a backslash to a forward slash when comparing
+fixture file contents, so the `Replaced/nTail` string in the `.out`
+snapshot stands for the written JSON `Replaced\nTail` (one newline).
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles update 12345678 --description "Replaced" --append-description "Tail"
+✓ Updated issue
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Bug
+Status: TODO
+Description: Replaced
+Tail
+
+Created: [..]
+Updated: [..]
+File: bug-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+## Final state on disk
+
+```console
+$ PEBBLES_DB_PATH=.pebbles pebbles show 12345678
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 12345678-1234-1234-1234-123456789012
+Title: Test Issue
+Type: Bug
+Status: TODO
+Description: Replaced
+Tail
+
+Created: [..]
+Updated: [..]
+File: bug-12345678-test-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+$ PEBBLES_DB_PATH=.pebbles pebbles show 22222222
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: 22222222-2222-2222-2222-222222222222
+Title: Second Issue
+Type: Bug
+Status: TODO
+Description: Starts fresh
+
+Created: [..]
+Updated: [..]
+File: bug-22222222-second-issue.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```

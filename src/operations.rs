@@ -874,6 +874,36 @@ pub fn remove_tags_from_issue(issue: &mut Issue, tags: &[String]) -> Vec<String>
     removed
 }
 
+/// Append `addition` to a description as a new line, matching the semantics
+/// of `pebbles update --append-description` (r[update-append]). Pure: no
+/// storage access, so the append rules are unit-testable without I/O.
+///
+/// Rules:
+/// - no current description, or an empty one -> `addition` verbatim
+/// - current description ends with a newline -> current + addition
+/// - otherwise -> current + "\n" + addition (append a line)
+/// - an empty `addition` leaves the description unchanged (a no-op)
+///
+/// ```rust
+/// # use pebbles::operations::append_description_text;
+/// assert_eq!(append_description_text(None, "line"), "line");
+/// assert_eq!(append_description_text(Some(""), "line"), "line");
+/// assert_eq!(append_description_text(Some("a"), "b"), "a\nb");
+/// assert_eq!(append_description_text(Some("a\n"), "b"), "a\nb");
+/// assert_eq!(append_description_text(Some("a"), ""), "a");
+/// assert_eq!(append_description_text(None, ""), "");
+/// ```
+pub fn append_description_text(description: Option<&str>, addition: &str) -> String {
+    if addition.is_empty() {
+        return description.unwrap_or_default().to_string();
+    }
+    match description {
+        None | Some("") => addition.to_string(),
+        Some(current) if current.ends_with('\n') => format!("{}{}", current, addition),
+        Some(current) => format!("{}\n{}", current, addition),
+    }
+}
+
 /// The issues from `issues` that carry EVERY tag in `filter` (exact,
 /// case-sensitive match against the stored `tags`; r[tag-filter-and]).
 /// Input order is preserved: the caller produces a sorted list and this
@@ -1479,6 +1509,7 @@ impl Operations {
         id: &str,
         title: Option<String>,
         description: Option<String>,
+        append_description: Option<String>,
     ) -> Result<MutationOutcome<bool>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
@@ -1501,6 +1532,19 @@ impl Operations {
             if issue.description.as_deref() != Some(new_desc.as_str()) {
                 issue.description = Some(new_desc);
                 changed = true;
+            }
+        }
+
+        if let Some(addition) = append_description {
+            // Appending the empty string is a no-op: no file write, no jj
+            // commit, and the caller reports "No changes: nothing to update".
+            if !addition.is_empty() {
+                let combined =
+                    append_description_text(issue.description.as_deref(), addition.as_str());
+                if issue.description.as_deref() != Some(combined.as_str()) {
+                    issue.description = Some(combined);
+                    changed = true;
+                }
             }
         }
 
@@ -3582,6 +3626,18 @@ mod tests {
         issue.tags = vec!["alpha".to_string()];
         assert!(add_tags_to_issue(&mut issue, &["alpha".to_string()]).is_empty());
         assert_eq!(issue.tags, vec!["alpha".to_string()]);
+    }
+
+    // -- description append helpers -----------------------------------------
+
+    #[test]
+    fn append_description_text_rules() {
+        assert_eq!(append_description_text(None, "line"), "line");
+        assert_eq!(append_description_text(Some(""), "line"), "line");
+        assert_eq!(append_description_text(Some("a"), "b"), "a\nb");
+        assert_eq!(append_description_text(Some("a\n"), "b"), "a\nb");
+        assert_eq!(append_description_text(Some("a"), ""), "a");
+        assert_eq!(append_description_text(None, ""), "");
     }
 
     #[test]

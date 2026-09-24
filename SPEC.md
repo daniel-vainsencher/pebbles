@@ -493,8 +493,10 @@ r[approve-command]
   Moves an issue from `proposed` to `todo` and is equivalent to `status <id> todo` with a proposed-only guard: approving a non-proposed issue is an error.
   Test: [review-workflow](tests/workflows/review-workflow.trycmd#approve-a-proposed-issue) | Verification: [jj-integration](tests/jj_integration.rs) t10_approve
 
-- `update <id>` - Update issue title with `--title` or description with `--description`  
-  Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title)
+r[update-append]
+- `update <id>` - Update issue title with `--title`, replace the description with `--description`, or append to it with `--append-description`  
+  `--append-description` stores the text verbatim when there is no current description (or an empty one); a description already ending in a newline is extended in place; otherwise the text is appended after a newline. Appending the empty string is a no-op (no file write, no jj commit, "No changes: nothing to update"). `--description` and `--append-description` combine: the replacement applies first, then the append. Both flags keep the multi-ID/stdin input and per-ID failure summary of `update` (r[bulk-input], r[bulk-fail-soft]).
+  Example: [Quick Start](README.md#update-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#update-issue-title), [update-append](tests/cmd/update-append.trycmd)
 
 - `delete <id>` - Delete issue  
   Example: [Quick Start](README.md#delete-issues)

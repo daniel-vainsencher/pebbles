@@ -266,13 +266,19 @@ fn main() -> Result<()> {
             ids,
             title,
             description,
+            append_description,
         } => {
             let ids = collect_id_inputs(&ids)?;
             let uuids = resolve_to_uuids(&ops, &ids)?;
             let bulk = uuids.len() > 1;
             let prefixes = ops.id_prefixes()?;
             let (succeeded, failed) = run_bulk_batch(&uuids, &prefixes, bulk, |id, _short| {
-                let outcome = ops.update(id, title.clone(), description.clone())?;
+                let outcome = ops.update(
+                    id,
+                    title.clone(),
+                    description.clone(),
+                    append_description.clone(),
+                )?;
                 print_warnings(&outcome.warnings);
                 if outcome.value {
                     let issue = ops.show(id)?;
