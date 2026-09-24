@@ -585,8 +585,19 @@ pub struct App {
     pub search: String,
     pub projects: Vec<ProjectData>,
     pub ops_map: HashMap<PathBuf, Operations>,
-    pub items: Vec<TreeItem<'static, String>>,
-    pub tree_state: TreeState<String>,
+    /// Derived render cache: the project/epic/issue tree for the current
+    /// filter + search. Never set directly - every mutation of filter,
+    /// search or projects rebuilds this inside the App methods in lock-step,
+    /// so the cache stays fresh by construction. Reads go through `items()`
+    /// (only `render_browser` touches the fields directly, because the Tree
+    /// widget needs a live slice next to a mutable `tree_state`, and only
+    /// disjoint field borrows satisfy the borrow checker). Key handlers
+    /// reach the interactive state via `tree_state_mut()`.
+    items: Vec<TreeItem<'static, String>>,
+    /// The tree widget's interactive state (open/selected paths). This must
+    /// SURVIVE `items` rebuilds so the selection can re-settle (r[tui-review]);
+    /// it is deliberately not part of the derived cache.
+    tree_state: TreeState<String>,
     pub message: Option<String>,
     pub confirm_delete: bool,
     pub should_quit: bool,
@@ -685,13 +696,14 @@ impl App {
     /// Load every project root (registry order) and build the tree.
     pub fn load(roots: &[PathBuf]) -> Result<Self> {
         let mut app = App::new();
+        let mut projects: Vec<ProjectData> = Vec::new();
         for root in roots {
             let ops = Operations::new(root)?;
             let pd = load_project_data(root, &ops)?;
             app.ops_map.insert(root.clone(), ops);
-            app.projects.push(pd);
+            projects.push(pd);
         }
-        app.rebuild_items();
+        app.set_projects(projects);
         if !app.selection_visible() {
             app.reset_selection_to_first();
         }
@@ -707,7 +719,56 @@ impl App {
         Ok(app)
     }
 
-    pub fn rebuild_items(&mut self) {
+    /// The derived render cache for the current filter/search: always
+    /// freshly rebuilt, because every mutation of filter, search or
+    /// projects goes through the locking App methods (`set_filter`,
+    /// `set_search`, `set_projects`, `settle_selection`) which rebuild in
+    /// the same step. Callers can never observe a stale tree.
+    pub fn items(&self) -> &[TreeItem<'static, String>] {
+        &self.items
+    }
+
+    /// The tree widget's interactive state (open/selected paths), read
+    /// side.
+    pub fn tree_state(&self) -> &TreeState<String> {
+        &self.tree_state
+    }
+
+    /// The tree widget's interactive state (open/selected paths), write
+    /// side: rendering and the key handlers mutate selection/folding here.
+    /// The state is independent of `items` rebuilds on purpose, so a
+    /// reload can re-settle the selection (r[tui-review]).
+    pub fn tree_state_mut(&mut self) -> &mut TreeState<String> {
+        &mut self.tree_state
+    }
+
+    /// Replace the project list and rebuild the derived tree in the same
+    /// step (the pure, I/O-free half of `load`). The per-project mutations
+    /// (`reload_project`, `refresh_projects`) keep the same lock-step
+    /// through `settle_selection`.
+    pub fn set_projects(&mut self, projects: Vec<ProjectData>) {
+        self.projects = projects;
+        self.rebuild_items();
+    }
+
+    /// Set the review filter (r[tui-review]), rebuilding the derived tree
+    /// in the same step: the filter and `items` can never disagree.
+    pub fn set_filter(&mut self, filter: Option<Status>) {
+        self.filter = filter;
+        self.rebuild_items();
+    }
+
+    /// Replace the search line (r[tui-search]), rebuilding the derived
+    /// tree in the same step. Rebuilding an unchanged search is a no-op
+    /// (the tree is a pure function of filter/search/projects), so this is
+    /// called on every keystroke without a change check, and never
+    /// reloads from disk (load-once-per-invocation, r[tui-refresh]).
+    pub fn set_search(&mut self, search: String) {
+        self.search = search;
+        self.rebuild_items();
+    }
+
+    fn rebuild_items(&mut self) {
         let search_active = !self.search.is_empty();
         let mut items = Vec::new();
         for pd in &self.projects {
@@ -833,7 +894,7 @@ impl App {
         let Some(current) = self.tree_state.selected().last().cloned() else {
             return (None, None);
         };
-        let order = tree_order(&self.items);
+        let order = tree_order(self.items());
         let pos = order.iter().position(|id| id == &current);
         let next = pos.and_then(|i| order.get(i + 1)).cloned();
         (Some(current), next)
@@ -850,7 +911,7 @@ impl App {
         let Some(last) = self.tree_state.selected().last() else {
             return false;
         };
-        if !items_contain(&self.items, last) {
+        if !items_contain(self.items(), last) {
             return false;
         }
         // Issue selections must still resolve to a live issue.
@@ -863,7 +924,7 @@ impl App {
     fn reset_selection_to_first(&mut self) {
         // Prefer the first ISSUE (deep-first), opening its ancestors so the
         // selection is visible; fall back to the first project node.
-        match first_leaf_path(&self.items, &mut Vec::new()) {
+        match first_leaf_path(self.items(), &mut Vec::new()) {
             Some(mut full_path) => {
                 let leaf = full_path.pop();
                 // Open every ancestor so the whole path is visible.
@@ -882,7 +943,7 @@ impl App {
     /// the new last item after the previously last one was removed
     /// (r[tui-review]). Falls back to no selection when the tree is empty.
     fn reset_selection_to_last(&mut self) {
-        match last_leaf_path(&self.items, &mut Vec::new()) {
+        match last_leaf_path(self.items(), &mut Vec::new()) {
             Some(mut full_path) => {
                 let leaf = full_path.pop();
                 for len in 1..=full_path.len() {
@@ -1087,6 +1148,11 @@ fn render_browser(f: &mut Frame, app: &mut App) {
         _ => Block::bordered(),
     };
 
+    // Borrow the fields directly, not through the accessors: the Tree
+    // widget keeps a slice of `items` alive while the same call mutates
+    // `tree_state`, and only disjoint field borrows satisfy the borrow
+    // checker. Reads never re-sync anything, so this is safe; the fields
+    // stay private to this module.
     let tree = Tree::new(&app.items)
         .expect("unique identifiers")
         .block(tree_block)
@@ -1131,7 +1197,7 @@ fn render_browser(f: &mut Frame, app: &mut App) {
 }
 
 fn selected_project(app: &App) -> Option<&ProjectData> {
-    let sel = app.tree_state.selected().last()?;
+    let sel = app.tree_state().selected().last()?;
     if Uuid::parse_str(sel).is_ok() {
         return None; // an issue is selected, not a project node
     }
@@ -1242,7 +1308,7 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) 
     loop {
         // TreeState.select_first() needs identifiers from a previous render,
         // so re-select when empty and let the next draw pick it up.
-        if !app.selection_visible() && !app.items.is_empty() {
+        if !app.selection_visible() && !app.items().is_empty() {
             app.reset_selection_to_first();
         }
         terminal.draw(|f| render_app(f, app))?;
@@ -1272,23 +1338,23 @@ fn tree_key(app: &mut App, code: KeyCode) -> Result<()> {
         KeyCode::Char('q') => app.should_quit = true,
         KeyCode::Char('j') | KeyCode::Down => {
             app.detail_offset = 0;
-            app.tree_state.key_down();
+            app.tree_state_mut().key_down();
         }
         KeyCode::Char('k') | KeyCode::Up => {
             app.detail_offset = 0;
-            app.tree_state.key_up();
+            app.tree_state_mut().key_up();
         }
         KeyCode::Right => {
             app.detail_offset = 0;
-            app.tree_state.key_right();
+            app.tree_state_mut().key_right();
         }
         KeyCode::Left => {
             app.detail_offset = 0;
-            app.tree_state.key_left();
+            app.tree_state_mut().key_left();
         }
         KeyCode::Enter | KeyCode::Char('f') => {
             app.detail_offset = 0;
-            app.tree_state.toggle_selected();
+            app.tree_state_mut().toggle_selected();
         }
         KeyCode::Tab => app.focus = Focus::Search,
         KeyCode::BackTab => app.focus = Focus::Detail,
@@ -1296,9 +1362,8 @@ fn tree_key(app: &mut App, code: KeyCode) -> Result<()> {
         KeyCode::Char('/') => app.focus = Focus::Search,
         KeyCode::Esc => {
             if !app.search.is_empty() {
-                app.search = String::new();
+                app.set_search(String::new());
                 app.confirm_delete = false;
-                app.rebuild_items();
                 app.reset_selection_to_first();
             } else {
                 toggle_review_filter(app);
@@ -1339,13 +1404,13 @@ fn tree_key(app: &mut App, code: KeyCode) -> Result<()> {
 }
 
 fn toggle_review_filter(app: &mut App) {
-    app.filter = if app.filter.is_some() {
+    let next = if app.filter.is_some() {
         None
     } else {
         Some(Status::Proposed)
     };
+    app.set_filter(next);
     app.confirm_delete = false;
-    app.rebuild_items();
     app.reset_selection_to_first();
 }
 
@@ -1358,25 +1423,26 @@ fn search_key(app: &mut App, code: KeyCode) -> Result<()> {
             app.focus = Focus::Tree;
         }
         KeyCode::Esc => {
-            app.search = String::new();
+            app.set_search(String::new());
             app.focus = Focus::Tree;
             app.confirm_delete = false;
-            app.rebuild_items();
             app.reset_selection_to_first();
         }
         KeyCode::Tab => app.focus = Focus::Detail,
         KeyCode::BackTab => app.focus = Focus::Tree,
         KeyCode::Backspace | KeyCode::Delete => {
-            if app.search.pop().is_some() {
-                app.rebuild_items();
+            let mut next = app.search.clone();
+            if next.pop().is_some() {
+                app.set_search(next);
                 if !app.selection_visible() {
                     app.reset_selection_to_first();
                 }
             }
         }
         KeyCode::Char(c) => {
-            app.search.push(c);
-            app.rebuild_items();
+            let mut next = app.search.clone();
+            next.push(c);
+            app.set_search(next);
             if !app.selection_visible() {
                 app.reset_selection_to_first();
             }
@@ -1517,13 +1583,13 @@ fn path_to_item(
 /// Select `identifier` in the tree, opening its ancestors so it is visible
 /// again after a mutation re-built the items.
 fn select_item(app: &mut App, identifier: &str) -> bool {
-    let Some(path) = path_to_item(&app.items, identifier, &mut Vec::new()) else {
+    let Some(path) = path_to_item(app.items(), identifier, &mut Vec::new()) else {
         return false;
     };
     for len in 1..path.len() {
-        app.tree_state.open(path[..len].to_vec());
+        app.tree_state_mut().open(path[..len].to_vec());
     }
-    app.tree_state.select(path);
+    app.tree_state_mut().select(path);
     true
 }
 
@@ -1856,8 +1922,7 @@ mod tests {
 
     fn app_with(pds: Vec<ProjectData>) -> App {
         let mut app = App::new();
-        app.projects = pds;
-        app.rebuild_items();
+        app.set_projects(pds);
         app
     }
 
@@ -1963,13 +2028,13 @@ mod tests {
             vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
         );
         let app = app_with(vec![a, b]);
-        assert_eq!(app.items.len(), 2, "two project nodes");
+        assert_eq!(app.items().len(), 2, "two project nodes");
         assert_eq!(
-            app.items[0].children().len(),
+            app.items()[0].children().len(),
             1,
             "alpha subtree top level: one epic"
         );
-        assert_eq!(app.items[1].children().len(), 1, "beta: one orphan leaf");
+        assert_eq!(app.items()[1].children().len(), 1, "beta: one orphan leaf");
     }
 
     #[test]
@@ -2053,17 +2118,18 @@ mod tests {
         let mut app = app_with(vec![a]);
         // child uuid nested inside project > epic
         let child_uuid = Uuid::from_u128(0x2222).to_string();
-        app.tree_state.select(vec![
+        app.tree_state_mut().select(vec![
             "/repos/alpha".to_string(),
             Uuid::from_u128(0x4444).to_string(),
             child_uuid.clone(),
         ]);
         assert!(
-            items_contain(&app.items, &child_uuid),
+            items_contain(app.items(), &child_uuid),
             "recursive containment"
         );
         assert!(app.selection_visible());
-        app.tree_state.select(vec!["/repos/nowhere".to_string()]);
+        app.tree_state_mut()
+            .select(vec!["/repos/nowhere".to_string()]);
         assert!(!app.selection_visible(), "unknown root not visible");
     }
 
@@ -2073,7 +2139,7 @@ mod tests {
     fn tree_order_flattens_pre_order() {
         let a = pd("/repos/alpha", project_a_issues());
         let app = app_with(vec![a]);
-        let order = tree_order(&app.items);
+        let order = tree_order(app.items());
         assert_eq!(
             order,
             vec![
@@ -2089,7 +2155,7 @@ mod tests {
     fn last_leaf_path_is_the_deep_last_issue() {
         let a = pd("/repos/alpha", project_a_issues());
         let app = app_with(vec![a]);
-        let path = last_leaf_path(&app.items, &mut Vec::new()).unwrap();
+        let path = last_leaf_path(app.items(), &mut Vec::new()).unwrap();
         assert_eq!(
             path,
             vec![
@@ -2112,8 +2178,7 @@ mod tests {
             ],
         );
         let mut app = app_with(vec![b]);
-        app.filter = Some(Status::Proposed);
-        app.rebuild_items();
+        app.set_filter(Some(Status::Proposed));
         app.reset_selection_to_first();
         let (same, next) = app.selection_targets();
         assert_eq!(same, Some(Uuid::from_u128(0x3333).to_string()));
@@ -2123,7 +2188,7 @@ mod tests {
             "the item after the selection in tree order"
         );
         // Move to the last item: no successor.
-        app.tree_state.select(vec![
+        app.tree_state_mut().select(vec![
             "/repos/beta".to_string(),
             Uuid::from_u128(0x5555).to_string(),
         ]);
@@ -2142,11 +2207,10 @@ mod tests {
             ],
         );
         let mut app = app_with(vec![b]);
-        app.filter = Some(Status::Proposed);
-        app.rebuild_items();
+        app.set_filter(Some(Status::Proposed));
         app.reset_selection_to_last();
         assert_eq!(
-            app.tree_state.selected().last(),
+            app.tree_state().selected().last(),
             Some(&Uuid::from_u128(0x4444).to_string()),
             "new last item selected"
         );
@@ -2161,9 +2225,8 @@ mod tests {
             vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
         );
         let mut app = app_with(vec![a, b]);
-        app.filter = Some(Status::Proposed);
-        app.rebuild_items();
-        app.tree_state.open(vec!["/repos/beta".to_string()]);
+        app.set_filter(Some(Status::Proposed));
+        app.tree_state_mut().open(vec!["/repos/beta".to_string()]);
         let rows = draw(&mut app);
         assert!(
             rows.iter().any(|r| r.contains("beta")),
@@ -2179,6 +2242,124 @@ mod tests {
         );
     }
 
+    // ------------------------------------------------------------------
+    // Derived render cache: `items` must be recomputed inside every
+    // mutation path (filter, search, projects, refresh/reload), never by
+    // callers remembering to rebuild - staleness is impossible by
+    // construction. Read back through `app.items()` after each mutation.
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn derived_tree_follows_filter_and_search_via_key_handlers() {
+        // alpha: "Todo child" (bug, todo) + "The epic" (epic, todo), with
+        // nothing proposed.
+        let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
+
+        // Filter path: `r` toggles the review filter through tree_key.
+        tree_key(&mut app, KeyCode::Char('r')).unwrap();
+        assert_eq!(app.filter, Some(Status::Proposed));
+        assert!(
+            app.items().is_empty(),
+            "proposed filter hides alpha (no proposals)"
+        );
+        tree_key(&mut app, KeyCode::Char('r')).unwrap();
+        assert_eq!(app.filter, None);
+        assert_eq!(app.items().len(), 1, "filter cleared: project node back");
+        assert_eq!(app.items()[0].children().len(), 1, "epic node restored");
+
+        // Search path: each keystroke must land a rebuilt tree.
+        app.focus = Focus::Search;
+        search_key(&mut app, KeyCode::Char('t')).unwrap(); // "t"
+        assert_eq!(
+            app.items()[0].children().len(),
+            2,
+            "both titles contain 't'"
+        );
+        search_key(&mut app, KeyCode::Char('o')).unwrap(); // "to"
+        assert_eq!(
+            app.items()[0].children().len(),
+            1,
+            "'to' only matches 'Todo child'"
+        );
+        assert!(
+            app.items()[0]
+                .children()
+                .iter()
+                .all(|c| c.children().is_empty()),
+            "search flattens the tree to leaves"
+        );
+        search_key(&mut app, KeyCode::Char('t')).unwrap(); // "tot"
+        assert!(app.items().is_empty(), "no matches: tree empties live");
+        search_key(&mut app, KeyCode::Backspace).unwrap(); // "to"
+        assert_eq!(
+            app.items()[0].children().len(),
+            1,
+            "backspace restores the match"
+        );
+        search_key(&mut app, KeyCode::Esc).unwrap(); // clears
+        assert_eq!(app.search, "");
+        assert_eq!(
+            app.items()[0].children().len(),
+            1,
+            "Esc restores the unfiltered tree shape"
+        );
+    }
+
+    #[test]
+    fn set_projects_rebuilds_the_derived_tree() {
+        // The projects mutation path (the pure half of `load`; a refresh
+        // would deliver the same kind of new issue set).
+        let a = pd("/repos/alpha", project_a_issues());
+        let mut app = app_with(vec![a]);
+        assert_eq!(app.items()[0].children().len(), 1, "one epic subtree");
+
+        let mut issues = project_a_issues();
+        issues.push(issue(0x6666, "Extra", Status::Todo, IssueType::Bug));
+        app.set_projects(vec![pd("/repos/alpha", issues)]);
+        assert_eq!(
+            app.items()[0].children().len(),
+            2,
+            "new orphan leaf visible through the next access"
+        );
+        let new_uuid = Uuid::from_u128(0x6666).to_string();
+        assert!(
+            items_contain(app.items(), &new_uuid),
+            "the new issue's node is in the rebuilt tree"
+        );
+    }
+
+    #[test]
+    fn settle_selection_rebuilds_after_project_changes() {
+        // The refresh/reload path (r[tui-refresh], r[tui-review]) mutates
+        // the projects list and then re-settles via settle_selection: the
+        // rebuild must live inside it, so a refresh can never leave the
+        // derived tree stale.
+        let a = pd("/repos/alpha", project_a_issues()); // nothing proposed
+        let mut app = app_with(vec![a]);
+        app.set_filter(Some(Status::Proposed));
+        assert!(
+            app.items().is_empty(),
+            "filter applied: alpha has no proposals"
+        );
+
+        // A refresh-style change: a new project with a proposal appears.
+        let b = pd(
+            "/repos/beta",
+            vec![issue(0x3333, "Orphan", Status::Proposed, IssueType::Design)],
+        );
+        app.projects.push(b); // refresh_projects mutates `projects` directly
+        let (same, next) = app.selection_targets();
+        app.settle_selection(same, next);
+
+        assert_eq!(app.items().len(), 1, "rebuilt tree shows the new project");
+        let proposal = Uuid::from_u128(0x3333).to_string();
+        assert!(
+            items_contain(app.items(), &proposal),
+            "the proposal's node is in the rebuilt tree"
+        );
+        assert!(app.selection_visible(), "selection re-settled onto it");
+    }
+
     #[test]
     fn children_sort_proposed_before_todo_before_done_then_bug_before_rest() {
         let epic_id = Uuid::from_u128(0x4444);
@@ -2188,8 +2369,8 @@ mod tests {
         issues.push(done_design);
         let a = pd("/repos/alpha", issues);
         let mut app = app_with(vec![a]);
-        app.tree_state.open(vec!["/repos/alpha".to_string()]);
-        app.tree_state.open(vec![
+        app.tree_state_mut().open(vec!["/repos/alpha".to_string()]);
+        app.tree_state_mut().open(vec![
             "/repos/alpha".to_string(),
             Uuid::from_u128(0x4444).to_string(),
         ]);
@@ -2203,12 +2384,12 @@ mod tests {
     fn browser_renders_projects_tree_and_detail() {
         let a = pd("/repos/alpha", project_a_issues());
         let mut app = app_with(vec![a]);
-        app.tree_state.open(vec!["/repos/alpha".to_string()]);
-        app.tree_state.open(vec![
+        app.tree_state_mut().open(vec!["/repos/alpha".to_string()]);
+        app.tree_state_mut().open(vec![
             "/repos/alpha".to_string(),
             Uuid::from_u128(0x4444).to_string(),
         ]);
-        app.tree_state.select(vec![
+        app.tree_state_mut().select(vec![
             "/repos/alpha".to_string(),
             Uuid::from_u128(0x4444).to_string(),
         ]);
@@ -2246,15 +2427,15 @@ mod tests {
             rows_open.iter().any(|r| r.contains("Todo child")),
             "first issue selected & visible"
         );
-        app.tree_state.key_up(); // move onto the epic
+        app.tree_state_mut().key_up(); // move onto the epic
         let _ = draw(&mut app);
-        app.tree_state.key_left(); // fold the (selected, open) epic
+        app.tree_state_mut().key_left(); // fold the (selected, open) epic
         let rows_folded = tree_side(&draw(&mut app));
         assert!(
             !rows_folded.iter().any(|r| r.contains("Todo child")),
             "Left folds epic"
         );
-        app.tree_state.key_right(); // Right re-unfolds the epic
+        app.tree_state_mut().key_right(); // Right re-unfolds the epic
         let rows_unfolded = tree_side(&draw(&mut app));
         assert!(
             rows_unfolded.iter().any(|r| r.contains("Todo child")),
@@ -2477,8 +2658,7 @@ mod tests {
         let a = pd("/repos/alpha", project_a_issues());
         let mut app = app_with(vec![a]);
         app.focus = Focus::Search;
-        app.search = "todo".to_string();
-        app.rebuild_items();
+        app.set_search("todo".to_string());
         let rows = draw(&mut app);
         assert!(
             rows.iter().any(|r| r.contains("search: todo")),
@@ -2493,17 +2673,15 @@ mod tests {
             "second match listed: {rows:?}"
         );
         // Empty search drops the filter: tree shape returns.
-        app.search = "zzz".to_string();
-        app.rebuild_items();
-        assert!(app.items.is_empty(), "no matches anywhere");
+        app.set_search("zzz".to_string());
+        assert!(app.items().is_empty(), "no matches anywhere");
     }
 
     #[test]
     fn search_key_enter_keeps_filter_esc_clears() {
         let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
         app.focus = Focus::Search;
-        app.search = "todo".to_string();
-        app.rebuild_items();
+        app.set_search("todo".to_string());
         search_key(&mut app, KeyCode::Enter).unwrap();
         assert_eq!(app.focus, Focus::Tree);
         assert_eq!(app.search, "todo", "Enter keeps the active filter");
@@ -2513,7 +2691,7 @@ mod tests {
         assert_eq!(app.focus, Focus::Tree);
         assert_eq!(app.search, "");
         assert_eq!(
-            app.items[0].children().len(),
+            app.items()[0].children().len(),
             1,
             "project node back to one epic subtree"
         );
@@ -2607,7 +2785,7 @@ mod tests {
     fn edit_app() -> (App, Uuid) {
         let epic_id = Uuid::from_u128(0x4444);
         let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
-        app.tree_state
+        app.tree_state_mut()
             .select(vec!["/repos/alpha".to_string(), epic_id.to_string()]);
         open_edit(&mut app).unwrap();
         (app, epic_id)
@@ -2630,7 +2808,8 @@ mod tests {
     fn open_edit_requires_an_issue_selection() {
         let mut app = app_with(vec![pd("/repos/alpha", project_a_issues())]);
         // A project node is selected, not an issue: the pane does not open.
-        app.tree_state.select(vec!["/repos/alpha".to_string()]);
+        app.tree_state_mut()
+            .select(vec!["/repos/alpha".to_string()]);
         detail_key(&mut app, KeyCode::Char('e')).unwrap();
         assert_eq!(app.mode, Mode::Browser, "no edit mode without an issue");
         assert!(

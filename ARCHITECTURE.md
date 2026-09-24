@@ -4,7 +4,7 @@ This document explains the design philosophy, system architecture, and key techn
 
 ## Design Philosophy
 
-Pebbles is built on three core principles:
+Pebbles is built on four core principles:
 
 ### 1. Simplicity
 
@@ -33,6 +33,19 @@ Let jj do what it does best: track changes, merge conflicts, sync across machine
 - Conflicts are first-class and can be resolved incrementally
 - History rewriting is safe and intuitive
 - Works with git remotes for compatibility
+
+### 4. Derived State by Construction
+
+Derived UI state is recomputed by construction, not by convention. The TUI's
+render tree (`App.items`) is a cache derived from the filter, search, and
+project lists; it used to be kept in sync by remembering to rebuild it at
+every mutation site, so a new code path could silently show a stale tree.
+Today the fields stay private and every mutation of filter, search, or
+projects goes through an App method that rebuilds the cache in the same step
+(`set_filter`, `set_search`, `set_projects`, `settle_selection`). Staleness
+is impossible by construction: a caller cannot change what the tree shows
+without the rebuild, and reads always return the fresh tree (unit-tested
+for each mutation path).
 
 ## System Architecture
 
