@@ -12,8 +12,6 @@ pub struct FlowLayout {
     pub width: f64,
     /// Height of the layout
     pub height: f64,
-    /// Mapping from layout index back to issue
-    pub _index_to_issue: HashMap<usize, usize>,
 }
 
 /// Build dependency graph from issues
@@ -94,7 +92,6 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
             coordinates: Vec::new(),
             width: 0.0,
             height: 0.0,
-            _index_to_issue: HashMap::new(),
         });
     }
 
@@ -146,14 +143,10 @@ pub fn compute_flow_layout(issues: &[Issue]) -> Result<FlowLayout> {
         max_width = max_width.max(comp_height); // height becomes width (max layers)
     }
 
-    let _index_to_issue: HashMap<usize, usize> =
-        all_coordinates.iter().map(|&(idx, _)| (idx, idx)).collect();
-
     Ok(FlowLayout {
         coordinates: all_coordinates,
         width: max_width,
         height: total_height,
-        _index_to_issue,
     })
 }
 
@@ -413,7 +406,6 @@ mod tests {
             coordinates: vec![(0, (0.0, 0.0))],
             width: 100.0,
             height: 30.0,
-            _index_to_issue: HashMap::new(),
         };
         let issues = vec![issue("Fix <script> & \"quotes\" bug")];
         let svg = render_svg(&issues, &layout, &HashMap::new(), None);
