@@ -1102,7 +1102,12 @@ impl Operations {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let (mut issues, warnings) = self.storage.load_all_issues()?;
+        // Reload the invocation's graph so the listing is fresh (a long-
+        // lived TUI session re-lists after every mutation and external
+        // change) and the blocker/epic markers that follow reuse this
+        // single load (r[187 graph layer]).
+        let (graph, warnings) = self.load_graph()?;
+        let mut issues: Vec<Issue> = graph.issues().cloned().collect();
 
         if let Some(status) = status_filter {
             issues.retain(|issue| issue.status == status);
@@ -1602,13 +1607,26 @@ impl Operations {
             bail!("Cannot link an issue to itself");
         }
 
-        let mut source_issue = self.storage.load_issue(&source_uuid)?;
-        let target_issue = self.storage.load_issue(&target_uuid)?;
+        // Serve the query phase (source/target lookup + DAG check) from the
+        // invocation's single-load graph; the save path below writes
+        // through Storage (r[187 graph layer]).
+        let (graph, _) = self.graph_or_load()?;
+        let mut source_issue = match graph.issues().find(|i| i.id == source_uuid) {
+            Some(issue) => issue.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&source_uuid)?,
+        };
+        let target_issue = match graph.issues().find(|i| i.id == target_uuid) {
+            Some(issue) => issue.clone(),
+            None => self.storage.load_issue(&target_uuid)?,
+        };
 
         // DAG invariant: reject edges that close a directed dependency cycle
         // (r[graph-acyclic]).
-        let (all_issues, _) = self.storage.load_all_issues()?;
-        let adjacency = build_dependency_adjacency(&all_issues);
+        let project_issues: Vec<Issue> = graph.issues().cloned().collect();
+        let adjacency = build_dependency_adjacency(&project_issues);
         if creates_cycle(&adjacency, source_uuid, target_uuid) {
             bail!(
                 "Cannot add relationship {} {} {}: it would create a dependency cycle",
@@ -1666,14 +1684,27 @@ impl Operations {
         let source_uuid = self.resolve_id(source_id)?;
         let target_uuid = self.resolve_id(target_id)?;
 
-        let mut source_issue = self.storage.load_issue(&source_uuid)?;
+        // Serve the query phase (source/target lookup) from the
+        // invocation's single-load graph; the save path below writes
+        // through Storage (r[187 graph layer]).
+        let (graph, _) = self.graph_or_load()?;
+        let mut source_issue = match graph.issues().find(|i| i.id == source_uuid) {
+            Some(issue) => issue.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&source_uuid)?,
+        };
         // The target may no longer exist (e.g. it was deleted while this
         // relationship survived); fall back to its short id for the message.
-        let target_label = self
-            .storage
-            .load_issue(&target_uuid)
-            .map(|issue| issue.title)
-            .unwrap_or_else(|_| target_uuid.to_string()[..8].to_string());
+        let target_label = match graph.issues().find(|i| i.id == target_uuid) {
+            Some(issue) => issue.title.clone(),
+            None => self
+                .storage
+                .load_issue(&target_uuid)
+                .map(|issue| issue.title)
+                .unwrap_or_else(|_| target_uuid.to_string()[..8].to_string()),
+        };
 
         if !source_issue.remove_relationship(relation_type.clone(), target_uuid) {
             bail!("Relationship not found");
@@ -1744,7 +1775,10 @@ impl Operations {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let (all_issues, warnings) = self.storage.load_all_issues()?;
+        // Reload the invocation's graph (fresh read; the blockers that
+        // follow reuse it, r[187 graph layer]).
+        let (graph, warnings) = self.load_graph()?;
+        let all_issues: Vec<Issue> = graph.issues().cloned().collect();
         Ok((get_unblocked_issues(&all_issues), warnings))
     }
 
@@ -1756,7 +1790,17 @@ impl Operations {
         }
 
         let uuid = self.resolve_id(id)?;
-        let mut issue = self.storage.load_issue(&uuid)?;
+        // Serve the query phase (target lookup + epic-child checks) from
+        // the invocation's single-load graph; the save path below writes
+        // through Storage (r[187 graph layer]).
+        let (graph, _) = self.graph_or_load()?;
+        let mut issue = match graph.issues().find(|candidate| candidate.id == uuid) {
+            Some(candidate) => candidate.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&uuid)?,
+        };
 
         let old_type = issue.issue_type.clone();
 
@@ -1770,8 +1814,7 @@ impl Operations {
         // Validate conversion
         if old_type == IssueType::Epic && new_type != IssueType::Epic {
             // Check if this epic has children
-            let (all_issues, _) = self.storage.load_all_issues()?;
-            let has_children = all_issues.iter().any(|i| {
+            let has_children = graph.issues().any(|i| {
                 i.relationships
                     .iter()
                     .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == uuid)
@@ -1843,7 +1886,11 @@ impl Operations {
     /// blocking issue falls outside the current view (e.g. a proposal
     /// blocking a todo). See SPEC r[blocker-indicators].
     pub fn blocker_status(&self) -> Result<HashMap<Uuid, BlockerStatus>> {
-        let (all_issues, _) = self.storage.load_all_issues()?;
+        // Serve from the invocation's cached graph when present, so a
+        // list/next invocation that already loaded the set reads it once
+        // (r[187 graph layer]).
+        let (graph, _) = self.graph_or_load()?;
+        let all_issues: Vec<Issue> = graph.issues().cloned().collect();
         Ok(build_blocker_status(&all_issues))
     }
 
@@ -2197,6 +2244,108 @@ mod tests {
 
         let graph = build_project_graph(&[child_done.clone(), child_todo.clone(), epic.clone()]);
         assert_eq!(graph.epic_counts().get(&epic.id), Some(&(2, 1)));
+    }
+
+    #[test]
+    fn graph_serves_convert_epic_child_guard() {
+        // The convert guard "cannot convert an epic with children" runs
+        // the same predicate over the graph's issue set: any issue carries
+        // a part_of edge targeting the epic.
+        let epic = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Epic",
+            Status::Todo,
+            IssueType::Epic,
+        );
+        let mut child = issue_with_type(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "Child",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let unrelated = issue_with_type(
+            "cccccccc-1111-2222-3333-444444444444",
+            "Unrelated",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut child, RelationType::PartOf, &epic);
+
+        let graph = build_project_graph(&[epic.clone(), child.clone(), unrelated.clone()]);
+
+        let has_children = graph.issues().any(|i| {
+            i.relationships
+                .iter()
+                .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == epic.id)
+        });
+        assert!(has_children);
+
+        // An epic without children has no such edge.
+        let childless_graph = build_project_graph(&[epic.clone(), unrelated.clone()]);
+        let has_children = childless_graph.issues().any(|i| {
+            i.relationships
+                .iter()
+                .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == epic.id)
+        });
+        assert!(!has_children);
+
+        // The other convert guard: the target issue itself is part of an
+        // epic (an issue can be converted to an epic only when it has no
+        // part_of relationship). The graph serves the issue by id exactly
+        // as load_issue would.
+        let from_graph = graph.issues().find(|i| i.id == child.id).unwrap();
+        assert_eq!(from_graph.title, "Child");
+        assert!(from_graph
+            .relationships
+            .iter()
+            .any(|rel| rel.relation_type == RelationType::PartOf));
+    }
+
+    #[test]
+    fn graph_serves_link_lookup_and_dag_check() {
+        // link's query phase resolves source/target titles and builds the
+        // dependency adjacency from the graph. The graph iterates a
+        // HashMap, so the adjacency must be order-insensitive: shuffle the
+        // input and compare against the store-order slice.
+        let mut a = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "A",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let mut b = issue_with_type(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "B",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let c = issue_with_type(
+            "cccccccc-1111-2222-3333-444444444444",
+            "C",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut a, RelationType::RequiredFor, &b);
+        relate(&mut b, RelationType::RequiredFor, &c);
+
+        let in_order = vec![a.clone(), b.clone(), c.clone()];
+        let graph = build_project_graph(&in_order);
+        let from_graph: Vec<Issue> = graph.issues().cloned().collect();
+
+        let adjacency = build_dependency_adjacency(&from_graph);
+        assert_eq!(adjacency, build_dependency_adjacency(&in_order));
+
+        // Adding the edge B -> A would close the cycle A -> B -> C -> A;
+        // the graph-served adjacency rejects it exactly like the store
+        // slice does. Adding A -> C closes nothing (C has no outgoing
+        // edges), so it is accepted.
+        assert!(creates_cycle(&adjacency, b.id, a.id));
+        assert!(creates_cycle(&adjacency, c.id, a.id));
+        assert!(!creates_cycle(&adjacency, a.id, c.id));
+
+        // Source/target lookup by id, as link resolves its two endpoints.
+        assert_eq!(graph.issues().find(|i| i.id == b.id).unwrap().title, "B");
+        assert_eq!(graph.issues().find(|i| i.id == c.id).unwrap().title, "C");
     }
 
     #[test]
