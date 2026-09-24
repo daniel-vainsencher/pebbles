@@ -1,12 +1,12 @@
 {
   "id": "2931fdf7-57ae-4221-acc8-70336322de57",
   "title": "TUI edit pane: first Enter should not blank other fields; cycled fields should apply on one Enter",
-  "description": "Observed with the cb08a6e4 inline edit pane (landed 2026-09-22): Left/Right cycles Type/Status; the first Enter arms editing and makes the Title and Description rows render as empty buffer lines with a cursor (the shared edit buffer starts empty), so the pane looks like it wiped all other field values; a second Enter then commits through the operations layer. The values are never actually removed (the commit reloads from disk), but the intermediate state is confusing. Ask: while editing any field, render live values for rows other than the active one (buffer only for the active row); and for Type/Status (which are cycled, not typed) apply on the first Enter instead of needing arm+commit. Update r[tui-edit] SPEC text and e2e accordingly.",
+  "description": "Observed with the cb08a6e4 inline edit pane (landed 2026-09-22): Left/Right cycles Type/Status; the first Enter arms editing and makes the Title and Description rows render as empty buffer lines with a cursor (the shared edit buffer starts empty), so the pane looks like it wiped all other field values; a second Enter then commits through the operations layer. The values are never actually removed (the commit reloads from disk), but the intermediate state is confusing. Ask: while editing any field, render live values for rows other than the active one (buffer only for the active row); and for Type/Status (which are cycled, not typed) apply on the first Enter instead of needing arm+commit. Update r[tui-edit] SPEC text and e2e accordingly.\n\nAgreed scope (manager+owner 2026-09-24): (1) render LIVE values for rows other than the active one while editing (display bug); (2) cycled Type/Status apply on the FIRST Enter (commit-and-stay), typed Title/Description keep arm-then-commit; (3) proper in-buffer editing for Title/Description: cursor movement (Left/Right/Home/End while editing), Delete, and multi-line Description (Enter inserts newline) - the current pane is append-only with flattened description; no text-input widget exists in the pinned ratatui 0.30.2 family (verified), DIY EditBuffer preferred over a new dependency; (4) update SPEC r[tui-edit] and unit/e2e tests.",
   "status": "proposed",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-22T04:15:59.626107374Z",
-  "updated_at": "2026-09-22T04:15:59.626107374Z"
+  "updated_at": "2026-09-24T02:21:39.345242382Z"
 }
