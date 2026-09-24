@@ -1001,6 +1001,7 @@ pub fn unset_metadata_on_issue(issue: &mut Issue, key: &str) -> bool {
 /// ```rust
 /// # use pebbles::models::{Issue, IssueType};
 /// # use pebbles::operations::filter_by_metadata;
+/// # use pebbles::operations::set_metadata_on_issue;
 /// let mut a = Issue::new("A".to_string(), None, IssueType::Bug);
 /// let mut b = Issue::new("B".to_string(), None, IssueType::Bug);
 /// set_metadata_on_issue(&mut a, "priority", "high");
@@ -1030,6 +1031,7 @@ pub fn filter_by_metadata(issues: &[Issue], filters: &[(String, String)]) -> Vec
 /// ```rust
 /// # use pebbles::models::{Issue, IssueType};
 /// # use pebbles::operations::sorted_metadata;
+/// # use pebbles::operations::set_metadata_on_issue;
 /// let mut issue = Issue::new("A".to_string(), None, IssueType::Bug);
 /// set_metadata_on_issue(&mut issue, "zeta", "1");
 /// set_metadata_on_issue(&mut issue, "alpha", "2");

@@ -22,6 +22,9 @@ ratatui = { version = "0.30", features = ["crossterm"] }
 tui-tree-widget = "=0.24.1"
 fuzzy-matcher = "0.3.7"
 
+[lib]
+path = "src/lib.rs"
+
 [dev-dependencies]
 trycmd = "0.15"
 tempfile = "3"

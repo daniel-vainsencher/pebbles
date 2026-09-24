@@ -479,7 +479,7 @@ pub fn build_epic_counts(issues: &[Issue]) -> HashMap<Uuid, (usize, usize)> {
 /// Returns true if adding a directed edge `from -> to` to the adjacency map
 /// would create a directed cycle (i.e. `to` can already reach `from`).
 /// Pure function used to enforce the DAG invariant (SPEC r[graph-acyclic]).
-pub fn creates_cycle(adjacency: &HashMap<Uuid, Vec<Uuid>>, from: Uuid, to: Uuid) -> bool {
+pub(crate) fn creates_cycle(adjacency: &HashMap<Uuid, Vec<Uuid>>, from: Uuid, to: Uuid) -> bool {
     // Walk forward from `to`; reaching `from` means the new edge closes a cycle.
     let mut stack = vec![to];
     let mut visited: std::collections::HashSet<Uuid> = std::collections::HashSet::new();

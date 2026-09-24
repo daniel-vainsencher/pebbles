@@ -143,7 +143,7 @@ pub struct ReindexOutcome {
 /// The exactly-known top-level keys of the on-disk `Issue` schema. Any other
 /// key is a schema violation (r[schema-valid-issues]): reported at load,
 /// never silently dropped or preserved.
-pub const KNOWN_ISSUE_KEYS: [&str; 10] = [
+pub(crate) const KNOWN_ISSUE_KEYS: [&str; 10] = [
     "id",
     "title",
     "description",
@@ -162,7 +162,7 @@ pub const KNOWN_ISSUE_KEYS: [&str; 10] = [
 /// (and later destroying on rewrite). Returns keys in sorted order; empty
 /// when the content is not a JSON object (the caller treats non-object
 /// content as a parse failure, r[schema-valid-issues]).
-pub fn unknown_top_level_keys(content: &str) -> Vec<String> {
+pub(crate) fn unknown_top_level_keys(content: &str) -> Vec<String> {
     let Ok(value) = serde_json::from_str::<Value>(content) else {
         return Vec::new();
     };
@@ -182,7 +182,7 @@ pub fn unknown_top_level_keys(content: &str) -> Vec<String> {
 /// name). File names always come from the scan - the on-disk files are the
 /// truth - so an issue file renamed outside pebbles is reindexed under its
 /// current name. Deterministic when the old index is unparsable.
-pub fn ordered_entries(
+pub(crate) fn ordered_entries(
     entries: Vec<(Uuid, String)>,
     old_index: Option<&Index>,
 ) -> Vec<(Uuid, String)> {
@@ -397,7 +397,7 @@ impl Storage {
     /// read, append the warning to `warnings` (data, not stderr), then write
     /// the index atomically. The operation continues regardless
     /// (r[stale-index-warning]).
-    pub fn save_index_stale_aware(
+    pub(crate) fn save_index_stale_aware(
         &self,
         index: &Index,
         own_files: &[&str],

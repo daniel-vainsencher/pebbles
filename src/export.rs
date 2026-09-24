@@ -315,7 +315,7 @@ pub fn parse_export_bundle(content: &str) -> Result<ImportPlan> {
 /// // A duplicate inside the bundle is rejected.
 /// assert!(validate_import(&[a.clone(), a.clone()], &[]).is_err());
 /// // A clash with an existing store id is rejected.
-/// assert!(validate_import(&[b.clone()], &[a.id]).is_err());
+/// assert!(validate_import(&[a.clone()], &[a.id]).is_err());
 /// // Distinct ids import cleanly.
 /// assert!(validate_import(&[a.clone(), b.clone()], &[]).is_ok());
 /// ```
