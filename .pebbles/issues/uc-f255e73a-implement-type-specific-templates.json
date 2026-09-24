@@ -2,11 +2,11 @@
   "id": "f255e73a-f2a6-422f-a4e0-8bc9b7512e87",
   "title": "Implement type-specific templates",
   "description": "Prompt for type-specific fields when creating issues (e.g., UX issues should have before/after screenshots)",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-01-11T01:56:20.391182262Z",
-  "updated_at": "2026-01-11T01:56:20.391182262Z"
+  "updated_at": "2026-09-24T02:30:16.314576207Z"
 }
