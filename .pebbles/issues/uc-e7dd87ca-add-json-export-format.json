@@ -2,7 +2,7 @@
   "id": "e7dd87ca-3b96-4bb5-b4d4-ecfa8be911f8",
   "title": "Add JSON export format",
   "description": "Implement --format json for programmatic consumption:\n\nJSON structure:\n{\n  'nodes': [\n    {\n      'id': 'full-uuid',\n      'short_id': '8-char',\n      'title': 'Issue title',\n      'type': 'bug|ux|usecase|...',\n      'status': 'todo|in_progress|done|blocked',\n      'x': float,  // layer position\n      'y': float,  // position within layer\n      'in_critical_path': bool  // if --goal specified\n    }\n  ],\n  'edges': [\n    {'source': 'uuid', 'target': 'uuid', 'type': 'required_for|scheduled_before'}\n  ],\n  'layout': {\n    'width': float,\n    'height': float,\n    'layers': int\n  }\n}\n\nDocument schema in docs/flow-json-schema.md\nUse for integration with external tools (web frontends, analysis tools)",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -17,5 +17,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:31.779754273Z",
-  "updated_at": "2026-02-19T03:19:32.669911414Z"
+  "updated_at": "2026-09-24T20:19:09.601103652Z"
 }
