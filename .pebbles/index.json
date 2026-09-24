@@ -387,6 +387,10 @@
     {
       "id": "b8873fd1-5efc-4ea2-962a-23b3e5237e3e",
       "file_name": "des-b8873fd1-doctests-from-462-are-not-enforced-crate.json"
+    },
+    {
+      "id": "273ab2e3-b875-49df-a856-480cc436135f",
+      "file_name": "uc-273ab2e3-add-explicit-no-color-flag-to-all-comman.json"
     }
   ]
 }
