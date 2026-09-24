@@ -1201,7 +1201,6 @@ struct ThreeBugs {
     a_file: String,
     b_id: String,
     b_short: String,
-    b_file: String,
     c_id: String,
     c_short: String,
     c_file: String,
@@ -1215,7 +1214,6 @@ fn three_bugs(repo: &TestRepo) -> ThreeBugs {
     let a_file = repo.find_file_name(|_| true);
     let b_out = repo.pebbles(&["new", "Beta", "-t", "bug", "--approved"]);
     let b_id = repo.find_id(|e| e.id != a_id);
-    let b_file = repo.find_file_name(|e| e.id != a_id);
     let c_out = repo.pebbles(&["new", "Gamma", "-t", "bug", "--approved"]);
     let c_id = repo.find_id(|e| e.id != a_id && e.id != b_id);
     let c_file = repo.find_file_name(|e| e.id != a_id && e.id != b_id);
@@ -1234,7 +1232,6 @@ fn three_bugs(repo: &TestRepo) -> ThreeBugs {
         a_file,
         b_id,
         b_short: short(&b_out),
-        b_file,
         c_id,
         c_short: short(&c_out),
         c_file,
