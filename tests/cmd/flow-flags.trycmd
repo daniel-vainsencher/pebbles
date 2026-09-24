@@ -2,9 +2,16 @@
 
 `pebbles flow` renders the issue dependency graph. This fixture locks the
 flag surface of loan 70c871cf: `--format` (text default), `--output`
-(required for non-text formats), `--show-done`, and `--goal`. The json and
-dot backends are separate loans (e7dd87ca / ea4b09f2), so today they parse
-and fail with a clear not-implemented error.
+(required for non-text formats), `--show-done`, and `--goal`. The dot
+backend is live (loan ea4b09f2); json is still not implemented (loan
+e7dd87ca) and fails with a clear error.
+
+The text layout renders each dependency layer as a column under one
+"Layer N:" header row. Each issue is one cell: an indicator glyph
+("→" gates other work, "⚠" is blocked by a non-Done dependency, "✓"
+is ready), the minimal ID prefix, and the title (truncated at
+30 chars). Disconnected components are separated by an empty line;
+standalone issues form a trailing list without a glyph.
 
 Fixture store: des-22222222 (Design auth flow) is required_for
 uc-33333333 (Implement login); bug-11111111 (Login bug) is done and
@@ -16,14 +23,8 @@ standalone.
 $ pebbles flow
 ═══ Project Flow ═══
 
-Issues with dependencies:
-
-Layer 0:
-  222 [des] [todo] Design auth flow
-
-Layer 1:
-  333 [uc] [todo] Implement login
-
+Layer 0:                  Layer 1:
+→ 222 Design auth flow  ⚠ 333 Implement login
 
 ```
 
@@ -35,17 +36,11 @@ The done bug appears in the standalone section.
 $ pebbles flow --show-done
 ═══ Project Flow ═══
 
-Issues with dependencies:
-
-Layer 0:
-  222 [des] [todo] Design auth flow
-
-Layer 1:
-  333 [uc] [todo] Implement login
-
+Layer 0:                  Layer 1:
+→ 222 Design auth flow  ⚠ 333 Implement login
 
 Standalone issues (1 total):
-  111 [bug] [done] Login bug
+  111 Login bug
 
 ```
 
@@ -58,14 +53,8 @@ to the goal is the separate loan e4937f0b.
 $ pebbles flow --goal 22222222
 ═══ Project Flow ═══
 
-Issues with dependencies:
-
-Layer 0:
-  222 [des] [todo] Design auth flow
-
-Layer 1:
-  333 [uc] [todo] Implement login
-
+Layer 0:                  Layer 1:
+→ 222 Design auth flow  ⚠ 333 Implement login
 
 ```
 
@@ -78,7 +67,7 @@ Error: --output <path> is required for the 'svg' format (only text writes to std
 
 ```
 
-## json/dot backends are not implemented yet
+## json backend is not implemented yet (dot is live)
 
 ```console
 $ pebbles flow --format json -o flow.json

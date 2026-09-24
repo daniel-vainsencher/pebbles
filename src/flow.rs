@@ -158,7 +158,62 @@ fn issue_id_prefix(id: Uuid, id_prefixes: &HashMap<Uuid, String>) -> String {
         .unwrap_or_else(|| id.to_string()[..8].to_string())
 }
 
+/// Maximum title length in a flow cell before it is truncated with "...".
+const FLOW_TITLE_MAX: usize = 30;
+
+/// Width of the gutter between flow columns.
+const FLOW_COLUMN_GUTTER: usize = 2;
+
+/// Truncate a title to at most `FLOW_TITLE_MAX` characters, appending
+/// "..." when it is cut, so flow columns hold a consistent width.
+fn truncate_flow_title(title: &str) -> String {
+    if title.chars().count() <= FLOW_TITLE_MAX {
+        title.to_string()
+    } else {
+        format!(
+            "{}...",
+            title.chars().take(FLOW_TITLE_MAX - 3).collect::<String>()
+        )
+    }
+}
+
+/// Indicator glyph for one flow issue: "\u{26a0}" (warning) when a
+/// non-Done issue blocks it, "\u{2192}" (arrow) when it blocks other
+/// issues, and "\u{2713}" (check) when it is ready. A blocked issue
+/// always shows the warning, so a blocked issue that also blocks others
+/// only shows "\u{26a0}" (the same precedence the list view uses in
+/// display.rs `blocker_marker`). A `Done` issue is never "blocked" or
+/// "ready" (it is finished); it keeps the arrow only when it still gates
+/// other work and otherwise shows the two-space placeholder.
+fn flow_indicator(blocked: bool, blocks_others: bool, status: Status) -> &'static str {
+    if blocked && status != Status::Done {
+        "\u{26a0}"
+    } else if blocks_others {
+        "\u{2192}"
+    } else if status != Status::Done {
+        "\u{2713}"
+    } else {
+        "  "
+    }
+}
+
+/// Right-pad `text` with spaces to exactly `width` columns. The width
+/// includes the trailing gutter, so consecutive columns stay aligned.
+fn pad_right(text: String, width: usize) -> String {
+    if text.len() >= width {
+        text
+    } else {
+        format!("{}{}", text, " ".repeat(width - text.len()))
+    }
+}
+
 /// Render layout as text in columns
+///
+/// Each dependency layer becomes a column across the width under one
+/// "Layer N:" header row; disconnected components stack as horizontal
+/// bands separated by a blank line. Every issue carries a one-glyph
+/// indicator ("\u{2713}" ready, "\u{26a0}" blocked, "\u{2192}" gating
+/// other work), and long titles are truncated at a consistent width.
 ///
 /// `_goal` is the goal issue whose critical chain should be highlighted.
 /// Threading it here is the seam for the --goal loan (e4937f0b); the
@@ -174,77 +229,201 @@ pub fn render_text(
         return "No issues to visualize.".to_string();
     }
 
-    // Identify issues with dependencies (in edges)
+    // Dependency state per issue, over the same edges that drive the
+    // layering (`build_dependency_graph`: required_for + scheduled_before).
+    // "Blocked" mirrors `get_unblocked_issues` (operations.rs): an incoming
+    // dependency edge from a non-Done issue.
     let edges = build_dependency_graph(issues);
-    let mut has_edges: std::collections::HashSet<usize> = std::collections::HashSet::new();
-    for (source, target) in &edges {
-        has_edges.insert(*source as usize);
-        has_edges.insert(*target as usize);
-    }
-
-    // Group by x-coordinate (layer)
-    // After swap, X is the layer coordinate (was Y in sugiyama)
-    // rust-sugiyama uses spacing of ~50px between layers
-    let mut layers: HashMap<i32, Vec<(usize, f64)>> = HashMap::new();
-    let mut standalone: Vec<(usize, f64)> = Vec::new();
-
-    for &(idx, (x, y)) in &layout.coordinates {
-        if has_edges.contains(&idx) {
-            // Use 50px buckets to match rust-sugiyama's layer spacing
-            let layer = (x / 50.0).round() as i32;
-            layers.entry(layer).or_default().push((idx, y));
-        } else {
-            standalone.push((idx, y));
+    let mut blocked = vec![false; issues.len()];
+    let mut blocks_others = vec![false; issues.len()];
+    let mut has_edges = vec![false; issues.len()];
+    for &(source, target) in &edges {
+        has_edges[source as usize] = true;
+        has_edges[target as usize] = true;
+        blocks_others[source as usize] = true;
+        if issues[source as usize].status != Status::Done {
+            blocked[target as usize] = true;
         }
     }
 
-    let mut sorted_layers: Vec<_> = layers.iter().collect();
-    sorted_layers.sort_by_key(|(layer, _)| *layer);
+    // X carries the layer coordinate after the Y<->X swap in
+    // compute_flow_layout; 50px buckets match rust-sugiyama's layer
+    // spacing (kept from the original presentation).
+    let mut layers: Vec<i32> = vec![0; issues.len()];
+    let mut ys: Vec<f64> = vec![0.0; issues.len()];
+    for &(idx, (x, y)) in &layout.coordinates {
+        ys[idx] = y;
+        if has_edges[idx] {
+            layers[idx] = (x / 50.0).round() as i32;
+        }
+    }
+
+    // Issues without dependency edges have no layer and no indicator;
+    // they render as a trailing list.
+    let mut standalone: Vec<usize> = Vec::new();
+    for idx in 0..issues.len() {
+        if !has_edges[idx] {
+            standalone.push(idx);
+        }
+    }
+    standalone.sort_by(|a, b| ys[*a].partial_cmp(&ys[*b]).unwrap());
+
+    // Columns are the ascending union of layer numbers across all
+    // dependency components, so every component band aligns under the
+    // same header row.
+    let mut seen_layers: std::collections::HashSet<i32> = std::collections::HashSet::new();
+    let mut column_layers: Vec<i32> = Vec::new();
+    for idx in 0..issues.len() {
+        if has_edges[idx] && !seen_layers.contains(&layers[idx]) {
+            seen_layers.insert(layers[idx]);
+            column_layers.push(layers[idx]);
+        }
+    }
+    column_layers.sort();
 
     let mut output = String::new();
     output.push_str("═══ Project Flow ═══\n\n");
 
-    // Show dependency chains first
-    if !sorted_layers.is_empty() {
-        output.push_str("Issues with dependencies:\n\n");
-        for (layer_num, layer_issues) in sorted_layers {
-            output.push_str(&format!("Layer {}:\n", layer_num));
+    let has_columns = !column_layers.is_empty();
 
-            // Sort by y coordinate (vertical position within layer)
-            let mut sorted_issues = layer_issues.clone();
-            sorted_issues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-
-            for (idx, _y) in sorted_issues {
-                let issue = &issues[idx];
-                let short_id = issue_id_prefix(issues[idx].id, id_prefixes);
-                output.push_str(&format!(
-                    "  {} [{}] [{}] {}\n",
-                    short_id,
-                    issue.issue_type.short_code(),
-                    issue.status,
-                    issue.title
-                ));
-            }
-            output.push('\n');
+    // One column cell per graph issue, with its indicator glyph.
+    let mut cell: Vec<String> = vec![String::new(); issues.len()];
+    for idx in 0..issues.len() {
+        if has_edges[idx] {
+            cell[idx] = format!(
+                "{} {} {}",
+                flow_indicator(blocked[idx], blocks_others[idx], issues[idx].status),
+                issue_id_prefix(issues[idx].id, id_prefixes),
+                truncate_flow_title(&issues[idx].title)
+            );
         }
     }
 
-    // Show standalone issues at the end
+    // Render each component as a band of rows, components stacking
+    // top-to-bottom in Y order (the same order the SVG lays them out).
+    let mut bands: Vec<Vec<Vec<String>>> = Vec::new();
+    let mut comps: Vec<(f64, Vec<usize>)> = Vec::new();
+    for comp in dependency_components(issues) {
+        // dependency_components returns one component per isolated issue
+        // too; those have no dependency edges and render in the trailing
+        // standalone list instead of a band.
+        if !has_edges[comp[0]] {
+            continue;
+        }
+        // The component's topmost Y: its first rendered row.
+        let mut min_y = ys[comp[0]];
+        for idx in &comp {
+            min_y = min_y.min(ys[*idx]);
+        }
+        comps.push((min_y, comp));
+    }
+    comps.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+
+    for (_, comp) in comps {
+        // Group the component's issues by layer, sorting a layer's
+        // issues by Y so rows follow the layout.
+        let mut by_layer: HashMap<i32, Vec<(usize, f64)>> = HashMap::new();
+        for idx in comp {
+            by_layer
+                .entry(layers[idx])
+                .or_default()
+                .push((idx, ys[idx]));
+        }
+        let groups: Vec<(i32, Vec<(usize, f64)>)> = by_layer
+            .iter()
+            .map(|(layer, layer_issues)| (*layer, layer_issues.clone()))
+            .collect::<Vec<_>>();
+        let mut sorted_by_layer: HashMap<i32, Vec<usize>> = HashMap::new();
+        let mut max_rows: usize = 0;
+        for (layer, layer_issues) in groups {
+            let mut sorted_issues = layer_issues.clone();
+            sorted_issues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            max_rows = max_rows.max(sorted_issues.len());
+            let indices: Vec<usize> = sorted_issues
+                .iter()
+                .map(|(idx, _)| *idx)
+                .collect::<Vec<_>>();
+            sorted_by_layer.insert(layer.clone(), indices);
+        }
+
+        let mut rows: Vec<Vec<String>> = Vec::new();
+        for row in 0..max_rows {
+            let mut cells: Vec<String> = Vec::new();
+            for l in &column_layers {
+                if let Some(indices) = sorted_by_layer.get(l) {
+                    if row < indices.len() {
+                        cells.push(cell[indices[row]].clone());
+                    } else {
+                        cells.push(String::new());
+                    }
+                } else {
+                    cells.push(String::new());
+                }
+            }
+            rows.push(cells);
+        }
+        bands.push(rows);
+    }
+
+    // Column widths span every band plus the layer headers, so all
+    // components share the same alignment.
+    let mut column_widths: Vec<usize> = Vec::new();
+    for (ci, l) in column_layers.iter().enumerate() {
+        let mut w = format!("Layer {}:", *l).len();
+        for rows in &bands {
+            for cells in rows {
+                w = w.max(cells[ci].len());
+            }
+        }
+        column_widths.push(w + FLOW_COLUMN_GUTTER);
+    }
+
+    // One header row, then the component bands.
+    if has_columns {
+        let mut header = String::new();
+        for (ci, l) in column_layers.iter().enumerate() {
+            if ci + 1 < column_layers.len() {
+                header.push_str(&pad_right(format!("Layer {}:", *l), column_widths[ci]));
+            } else {
+                header.push_str(&format!("Layer {}:", *l));
+            }
+        }
+        output.push_str(&header);
+        output.push('\n');
+        for (bi, rows) in bands.iter().enumerate() {
+            if bi > 0 {
+                // Empty line between disconnected components.
+                output.push('\n');
+            }
+            for cells in rows {
+                for (ci, _) in column_layers.iter().enumerate() {
+                    if ci + 1 < column_layers.len() {
+                        output.push_str(&pad_right(cells[ci].clone(), column_widths[ci]));
+                    } else {
+                        output.push_str(&cells[ci]);
+                    }
+                }
+                output.push('\n');
+            }
+        }
+    }
+
+    // Standalone issues (no dependency edges) render as a trailing list
+    // with a two-space placeholder where the indicator glyph would sit.
     if !standalone.is_empty() {
+        if has_columns {
+            output.push('\n');
+        }
         output.push_str(&format!(
-            "\nStandalone issues ({} total):\n",
+            "Standalone issues ({} total):\n",
             standalone.len()
         ));
-        standalone.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
-        for (idx, _y) in standalone {
+        for idx in standalone {
             let issue = &issues[idx];
-            let short_id = issue_id_prefix(issues[idx].id, id_prefixes);
             output.push_str(&format!(
-                "  {} [{}] [{}] {}\n",
-                short_id,
-                issue.issue_type.short_code(),
-                issue.status,
-                issue.title
+                "  {} {}\n",
+                issue_id_prefix(issue.id, id_prefixes),
+                truncate_flow_title(&issue.title)
             ));
         }
     }
@@ -566,6 +745,180 @@ mod tests {
         let mut issue = issue(title);
         issue.status = status;
         issue
+    }
+
+    /// `render_text` lays each dependency layer out as a column, pads
+    /// every cell to one shared width per column, and separates
+    /// disconnected components with an empty line.
+    #[test]
+    fn test_render_text_columns_and_components() {
+        // Component 1: A -> B; component 2: C -> D (drawn below it).
+        let mut a = issue("A");
+        let b = issue("B");
+        a.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
+        let mut c = issue("C");
+        let d = issue("D");
+        c.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: d.id,
+        });
+
+        let issues = vec![a, b, c, d];
+        let layout = FlowLayout {
+            coordinates: vec![
+                (0, (0.0, 0.0)),
+                (1, (50.0, 0.0)),
+                (2, (0.0, 100.0)),
+                (3, (50.0, 100.0)),
+            ],
+            width: 100.0,
+            height: 130.0,
+        };
+        let mut id_prefixes: HashMap<Uuid, String> = HashMap::new();
+        id_prefixes.insert(issues[0].id, "aaa".to_string());
+        id_prefixes.insert(issues[1].id, "bbb".to_string());
+        id_prefixes.insert(issues[2].id, "ccc".to_string());
+        id_prefixes.insert(issues[3].id, "ddd".to_string());
+
+        let text = render_text(&issues, &layout, &id_prefixes, None);
+        assert_eq!(
+            text,
+            concat!(
+                "═══ Project Flow ═══\n\n",
+                "Layer 0:   Layer 1:\n",
+                "→ aaa A  ⚠ bbb B\n",
+                "\n",
+                "→ ccc C  ⚠ ddd D\n",
+            ),
+        );
+    }
+
+    /// Blocked wins the indicator over blocking, a `Done` issue keeps the
+    /// arrow only when it still gates other work, and standalone issues
+    /// render without a glyph in their own trailing list.
+    #[test]
+    fn test_render_text_indicators() {
+        let mut gate = issue_with_status("Gate", Status::Todo);
+        let mut middle = issue_with_status("Middle", Status::Todo);
+        let leaf = issue_with_status("Leaf", Status::Todo);
+        gate.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: middle.id,
+        });
+        middle.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: leaf.id,
+        });
+        let mut done_gate = issue_with_status("Done gate", Status::Done);
+        let ready = issue_with_status("Ready", Status::Todo);
+        done_gate.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: ready.id,
+        });
+        let lone_done = issue_with_status("Lone done", Status::Done);
+
+        let issues = vec![gate, middle, leaf, done_gate, ready, lone_done];
+        let layout = FlowLayout {
+            coordinates: vec![
+                (0, (0.0, 0.0)),
+                (1, (50.0, 0.0)),
+                (2, (100.0, 0.0)),
+                (3, (0.0, 100.0)),
+                (4, (50.0, 100.0)),
+                (5, (0.0, 200.0)),
+            ],
+            width: 150.0,
+            height: 230.0,
+        };
+        let mut id_prefixes: HashMap<Uuid, String> = HashMap::new();
+        id_prefixes.insert(issues[0].id, "aaa".to_string());
+        id_prefixes.insert(issues[1].id, "bbb".to_string());
+        id_prefixes.insert(issues[2].id, "ccc".to_string());
+        id_prefixes.insert(issues[3].id, "ddd".to_string());
+        id_prefixes.insert(issues[4].id, "eee".to_string());
+        id_prefixes.insert(issues[5].id, "fff".to_string());
+
+        let text = render_text(&issues, &layout, &id_prefixes, None);
+        assert_eq!(
+            text,
+            concat!(
+                "═══ Project Flow ═══\n\n",
+                "Layer 0:           Layer 1:        Layer 2:\n",
+                "→ aaa Gate       ⚠ bbb Middle  ⚠ ccc Leaf\n",
+                "\n",
+                "→ ddd Done gate  ✓ eee Ready   \n",
+                "\n",
+                "Standalone issues (1 total):\n",
+                "  fff Lone done\n",
+            ),
+        );
+    }
+
+    /// Titles longer than `FLOW_TITLE_MAX` characters are truncated with
+    /// "..." at a consistent width.
+    #[test]
+    fn test_render_text_truncates_titles() {
+        let long = "0123456789012345678901234567890123456789"; // 40 chars
+        let mut a = issue(long);
+        let b = issue("B");
+        a.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
+        let issues = vec![a, b];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0)), (1, (50.0, 0.0))],
+            width: 100.0,
+            height: 30.0,
+        };
+        let text = render_text(&issues, &layout, &HashMap::new(), None);
+        assert!(
+            text.contains("012345678901234567890123456..."),
+            "truncated title missing: {text}"
+        );
+        assert!(
+            !text.contains("01234567890123456789012345678901"),
+            "title leaked past the truncation width: {text}"
+        );
+    }
+
+    /// A flow with only standalone issues renders them as a plain list and
+    /// no layer header row.
+    #[test]
+    fn test_render_text_standalone_only() {
+        let issues = vec![issue_with_status("Lone", Status::Todo)];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0))],
+            width: 100.0,
+            height: 30.0,
+        };
+        let text = render_text(&issues, &layout, &HashMap::new(), None);
+        assert_eq!(
+            text,
+            format!(
+                "═══ Project Flow ═══\n\nStandalone issues (1 total):\n  {} Lone\n",
+                issues[0].id.to_string()[..8].to_string()
+            ),
+        );
+    }
+
+    /// An empty layout yields the same "nothing to show" message as before.
+    #[test]
+    fn test_render_text_empty() {
+        let text = render_text(
+            &vec![],
+            &FlowLayout {
+                coordinates: Vec::new(),
+                width: 0.0,
+                height: 0.0,
+            },
+            &HashMap::new(),
+            None,
+        );
+        assert_eq!(text, "No issues to visualize.");
     }
 
     /// `compute_flow_layout` must reject cyclic dependency graphs with an
