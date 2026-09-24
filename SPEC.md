@@ -684,8 +684,9 @@ Implementation: [`tui::run()`](src/tui.rs) | Test: [unit + TestBackend tests](sr
 r[tui-edit]
 **Inline edit pane (key `e` with an issue selected in the detail pane):**
 - The right pane lists Title, Description, Type, and Status with the live values; the left tree stays visible. `j`/`k` or Up/Down move between fields (Tab/BackTab step too), and the selected field is marked `> `.
-- While editing any field, every row except the active one shows the issue's LIVE value; the active typed field is rendered by a ratatui-textarea widget that shows the text, the cursor and the selection.
-- Typed fields (Title and Description): `Enter` starts editing (`arm`); the textarea is pre-filled with the current value and the cursor starts at the end. Editing supports arrow-key movement (`Left`/`Right`/`Up`/`Down`), `Home`/`End`, `Ctrl+Left`/`Ctrl+Right` word moves, `Backspace`/`Delete` at the cursor, and typed characters inserted at the cursor (multi-byte safe). Shift+arrows select text; `Ctrl+c` copies, `Ctrl+x` cuts and `Ctrl+y` pastes through the widget's internal yank buffer (multi-line yanks paste as multiple lines); `Ctrl+u`/`Ctrl+r` undo/redo. The pane's own keys stay unchanged: `Enter` (Title: applies; Description: inserts a newline) and `Tab` (applies either field); the applied field runs one operation through the operations layer: `update` for title/description (keeping the non-empty-title validation) (r[update]).
+- The pane is laid out as non-overlapping rects: the armed typed field owns a dedicated editor slot placed in the field order, with the other field rows above and below it and the hint line at the bottom. The slot's height is the wrapped line count of the widget content (word wrapping), so its rect fits the content exactly; the editor never paints over field rows.
+- While editing any field, every row except the active one shows the issue's LIVE value. The active typed field edits in the widget (ratatui-textarea), pre-filled with the current value and the cursor at the end; its label row marks the field with `> ` and the widget renders the text with its own cursor.
+- Typed fields (Title and Description): `Enter` starts editing (`arm`); the widget then owns the keys - `Left`/`Right`/`Up`/`Down`, `Home`/`End`, `Backspace`/`Delete`, word moves and Ctrl chords, and printable characters all edit the buffer, including `j`/`k` moving the cursor in a multi-line Description. `Enter` applies through the operations layer: `update` for title/description (keeping the non-empty-title validation) (r[update]). The Description is multi-line: `Enter` inserts a newline while editing it, and `Tab` applies; the Title stays single-line (`Enter` applies).
 - Cycled fields (Type and Status): `Left`/`Right` cycle the pending value in navigation, in the display order `bug, ux_problem, usecase, design, validation, epic, milestone` and `proposed, todo, in_progress, done, blocked`, wrapping both ways. `Enter` applies the cycle immediately and stays in the pane (commit-and-stay): it does not arm a second editing step, and the highlight stays on the field with the pending value re-synced to the applied one. Each apply runs one operation and therefore creates its own jj commit: `convert` for type, `update_status` for status (r[convert-command], r[update-status]); the issue set reloads, the tree re-selects the edited issue, and the message line reports the change.
 - `Esc` cancels without writing: during a field edit it discards the pending text and returns to navigation; in navigation it closes the pane. No operation runs until a field is applied (with `Enter`, or `Tab` for a multi-line Description). Uncommitted cycles are dropped when the pane closes. No-change applies report "No changes" and write nothing.
 - Failures (empty title, convert guards such as converting an epic with children) surface in the message line with the pane still open. `q` quits while navigating the pane, not during text entry.
@@ -841,6 +842,13 @@ anything:
    ONE commit: `Import N issue(s) from <file>` (r[jj-commit-complete-path-set]).
 
 Implementation: [`parse_export_bundle`](src/export.rs), [`validate_import`](src/export.rs), [`drop_missing_relationships`](src/export.rs), [`Operations::import_bundle()`](src/operations.rs) | Tests: [export unit tests](src/export.rs), [export-import workflow](tests/workflows/export-import.trycmd)
+
+
+### Flow JSON export r[json-export]
+
+`pebbles flow --format json` writes a deterministic JSON structure suitable for
+integration with external tools (web frontends, analysis scripts). The schema
+is documented in [docs/flow-json-schema.md](docs/flow-json-schema.md).
 
 ### CSV schema
 

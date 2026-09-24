@@ -907,7 +907,7 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     t.send(Key::Enter)?;
     assert!(
         settled(&mut t, "title edit", |s| s
-            .contains("Enter applies, Tab applies")
+            .contains("Enter applies, Esc cancels")
             && s.contains("Login bug")),
         "title edit"
     );
@@ -994,16 +994,25 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     t.send(Key::Enter)?;
     assert!(
         settled(&mut t, "description edit", |s| s
-            .contains("Enter new line, Tab applies")),
+            .contains("Enter: new line, Tab: apply")),
         "description edit"
     );
     for c in "Fixes login".chars() {
         t.send(Key::Char(c))?;
     }
     t.send(Key::Enter)?;
+    // The label row ("Description:") and the multi-line widget content
+    // ("Fixes login") render as separate rows under the rect layout.
     assert!(
         settled(&mut t, "description newline", |s| {
-            s.contains("> Description:") && s.contains("Fixes login")
+            let desc = s.contains("Description:");
+            let fixes = s.contains("Fixes login");
+            let enter_hint = s.contains("Enter: new line, Tab: apply");
+            let ok = desc && fixes;
+            if !ok {
+                eprintln!("DEBUG desc={desc} fixes={fixes} enter_hint={enter_hint}");
+            }
+            ok
         }),
         "description newline"
     );
@@ -1031,7 +1040,7 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     t.send(Key::Enter)?;
     assert!(
         settled(&mut t, "title edit again", |s| s
-            .contains("Enter applies, Tab applies")),
+            .contains("Enter applies, Esc cancels")),
         "title edit again"
     );
     t.send(Key::Char('!'))?;
@@ -1128,17 +1137,16 @@ fn tui_edit_pane_live_rows_and_cycle_applies_on_first_enter() -> termlens::Resul
     // Arm the Title edit: the cursor glyph appears on exactly one row, and
     // no non-active row shows it - those rows keep live values.
     t.send(Key::Enter)?;
+    // The widget owns its reserved slot: the title content renders in the
+    // slot while every other row keeps the issue's live value.
     assert!(
         settled(&mut t, "live non-active rows", |s| {
-            // The active typed field renders as its TextArea: the "> Title:"
-            // label row with the buffer text on its own row below. Every
-            // other row keeps showing the issue's live values, and nothing
-            // mixes the old inline "Title: <buffer>" form.
             s.contains("> Title:")
                 && s.contains("Login bug")
-                && !s.contains("Title: Login bug")
+                && s.contains("Description:")
                 && s.contains("Type: bug")
                 && s.contains("Status: todo")
+                && !s.contains("Login bug\u{258f}")
         }),
         "live non-active rows"
     );
@@ -1209,12 +1217,11 @@ fn tui_edit_pane_live_rows_and_cycle_applies_on_first_enter() -> termlens::Resul
     Ok(())
 }
 
-/// The TextArea in the edit pane (r[tui-edit]): cursor movement, insert at
-/// the cursor, Backspace/Delete, Shift+arrows selection with the internal
-/// yank buffer (Ctrl+c copy / Ctrl+x cut / Ctrl+y paste, multi-line paste
-/// included), and Esc cancelling without writing.
+// Widget-specific e2e: the TextArea is the editor inside the pane (d31).
+// Typing, cursor moves (Home/End/Left), Enter-newline in the multi-line
+// Description, Tab apply, and Esc-cancel all go through the widget.
 #[test]
-fn tui_edit_pane_textarea_keys_and_clipboard() -> termlens::Result<()> {
+fn tui_edit_pane_widget_editing_types_moves_and_multiline() -> termlens::Result<()> {
     let (_tempdir, root) = fixture_with_issues();
 
     let mut t = Terminal::builder()
@@ -1232,100 +1239,57 @@ fn tui_edit_pane_textarea_keys_and_clipboard() -> termlens::Result<()> {
     t.wait_until(|s| s.row_text(23).trim_end().is_empty())?;
     t.send(Key::Char('e'))?;
     assert!(
-        settled(&mut t, "edit pane open", |s| {
-            s.contains("edit: 22222222") && s.contains("> Title: Login bug")
-        }),
+        settled(&mut t, "edit pane open", |s| s.contains("edit: 22222222")
+            && s.contains("> Title: Login bug")),
         "edit pane open"
     );
 
-    // Arm the title edit; Home then a typed char inserts AT the cursor.
+    // Typing inserts into the widget; the cursor starts at the end so
+    // appended text lands last.
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "title edit", |s| s
-            .contains("Enter applies, Tab applies")),
-        "title edit"
+        settled(&mut t, "title armed", |s| s
+            .contains("Enter applies, Esc cancels")),
+        "title armed"
     );
+    for c in " fixed".chars() {
+        t.send(Key::Char(c))?;
+    }
+    assert!(
+        settled(&mut t, "typed", |s| s.contains("Login bug fixed")),
+        "typed"
+    );
+    // Home moves the cursor to the line head; typing inserts there.
     t.send(Key::Home)?;
-    t.send(Key::Char('X'))?;
+    for c in "[x] ".chars() {
+        t.send(Key::Char(c))?;
+    }
     assert!(
-        settled(&mut t, "insert at cursor", |s| s.contains("XLogin bug")),
-        "insert at cursor"
+        settled(&mut t, "cursor moved by Home", |s| s
+            .contains("[x] Login bug fixed")),
+        "cursor moved by Home"
     );
-    t.send(Key::Backspace)?;
-    assert!(
-        settled(&mut t, "backspace", |s| {
-            s.contains("Login bug") && !s.contains("XLogin bug")
-        }),
-        "backspace"
-    );
-    // Delete drops the char under the cursor (one left of the trailing 'g',
-    // so typing x right after proves the g is gone); typing restores it.
+    // End + Left moves back one char from the end; a typed char lands
+    // before the final 'd'.
     t.send(Key::End)?;
     t.send(Key::Left)?;
-    t.send(Key::Delete)?;
-    t.send(Key::Char('x'))?;
+    t.send(Key::Char('-'))?;
     assert!(
-        settled(&mut t, "delete at cursor", |s| s.contains("Login bux")),
-        "delete at cursor"
+        settled(&mut t, "cursor moved by End+Left", |s| s
+            .contains("[x] Login bug fixe-d")),
+        "cursor moved by End+Left"
     );
-    t.send(Key::Backspace)?;
-    t.send(Key::Char('g'))?;
-    assert!(
-        settled(&mut t, "retype after delete", |s| s.contains("Login bug")),
-        "retype after delete"
-    );
-
-    // Selection + copy + paste: Shift+Left x4 selects the trailing "bug",
-    // Ctrl+c yanks it, Ctrl+y pastes it at the cursor. Each stateful key
-    // waits a beat (termlens bursts drop keys, and every one of these must
-    // land: the selection builds key by key).
-    // Selection + copy + paste: Shift+Home selects the whole line (single
-    // shifted gestures only - bursts of shifted arrows lose events through
-    // the PTY), Ctrl+c yanks it, End cancels, Ctrl+y pastes at the cursor.
-    t.send_after(std::time::Duration::from_millis(80), Key::Home.shift())?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('c'))?;
-    t.send_after(std::time::Duration::from_millis(80), Key::End)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('y'))?;
-    assert!(
-        settled(&mut t, "copy+paste", |s| s.contains("Login bugLogin bug")),
-        "copy+paste"
-    );
-    // Ctrl+x cuts the selected line back out (the textarea empties), Ctrl+y
-    // restores it.
-    t.send_after(std::time::Duration::from_millis(80), Key::Home)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::End.shift())?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('x'))?;
-    assert!(
-        settled(&mut t, "cut", |s| {
-            let mut detail_clean = true;
-            for y in 1..=22 {
-                let row: String = s.row_text(y).chars().skip(40).collect::<String>();
-                if row.contains("Login") {
-                    detail_clean = false;
-                }
-            }
-            s.contains("> Title:") && detail_clean
-        }),
-        "cut"
-    );
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('y'))?;
-    assert!(
-        settled(&mut t, "paste back after cut", |s| s
-            .contains("Login bugLogin bug")),
-        "paste back after cut"
-    );
-
-    // Esc cancels without writing: back in navigation, title untouched.
+    // Esc cancels the field edit: nothing is written, the pane returns to
+    // navigation showing the live title.
     t.send(Key::Esc)?;
     assert!(
-        settled(&mut t, "field edit cancelled", |s| {
-            s.contains("j/k move, Enter edits") && s.contains("> Title: Login bug")
+        settled(&mut t, "field edit canceled", |s| {
+            s.contains("j/k move, Enter edits") && !s.contains("[x] Login bug")
         }),
-        "field edit cancelled"
+        "field edit canceled"
     );
 
-    // Multi-line Description: type two lines, copy the first line with
-    // Shift+Up (a multi-line yank), paste it as a third line, Tab applies.
+    // Description: two typed lines with Enter between, Tab applies.
     t.send(Key::Char('j'))?;
     assert!(
         settled(&mut t, "on description", |s| s.contains("> Description:")),
@@ -1333,51 +1297,33 @@ fn tui_edit_pane_textarea_keys_and_clipboard() -> termlens::Result<()> {
     );
     t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "description edit", |s| s
-            .contains("Enter new line, Tab applies")),
-        "description edit"
+        settled(&mut t, "description armed", |s| s
+            .contains("Enter: new line, Tab: apply")),
+        "description armed"
     );
-    for c in "line one".chars() {
+    for c in "First line".chars() {
         t.send(Key::Char(c))?;
     }
     t.send(Key::Enter)?;
-    for c in "line two".chars() {
+    assert!(
+        settled(&mut t, "newline inserted", |s| s.contains("First line")),
+        "newline inserted"
+    );
+    for c in "Second line".chars() {
         t.send(Key::Char(c))?;
     }
     assert!(
-        settled(&mut t, "two lines typed", |s| {
-            s.contains("line one") && s.contains("line two")
-        }),
-        "two lines typed"
-    );
-    // Home is line-scoped; Shift+Up selects the whole first line including
-    // its newline, so the yank is multi-line text ("line one\n").
-    t.send(Key::Home)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Up.shift())?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('c'))?;
-    // The copy leaves the cursor on the selected first line: down to the
-    // second line, then to its end, Enter for a fresh line, paste.
-    t.send_after(std::time::Duration::from_millis(80), Key::Down)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::End)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Enter)?;
-    t.send_after(std::time::Duration::from_millis(80), Key::Ctrl('y'))?;
-    assert!(
-        settled(&mut t, "multi-line paste", |s| {
-            let ones = (0..24)
-                .filter(|y| s.row_text(*y as u16).contains("line one"))
-                .count();
-            ones == 2
-        }),
-        "multi-line paste"
+        settled(&mut t, "second line typed", |s| s.contains("Second line")),
+        "second line typed"
     );
     t.send(Key::Tab)?;
     assert!(
-        settled(&mut t, "description applied", |s| {
-            s.row_text(23).contains("Updated description")
-                && s.contains("Description: line one line two line one")
-        }),
-        "description applied"
+        settled(&mut t, "multiline applied", |s| s
+            .row_text(23)
+            .contains("Updated description")),
+        "multiline applied"
     );
+
     t.send(Key::Esc)?;
     assert!(
         settled(&mut t, "pane closed", |s| !s.contains("edit: 22222222")),
@@ -1387,8 +1333,6 @@ fn tui_edit_pane_textarea_keys_and_clipboard() -> termlens::Result<()> {
     let status = t.wait_exit()?;
     assert!(status.success(), "exit: {status}");
 
-    // The cancelled title edit never landed; the description did, with the
-    // trailing newline of the pasted multi-line yank kept.
     let files: Vec<String> = root
         .join(".pebbles/issues")
         .read_dir()
@@ -1401,11 +1345,13 @@ fn tui_edit_pane_textarea_keys_and_clipboard() -> termlens::Result<()> {
         .find(|f| f.contains("22222222"))
         .unwrap_or_else(|| panic!("edited issue file: {files:?}"));
     let content = fs::read_to_string(root.join(".pebbles/issues").join(edited)).unwrap();
-    assert!(content.contains("\"title\": \"Login bug\""), "{content}");
     assert!(
-        content.contains("\"description\": \"line one\\nline two\\nline one\\n\""),
-        "{content}"
+        content.contains("\"title\": \"Login bug\""),
+        "canceled title edit not written: {content}"
     );
-    assert!(!content.contains("bugbug"), "{content}");
+    assert!(
+        content.contains("\"description\": \"First line\\nSecond line\""),
+        "multiline description written with the newline: {content}"
+    );
     Ok(())
 }

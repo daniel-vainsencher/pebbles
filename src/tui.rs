@@ -7,7 +7,7 @@
 //! r[impl tui] r[impl tui-review] r[impl tui-search] r[impl tui-background]
 
 use anyhow::{Context, Result};
-use crossterm::event::{read, Event, KeyCode, KeyEvent, KeyEventKind, KeyEventState, KeyModifiers};
+use crossterm::event::{read, Event, KeyCode, KeyEventKind};
 use crossterm::terminal::{
     disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
 };
@@ -18,7 +18,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph};
 use ratatui::{Frame, Terminal};
-use ratatui_textarea::{CursorMove, Input, TextArea};
+use ratatui_textarea::{Input, TextArea, WrapMode};
 use std::collections::HashMap;
 use std::io::{stdout, Stdout};
 use std::path::{Path, PathBuf};
@@ -479,8 +479,8 @@ pub enum EditField {
 }
 
 /// Pending state for the inline edit pane: which field is highlighted, the
-/// TextArea widget for typed-field edits, and the pending Type/Status
-/// values that `Enter` applies through the operations layer (r[tui-edit]).
+/// text buffer, and the pending Type/Status values that `Enter` applies
+/// through the operations layer (r[tui-edit]).
 #[derive(Clone, Debug)]
 pub struct EditState {
     /// The issue the pane edits, pinned so tree reloads cannot redirect it.
@@ -491,11 +491,11 @@ pub struct EditState {
     /// (Type/Status) apply directly from navigation, so they never arm.
     /// While false, `j`/`k` move between fields and `Esc` closes the pane.
     pub editing: bool,
-    /// The ratatui-textarea widget backing the typed fields (r[tui-edit]):
-    /// text, cursor, selection and the internal yank buffer. Rendered for
-    /// the active field while editing; the pane owns every key that armes
-    /// or commits, and routes the rest into the widget.
-    pub textarea: TextArea<'static>,
+    /// The editing widget for Title/Description, pre-filled from the live
+    /// issue. While not editing it holds the last committed text, so
+    /// `text()` is the pane's committed value for the active typed field
+    /// (r[tui-edit], peg d31)
+    textarea: TextArea<'static>,
     /// Pending type; `Enter` applies it via `Operations::convert`.
     pub pending_type: IssueType,
     /// Pending status; `Enter` applies it via `Operations::update_status`.
@@ -514,20 +514,100 @@ impl EditState {
         }
     }
 
-    /// Pre-fill the TextArea with `text` (one line per `\n`), cursor at the
-    /// end so typing appends, matching the pane's append-first behavior
-    /// (r[tui-edit]). Called when `Enter` armes a typed field.
-    fn arm_text(&mut self, text: String) {
-        self.textarea = TextArea::new(text.split('\n').map(str::to_string).collect());
-        self.textarea.move_cursor(CursorMove::Bottom);
-        self.textarea.move_cursor(CursorMove::End);
-    }
-
-    /// The TextArea content as a single string, lines joined by `\n` - the
-    /// value `commit_edit` writes through `Operations::update`.
-    fn buffer_text(&self) -> String {
+    /// The buffer text, lines joined by `\n` (matches the store's format
+    /// and the pre-adoption `EditBuffer::to_string` contract).
+    fn text(&self) -> String {
         self.textarea.lines().join("\n")
     }
+
+    /// (row, col) of the widget cursor, in characters from the line head.
+    fn cursor(&self) -> (usize, usize) {
+        let cursor = self.textarea.cursor();
+        (cursor.0 as usize, cursor.1 as usize)
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.textarea.is_empty()
+    }
+}
+
+/// The label shown for the edited field while its widget is active.
+fn field_label(field: EditField) -> &'static str {
+    match field {
+        EditField::Title => "Title",
+        EditField::Description => "Description",
+        EditField::Type => "Type",
+        EditField::Status => "Status",
+    }
+}
+
+/// The edited textarea's content height in terminal rows: the number of
+/// wrapped display lines of `lines` at `width` columns (`WrapMode::WordOrGlyph`,
+/// matching the widget's render), never below 1 so the empty edit still
+/// reserves a slot. The pane reserves exactly this height for the widget
+/// and lays the other fields around it (rect-based layout, d31).
+fn edit_area_height(textarea: &TextArea<'_>, width: usize) -> usize {
+    let rows = wrapped_row_count(textarea.lines(), width, textarea.tab_length());
+    rows.max(1)
+}
+
+/// Display width of one logical line: tabs pad to `tab_len`, wide
+/// east-asian characters (common ranges) take two columns, everything else
+/// one. A simplification of `unicode_width` (which the widget uses) for the
+/// pure height estimate above.
+fn display_width(line: &str, tab_len: u8) -> usize {
+    let mut cols = 0;
+    for c in line.chars() {
+        match c {
+            '\t' => cols += tab_len as usize,
+            c if is_wide_char(c) => cols += 2,
+            _ => cols += 1,
+        }
+    }
+    cols
+}
+
+/// East-asian wide character ranges (CJK, fullwidth forms, kana, hangul).
+fn is_wide_char(c: char) -> bool {
+    let cp = c as u32;
+    (0x1100..=0x115f).contains(&cp)
+        || (0x2e80..=0x303e).contains(&cp)
+        || (0x3040..=0x33ff).contains(&cp)
+        || (0x3400..=0x4dbf).contains(&cp)
+        || (0x4e00..=0x9fff).contains(&cp)
+        || (0xa000..=0xa4cf).contains(&cp)
+        || (0xac00..=0xd7a3).contains(&cp)
+        || (0xf900..=0xfaff).contains(&cp)
+        || (0xfe30..=0xfe4f).contains(&cp)
+        || (0xff00..=0xff60).contains(&cp)
+        || (0xffe0..=0xffe6).contains(&cp)
+}
+
+/// Greedy word-or-glyph wrap estimate: each logical line breaks into words,
+/// a word wider than the area occupies ceil(cols/width) rows, and empty
+/// lines count one row. Mirrors `WrapMode::WordOrGlyph` rendering closely
+/// enough that the reserved slot never clips content (it may overallocate
+/// by a row on grapheme-cluster edge cases).
+fn wrapped_row_count(lines: &[String], width: usize, tab_len: u8) -> usize {
+    let width = width.max(1);
+    lines
+        .iter()
+        .map(|line| {
+            if line.is_empty() {
+                return 1;
+            }
+            let words: Vec<String> = line.split(' ').map(str::to_string).collect();
+            // A word wider than the area breaks glyph-wide; the others
+            // share rows, so the per-word ceiling over-approximates only
+            // for the wide-word case.
+            words
+                .iter()
+                .map(|w| (display_width(w, tab_len) + width - 1) / width)
+                .sum::<usize>()
+                .max(1)
+        })
+        .sum()
 }
 
 /// The fields in order; `j`/`k` (and Tab) step through them, wrapping.
@@ -1096,12 +1176,6 @@ const HELP_LINES: &[&str] = &[
     "a               approve selected (in proposed filter)",
     "d then y        close selected = delete (in filter)",
     "e               edit title/description/type/status (detail pane)",
-    "edit pane (e):  j/k move; Left/Right cycle Type/Status;",
-    "                Enter applies Title / new line Description,",
-    "                Tab applies, Esc cancels; while editing text:",
-    "                arrows/Home/End move, Ctrl+arrows word, Backspace/",
-    "                Delete edit, Shift+arrows select, Ctrl+c/x/y,",
-    "                cut/paste",
     "?               toggle this help",
     "q               quit",
 ];
@@ -1185,159 +1259,38 @@ fn render_browser(f: &mut Frame, app: &mut App) {
 
     // The inline edit pane takes over the detail area (r[tui-edit]); the
     // tree stays visible so edits land next to the issue they belong to.
+    // The edit pane is rect-based (d31): the armed field's TextArea owns a
+    // dedicated slot with the other fields laid out around it, instead of
+    // the old row-list paragraph that the widget would have painted over.
     if app.mode == Mode::Edit {
-        render_edit_pane(f, app, detail_area, detail_block);
-    } else if let Some((issue, pd)) = app.selected_with_project() {
-        render_detail_paragraph(
-            f,
-            detail_area,
-            detail_block,
-            detail_lines(issue, &pd.related_titles, &pd.incoming),
-            issue.title.clone(),
-            app.detail_offset,
-        );
-    } else if let Some(pd) = selected_project(app) {
-        render_detail_paragraph(
-            f,
-            detail_area,
-            detail_block,
-            project_detail_lines(pd),
-            pd.name.clone(),
-            app.detail_offset,
-        );
+        render_edit_pane(f, app, detail_area);
     } else {
-        render_detail_paragraph(
-            f,
-            detail_area,
-            detail_block,
-            vec![Line::raw("No selection")],
-            "detail".to_string(),
-            app.detail_offset,
-        );
+        let (all_lines, title) = if let Some((issue, pd)) = app.selected_with_project() {
+            (
+                detail_lines(issue, &pd.related_titles, &pd.incoming),
+                issue.title.clone(),
+            )
+        } else if let Some(pd) = selected_project(app) {
+            (project_detail_lines(pd), pd.name.clone())
+        } else {
+            (vec![Line::raw("No selection")], "detail".to_string())
+        };
+        // The detail pane scrolls while it has focus (j/k): render a window
+        // of the lines instead of always showing the head.
+        let visible = detail_area.height.saturating_sub(2) as usize; // borders
+        let offset = app.detail_offset.min(all_lines.len().saturating_sub(1));
+        let window: Vec<Line<'static>> = all_lines
+            .iter()
+            .skip(offset)
+            .take(visible.max(1))
+            .cloned()
+            .collect();
+        let detail = Paragraph::new(window)
+            .wrap(ratatui::widgets::Wrap { trim: false })
+            .block(detail_block.title(title));
+        f.render_widget(detail, detail_area);
     }
     f.render_widget(message_paragraph(app), message_area);
-}
-
-/// Render the right pane's content inside its bordered block: a window of
-/// `all_lines` starting at `offset` (the detail pane scrolls while it has
-/// focus, j/k). Long lines word-wrap.
-fn render_detail_paragraph(
-    f: &mut Frame,
-    area: Rect,
-    block: Block<'static>,
-    all_lines: Vec<Line<'static>>,
-    title: String,
-    offset: usize,
-) {
-    // The detail pane scrolls while it has focus (j/k): render a window of
-    // the lines instead of always showing the head.
-    let visible = area.height.saturating_sub(2) as usize; // borders
-    let offset = offset.min(all_lines.len().saturating_sub(1));
-    let window: Vec<Line<'static>> = all_lines
-        .iter()
-        .skip(offset)
-        .take(visible.max(1))
-        .cloned()
-        .collect();
-    let detail = Paragraph::new(window)
-        .wrap(ratatui::widgets::Wrap { trim: false })
-        .block(block.title(title));
-    f.render_widget(detail, area);
-}
-
-/// The inline edit pane (r[tui-edit]): the four field rows plus the hint
-/// (r[tui-edit]) taking over the detail area. While a typed field is being
-/// edited the active field is rendered by its TextArea widget - cursor and
-/// selection stay visible - with the other fields' live rows above and
-/// below it and the hint last.
-fn render_edit_pane(f: &mut Frame, app: &mut App, area: Rect, block: Block<'static>) {
-    let Some(edit) = app.edit.as_ref() else {
-        render_detail_paragraph(
-            f,
-            area,
-            block,
-            vec![Line::raw("No edit in progress")],
-            "edit".to_string(),
-            0,
-        );
-        return;
-    };
-    let short = edit.issue_id.to_string()[..8].to_string();
-    let title = format!("edit: {short}");
-    if !(edit.editing && matches!(edit.field, EditField::Title | EditField::Description)) {
-        render_detail_paragraph(
-            f,
-            area,
-            block,
-            edit_pane_lines(app),
-            title,
-            app.detail_offset,
-        );
-        return;
-    }
-    // Split layout while editing a typed field: the field rows above and
-    // below the active field + the hint stay paragraphs; the active field's
-    // TextArea gets the remaining height so it renders every line.
-    let mut head: Vec<Line<'static>> = Vec::new();
-    let mut tail: Vec<Line<'static>> = Vec::new();
-    let mut label = "";
-    for field in EDIT_FIELDS {
-        if edit.field == field {
-            label = match field {
-                EditField::Title => "Title",
-                EditField::Description => "Description",
-                EditField::Type | EditField::Status => unreachable!("never text-edited"),
-            };
-            continue;
-        }
-        let row = edit_field_row(app, edit, field);
-        if field_index(field) < field_index(edit.field) {
-            head.push(row);
-        } else {
-            tail.push(row);
-        }
-    }
-    let label_line = Line::from(vec![
-        Span::raw("> "),
-        Span::styled(
-            format!("{label}: "),
-            Style::new().add_modifier(Modifier::BOLD),
-        ),
-    ]);
-    for hint in edit_hint(edit) {
-        tail.push(Line::from(Span::styled(
-            hint,
-            Style::new().fg(Color::DarkGray),
-        )));
-    }
-    // Draw the border first, then the inner rows and the TextArea widget
-    // separately: Block::render clears its inner area, and the widget needs
-    // the exact rect it owns (r[tui-edit]).
-    let titled = block.title(title);
-    let inner = titled.inner(area);
-    f.render_widget(titled, area);
-    let [head_area, label_area, text_area, tail_area] = Layout::vertical([
-        Constraint::Length(head.len().min(inner.height as usize) as u16),
-        Constraint::Length(1.min(inner.height as usize) as u16),
-        Constraint::Min(1),
-        Constraint::Length(tail.len().min(inner.height as usize) as u16),
-    ])
-    .areas(inner);
-    if !head.is_empty() {
-        f.render_widget(
-            Paragraph::new(head).wrap(ratatui::widgets::Wrap { trim: false }),
-            head_area,
-        );
-    }
-    f.render_widget(
-        Paragraph::new(vec![label_line]).wrap(ratatui::widgets::Wrap { trim: false }),
-        label_area,
-    );
-    f.render_widget(&edit.textarea, text_area);
-    f.render_widget(
-        Paragraph::new(tail).wrap(ratatui::widgets::Wrap { trim: false }),
-        tail_area,
-    );
 }
 
 fn selected_project(app: &App) -> Option<&ProjectData> {
@@ -1466,7 +1419,7 @@ fn event_loop(terminal: &mut Terminal<CrosstermBackend<Stdout>>, app: &mut App) 
                     Focus::Search => search_key(app, key.code)?,
                     Focus::Detail => detail_key(app, key.code)?,
                 },
-                Mode::Edit => edit_key_mods(app, key.code, key.modifiers)?,
+                Mode::Edit => edit_key(app, key)?,
                 Mode::Help => app.mode = Mode::Browser,
             }
         }
@@ -1763,23 +1716,18 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     };
     let id = edit.issue_id.to_string();
     let outcome = match edit.field {
-        EditField::Title => ops
-            .update(&id, Some(edit.buffer_text()), None, None)
-            .map(|out| {
-                (
-                    out.value,
-                    fold_warnings("\u{2713} Updated title".to_string(), &out.warnings),
-                )
-            }),
-        EditField::Description => {
-            ops.update(&id, None, Some(edit.buffer_text()), None)
-                .map(|out| {
-                    (
-                        out.value,
-                        fold_warnings("\u{2713} Updated description".to_string(), &out.warnings),
-                    )
-                })
-        }
+        EditField::Title => ops.update(&id, Some(edit.text()), None, None).map(|out| {
+            (
+                out.value,
+                fold_warnings("\u{2713} Updated title".to_string(), &out.warnings),
+            )
+        }),
+        EditField::Description => ops.update(&id, None, Some(edit.text()), None).map(|out| {
+            (
+                out.value,
+                fold_warnings("\u{2713} Updated description".to_string(), &out.warnings),
+            )
+        }),
         EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|out| {
             (
                 out.value,
@@ -1831,28 +1779,21 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     Ok(())
 }
 
-/// Keys while the inline edit pane is open (r[tui-edit]). Enter applies the
-/// highlighted field: immediately for the cycled Type/Status (commit-and-
-/// stay), after editing for Title/Description (arm-then-commit); in the
-/// multi-line Description edit Enter inserts a newline, Tab applies. Esc
-/// cancels without writing: an in-progress field edit is discarded, and in
-/// navigation it closes the pane. Every other key while editing a typed
-/// field routes into the TextArea widget (r[tui-edit]). The no-modifier
-/// entry exists for the unit tests; the event loop passes the full
-/// modifier state through `edit_key_mods`.
-#[cfg(test)]
-fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
-    edit_key_mods(app, code, KeyModifiers::empty())
-}
-
-/// `edit_key` with the full modifier state, so Shift+arrows (selection) and
-/// the Ctrl chords (copy/cut/paste, word moves) reach the TextArea
-/// (r[tui-edit]).
-fn edit_key_mods(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Result<()> {
+/// Keys while the inline edit pane is open (r[tui-edit]). Esc cancels
+/// without writing: an in-progress field edit is discarded, and in
+/// navigation it closes the pane. Enter applies the highlighted field:
+/// immediately for the cycled Type/Status (commit-and-stay), after editing
+/// for Title/Description (arm-then-commit); in the multi-line Description
+/// edit Enter inserts a newline and Tab applies. Every key that is not a
+/// pane-level key while a typed field is armed is converted to the widget's
+/// `Input` and handed to the `TextArea` (its own arrows/Home/End/
+/// Backspace/Delete/word moves and Ctrl chords, d31).
+fn edit_key(app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
     let Some(mut edit) = app.edit.clone() else {
         return Ok(());
     };
     let mut closed = false;
+    let code = key.code;
     match code {
         KeyCode::Char('q') if !edit.editing => app.should_quit = true,
         KeyCode::Char('j') | KeyCode::Down | KeyCode::Tab if !edit.editing => {
@@ -1868,25 +1809,57 @@ fn edit_key_mods(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Resul
             EditField::Type | EditField::Status => {
                 commit_edit(app, &mut edit)?;
             }
-            EditField::Title | EditField::Description => arm_text_edit(app, &mut edit)?,
+            EditField::Title | EditField::Description => {
+                let Some(issue) = issue_with_project(app, edit.issue_id).map(|(i, _)| i.clone())
+                else {
+                    app.message = Some("Issue no longer available".to_string());
+                    close_edit(app);
+                    return Ok(());
+                };
+                edit.editing = true;
+                match edit.field {
+                    EditField::Title => {
+                        edit.textarea =
+                            textarea_for(issue.title.clone(), end_cursor(issue.title.clone()));
+                    }
+                    EditField::Description => {
+                        let text = issue.description.clone().unwrap_or_default();
+                        edit.textarea = textarea_for(text.clone(), end_cursor(text));
+                    }
+                    EditField::Type | EditField::Status => unreachable!("handled above"),
+                }
+            }
         },
-        // In a typed-field edit the cursor keys steer the TextArea (which
-        // also supports Up/Down on multi-line Description); in navigation
-        // Left/Right cycle the pending Type/Status value.
-        KeyCode::Left if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Right if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Up if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Down if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Home if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::End if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Backspace if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Delete if edit.editing => feed_text_area(&mut edit, code, modifiers),
-        KeyCode::Char(_) if edit.editing => feed_text_area(&mut edit, code, modifiers),
+        // While a typed field is armed everything else - arrows, Home/End,
+        // Backspace/Delete, printable characters, Ctrl/Alt chords - goes to
+        // the widget, which moves the cursor and edits its buffer. j/k move
+        // the cursor in a multi-line Description instead of switching fields.
+        KeyCode::Char(_)
+        | KeyCode::Left
+        | KeyCode::Right
+        | KeyCode::Up
+        | KeyCode::Down
+        | KeyCode::Home
+        | KeyCode::End
+        | KeyCode::Backspace
+        | KeyCode::Delete
+        | KeyCode::PageUp
+        | KeyCode::PageDown
+        | KeyCode::Insert
+            if edit.editing =>
+        {
+            edit.textarea.input(Input::from(key));
+        }
+        KeyCode::Left | KeyCode::Right if !edit.editing => {
+            cycle_edit(&mut edit, if code == KeyCode::Right { 1 } else { -1 });
+        }
         // In the Description edit Enter inserts a newline (multi-line), so
         // Tab is the apply key there; Title applies on Enter (r[tui-edit]).
         KeyCode::Enter if edit.editing => match edit.field {
             EditField::Title => commit_edit(app, &mut edit)?,
-            EditField::Description => feed_text_area(&mut edit, code, modifiers),
+            EditField::Description => {
+                edit.textarea.input(Input::from(key));
+            }
             EditField::Type | EditField::Status => unreachable!("cycled fields never arm"),
         },
         KeyCode::Tab if edit.editing => commit_edit(app, &mut edit)?,
@@ -1894,7 +1867,6 @@ fn edit_key_mods(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Resul
             if edit.editing {
                 // Cancel the in-progress field edit without writing.
                 edit.editing = false;
-                edit.textarea = TextArea::default();
                 if let Some(issue) = issue_with_project(app, edit.issue_id) {
                     edit.pending_type = issue.0.issue_type.clone();
                     edit.pending_status = issue.0.status.clone();
@@ -1903,8 +1875,6 @@ fn edit_key_mods(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Resul
                 closed = true;
             }
         }
-        KeyCode::Left => cycle_edit(&mut edit, -1),
-        KeyCode::Right => cycle_edit(&mut edit, 1),
         _ => {}
     }
     if closed {
@@ -1915,81 +1885,38 @@ fn edit_key_mods(app: &mut App, code: KeyCode, modifiers: KeyModifiers) -> Resul
     Ok(())
 }
 
-/// Enter from navigation on a typed field: pre-fill the TextArea from the
-/// live issue with the cursor at the end, ready to type (r[tui-edit]).
-fn arm_text_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
-    let Some(issue) = issue_with_project(app, edit.issue_id).map(|(i, _)| i.clone()) else {
-        app.message = Some("Issue no longer available".to_string());
-        close_edit(app);
-        return Ok(());
-    };
-    edit.editing = true;
-    match edit.field {
-        EditField::Title => edit.arm_text(issue.title.clone()),
-        EditField::Description => edit.arm_text(issue.description.clone().unwrap_or_default()),
-        EditField::Type | EditField::Status => unreachable!("cycled fields never arm"),
-    }
-    Ok(())
+/// A widget with `text` as the buffer, the cursor at `(row, col)` (char
+/// offsets), word-or-glyph soft wrap at render time and no cursor-line
+/// decoration beyond the base style (the slot rect is the pane's
+/// highlight; r[tui-edit], d31).
+fn textarea_for(text: String, cursor: (usize, usize)) -> TextArea<'static> {
+    let mut ta = TextArea::from(text.split('\n').map(str::to_string).collect::<Vec<_>>());
+    ta.set_cursor_line_style(Style::new());
+    ta.set_wrap_mode(WrapMode::WordOrGlyph);
+    ta.move_cursor(ratatui_textarea::CursorMove::Jump(
+        cursor.0 as u16,
+        cursor.1 as u16,
+    ));
+    ta
 }
 
-/// Route an in-edit keystroke into the TextArea of the active typed field
-/// (r[tui-edit]): the widget inserts typed characters at the cursor
-/// (multi-byte safe), moves with Left/Right/Up/Down/Home/End and
-/// Ctrl+Left/Right (words), edits with Backspace/Delete, selects with
-/// Shift+arrows, and runs the Ctrl+c/x/y copy/cut/paste clipboard. Enter
-/// passes through here for the multi-line Description (newline); the pane
-/// intercepts Title's Enter and Tab (apply) before this is reached.
-fn feed_text_area(edit: &mut EditState, code: KeyCode, modifiers: KeyModifiers) {
-    edit.textarea.input(Input::from(KeyEvent {
-        code,
-        modifiers,
-        kind: KeyEventKind::Press,
-        state: KeyEventState::empty(),
-    }));
+/// The (row, col) char position just past the last character of `text`:
+/// the append point the pane arms typed fields at.
+fn end_cursor(text: String) -> (usize, usize) {
+    let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+    let last = lines.len() - 1;
+    (last, lines[last].chars().count())
 }
 
-/// The edit pane's rows: one per field (selected row marked `> ` and
-/// highlighted) plus a hint line. Every non-active field shows the issue's
-/// LIVE value; Type/Status show the pending (cycled) value while they are
-/// the active field. While a typed field is being edited the active field
-/// is NOT rendered here - `render_edit_pane` renders its TextArea widget
-/// instead, with the cursor and selection visible (r[tui-edit]).
-fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
-    let Some(edit) = &app.edit else {
-        return vec![Line::raw("No edit in progress")];
-    };
-    let mut rows = Vec::new();
-    for field in EDIT_FIELDS {
-        // Cycled fields never arm, but keep rendering sane if they do.
-        if edit.editing && edit.field == field {
-            continue;
-        }
-        rows.push(edit_field_row(app, edit, field));
-    }
-    for hint in edit_hint(edit) {
-        rows.push(Line::from(Span::styled(
-            hint,
-            Style::new().fg(Color::DarkGray),
-        )));
-    }
-    rows
-}
-
-/// One edit-pane row for a field that is not being text-edited: the live
-/// value from the issue, with the pending Type/Status shown on the active
-/// row (r[tui-edit]).
-fn edit_field_row(app: &App, edit: &EditState, field: EditField) -> Line<'static> {
-    let issue = issue_with_project(app, edit.issue_id).map(|(i, _)| i);
+/// One field row for the pane: `> ` marker on the active field, the label
+/// bold, the value live from the issue (or the pending value for the
+/// active cycled field) and the active row highlighted (r[tui-edit]).
+fn field_row(edit: &EditState, issue: Option<&Issue>, field: EditField) -> Line<'static> {
     let active = edit.field == field;
     let highlight = Style::new().bg(Color::Rgb(60, 60, 60));
     let marker = if active { "> " } else { "  " };
     let value_style = if active { highlight } else { Style::new() };
-    let label = match field {
-        EditField::Title => "Title",
-        EditField::Description => "Description",
-        EditField::Type => "Type",
-        EditField::Status => "Status",
-    };
+    let label = field_label(field);
     let value = match field {
         EditField::Title => issue.map(|i| i.title.clone()).unwrap_or_default(),
         EditField::Description => issue
@@ -2024,36 +1951,165 @@ fn edit_field_row(app: &App, edit: &EditState, field: EditField) -> Line<'static
     ])
 }
 
-/// The edit pane's hint line(s): in navigation a single apply/navigate
-/// line per field kind; while a typed field is being edited two lines that
-/// document the apply/cancel keys and the TextArea key map (movement,
-/// editing, selection and the copy/cut/paste clipboard). Word moves
-/// (Ctrl+arrows), undo/redo (Ctrl+u/r) and the same keys repeat in the `?`
-/// help overlay and in SPEC r[tui-edit] (r[tui-edit]).
-fn edit_hint(edit: &EditState) -> Vec<String> {
-    if edit.editing {
-        let apply = match edit.field {
-            EditField::Description => "Enter new line, Tab applies, Esc cancels | arrows/Home/End",
-            EditField::Title => "Enter applies, Tab applies, Esc cancels | arrows/Home/End",
+/// The pane's hint line: which keys do what in the current state.
+fn edit_hint(edit: &EditState) -> Line<'static> {
+    let hint = if edit.editing {
+        match edit.field {
+            EditField::Description => "Enter: new line, Tab: apply, Esc: cancel".to_string(),
+            EditField::Title => "Enter applies, Esc cancels".to_string(),
             // Cycled fields never arm, but keep rendering sane if they do.
-            EditField::Type | EditField::Status => "Enter applies, Esc cancels",
-        };
-        vec![
-            apply.to_string(),
-            "Backspace/Delete edit, Shift+arrows select, Ctrl+c/x/y yank".to_string(),
-        ]
+            EditField::Type | EditField::Status => "Enter applies, Esc cancels".to_string(),
+        }
     } else {
         match edit.field {
             EditField::Title | EditField::Description => {
-                vec!["j/k move, Enter edits, Esc closes".to_string()]
+                "j/k move, Enter edits, Esc closes".to_string()
             }
             EditField::Type | EditField::Status => {
-                vec!["Left/Right cycles, Enter applies, j/k move, Esc closes".to_string()]
+                "Left/Right cycles, Enter applies, j/k move, Esc closes".to_string()
             }
         }
+    };
+    Line::from(Span::styled(hint, Style::new().fg(Color::DarkGray)))
+}
+
+/// The armed typed field that owns the widget slot, if any (r[tui-edit]).
+fn edit_slot(app: &App) -> Option<EditField> {
+    let Some(edit) = &app.edit else {
+        return None;
+    };
+    if edit.editing && matches!(edit.field, EditField::Title | EditField::Description) {
+        Some(edit.field)
+    } else {
+        None
     }
 }
 
+/// True when `field` is the armed typed field owning the widget slot.
+fn is_edit_slot(edit: &EditState, field: EditField) -> bool {
+    edit.editing
+        && matches!(field, EditField::Title | EditField::Description)
+        && edit.field == field
+}
+
+/// Rows and heights for the rect-based edit pane (d31): `above` rows on
+/// top, then the widget slot of `editor_height` rows, then `below` rows
+/// (including the hint). When no typed field is armed the slot is empty
+/// and every field is a row. `width` is the widget's render width (the
+/// detail area's inner width) so the slot height equals the wrapped line
+/// count of the widget content; the slot never grows so the hint row is
+/// pushed off - it is clamped to what the area affords.
+fn edit_pane_geometry(app: &App, width: usize) -> (usize, usize, usize) {
+    let Some(edit) = &app.edit else {
+        return (0, 0, 0);
+    };
+    let mut above = 0;
+    let mut below = 0;
+    let mut editor_height = 0;
+    for (i, field) in EDIT_FIELDS.iter().enumerate() {
+        if is_edit_slot(edit, *field) {
+            editor_height = edit_area_height(&edit.textarea, width);
+            continue;
+        }
+        if i < field_index(edit.field) {
+            above += 1;
+        } else {
+            below += 1;
+        }
+    }
+    let hint_height = 1;
+    // The slot also hosts the active field's label row, above the widget.
+    let available = (above + below + hint_height + if editor_height > 0 { 1 } else { 0 }).max(1);
+    (above, editor_height.min(available).max(1), below)
+}
+
+/// Render the inline edit pane into the detail area: field rows above and
+/// below, the armed `TextArea` in its reserved rect (height = wrapped line
+/// count of its content), and the hint at the bottom. The pane reserves
+/// rects and never paints the widget over field rows (d31).
+fn render_edit_pane(f: &mut Frame, app: &mut App, area: Rect) {
+    let Some(ref edit) = &app.edit else {
+        return;
+    };
+    let short = edit.issue_id.to_string()[..8].to_string();
+    let block = Block::bordered().title(format!("edit: {short}"));
+    let inner = block.inner(area);
+    let issue: Option<&Issue> = issue_with_project(app, edit.issue_id).map(|(i, _)| i);
+    let slot = edit_slot(app);
+    // Rect-based layout (d31): field rows keep their order with the armed
+    // typed field's place reserved for its slot; the slot owns (1) the
+    // active field's label row and (2) the widget rect with the wrapped
+    // content's line count. Nothing is painted over the field rows.
+    let mut rows: Vec<Line<'static>> = Vec::new();
+    for field in EDIT_FIELDS {
+        if slot == Some(field) {
+            continue;
+        }
+        rows.push(field_row(edit, issue, field));
+    }
+    let (_, slot_h_raw, _) = edit_pane_geometry(app, inner.width as usize);
+    // slot_h = label row + wrapped content rows (or just the content when
+    // the slot is empty); kept tight so the field rows layout around it.
+    let slot_h = if slot.is_some() {
+        (1 + (slot_h_raw.max(1) - 1)).min(
+            (inner.height as usize)
+                .saturating_sub(rows.len() + 1)
+                .max(1),
+        )
+    } else {
+        0
+    };
+    let slot_index = slot.map(|f| field_index(f)).unwrap_or(0);
+    let upper: Vec<Line<'static>> = rows[..slot_index].iter().cloned().collect();
+    let mut lower: Vec<Line<'static>> = rows[slot_index..].iter().cloned().collect();
+    lower.push(edit_hint(edit));
+    let [top_area, slot_area, bottom_area] = Layout::vertical([
+        Constraint::Length(upper.len() as u16),
+        Constraint::Length(slot_h as u16),
+        Constraint::Min(0),
+    ])
+    .areas(inner);
+    let highlight = Style::new().bg(Color::Rgb(60, 60, 60));
+    if !upper.is_empty() {
+        f.render_widget(
+            Paragraph::new(upper)
+                .wrap(ratatui::widgets::Wrap { trim: false })
+                .style(highlight),
+            top_area,
+        );
+    }
+    if slot.is_some() {
+        // The slot's first row is the active field's label (marker + bold
+        // label, value lives in the widget below); the widget gets its own
+        // rect under it - never over the label or the field rows.
+        f.render_widget(
+            Paragraph::new(vec![field_row(edit, issue, edit.field)]).style(highlight),
+            Rect {
+                x: inner.x,
+                y: slot_area.y,
+                width: slot_area.width,
+                height: 1,
+            },
+        );
+        let mut ta = textarea_for(edit.text(), edit.cursor());
+        ta.set_style(highlight);
+        ta.set_wrap_mode(WrapMode::WordOrGlyph);
+        let slot_rect = Rect {
+            x: inner.x + 2,
+            y: slot_area.y + 1,
+            width: slot_area.width.saturating_sub(2),
+            height: slot_area.height.saturating_sub(1),
+        };
+        f.render_widget(&ta, slot_rect);
+    }
+    if !lower.is_empty() {
+        f.render_widget(
+            Paragraph::new(lower).wrap(ratatui::widgets::Wrap { trim: false }),
+            bottom_area,
+        );
+    }
+    f.render_widget(block, area);
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2061,6 +2117,12 @@ mod tests {
     use crate::storage::LoadWarning;
     use ratatui::backend::TestBackend;
     use std::time::{Duration, UNIX_EPOCH};
+
+    /// A Press key event for the edit pane's key handler (the event loop
+    /// delivers crossterm KeyEvents; tests build them from a KeyCode).
+    fn key_event(code: KeyCode) -> crossterm::event::KeyEvent {
+        crossterm::event::KeyEvent::new(code, crossterm::event::KeyModifiers::empty())
+    }
 
     fn warning(message: &str) -> LoadWarning {
         LoadWarning {
@@ -3111,21 +3173,16 @@ mod tests {
             .find(|i| i.id == epic_id)
             .unwrap();
         issue.description = Some("Two lines\nhere".to_string());
-        // Enter arms the title edit; the TextArea renders the active
-        // buffer, every other row must show the live value (the display
-        // bug: the shared empty buffer + cursor used to take over the other
-        // text rows while editing any field).
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        // Enter arms the title edit; every other row must show the live
+        // value (the display bug: the shared empty buffer + cursor took
+        // over the other text rows while editing any field).
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         assert!(app.edit.as_ref().unwrap().editing);
         let rows = draw(&mut app);
         let joined = rows.join("\n");
         assert!(
-            joined.contains("> Title:"),
-            "active field label row: {joined}"
-        );
-        assert!(
             joined.contains("The epic"),
-            "buffer text rendered by the TextArea: {joined}"
+            "title content in the widget slot: {joined}"
         );
         assert!(
             joined.contains("Description: Two lines here"),
@@ -3133,9 +3190,12 @@ mod tests {
         );
         assert!(joined.contains("Type: epic"), "{joined}");
         assert!(joined.contains("Status: todo"), "{joined}");
+        assert!(
+            !joined.contains("Two lines here\u{258f}"),
+            "no cursor glyph on non-active rows (widget draws its own cursor): {joined}"
+        );
     }
 
-    #[test]
     fn edit_pane_renders_fields_pending_values_and_hints() {
         let (mut app, _) = edit_app();
         let rows = draw(&mut app);
@@ -3145,15 +3205,15 @@ mod tests {
         assert!(joined.contains("Status: todo"), "{joined}");
         assert!(joined.contains("j/k move, Enter edits"), "{joined}");
         // Cycling the pending status is visible without a commit.
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
         assert_eq!(
             app.edit.as_ref().unwrap().field,
             EditField::Status,
             "three j presses land on Status"
         );
-        edit_key(&mut app, KeyCode::Right).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Right)).unwrap();
         assert_eq!(
             app.edit.as_ref().unwrap().pending_status,
             Status::InProgress
@@ -3170,7 +3230,7 @@ mod tests {
         );
         // Esc in navigation closes the pane without writing: the uncommitted
         // cycle is dropped with it.
-        edit_key(&mut app, KeyCode::Esc).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Esc)).unwrap();
         assert_eq!(app.mode, Mode::Browser);
         assert!(app.edit.is_none());
     }
@@ -3178,40 +3238,38 @@ mod tests {
     #[test]
     fn edit_text_types_backspaces_and_esc_discards() {
         let (mut app, _) = edit_app();
-        // Enter starts editing the title with the live value pre-filled and
-        // the cursor at the end (append-first typing).
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        // Enter starts editing the title with the live value pre-filled.
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         let edit = app.edit.as_ref().unwrap();
         assert!(edit.editing);
-        assert_eq!(ta(edit), "The epic");
-        assert_eq!(edit.textarea.cursor(), (0, 8), "cursor starts at the end");
+        assert_eq!(edit.text(), "The epic");
         // q types while editing instead of quitting.
-        edit_key(&mut app, KeyCode::Char('q')).unwrap();
-        edit_key(&mut app, KeyCode::Char('!')).unwrap();
-        edit_key(&mut app, KeyCode::Char('?')).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('q'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('!'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('?'))).unwrap();
         assert!(!app.should_quit, "q appends while editing");
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epicq!?");
-        edit_key(&mut app, KeyCode::Backspace).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epicq!");
-        assert_eq!(app.edit.as_ref().unwrap().textarea.cursor(), (0, 10));
-        // The buffer is rendered while editing: the TextArea draws the text
-        // (the cursor is a styled cell, not a glyph).
+        assert_eq!(app.edit.as_ref().unwrap().text(), "The epicq!?");
+        edit_key(&mut app, key_event(KeyCode::Backspace)).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().text(), "The epicq!");
+        // The buffer is rendered in the reserved widget slot while editing.
         let rows = draw(&mut app);
-        assert!(rows.iter().any(|r| r.contains("The epicq!")), "{rows:?}");
+        assert!(
+            rows.iter().any(|r| r.contains("The epicq!")),
+            "widget content visible: {rows:?}"
+        );
         assert!(
             rows.iter()
-                .any(|r| r.contains("Enter applies, Tab applies")),
-            "editing hint: {rows:?}"
+                .any(|r| r.contains("Enter applies, Esc cancels")),
+            "typing hint: {rows:?}"
         );
-        // Esc discards the pending edit: no operation ran, the textarea is
+        // Esc discards the pending edit: no operation ran, the buffer is
         // dropped and the pane returns to navigation.
-        edit_key(&mut app, KeyCode::Esc).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Esc)).unwrap();
         let edit = app.edit.as_ref().unwrap();
-        assert!(!edit.editing);
-        assert!(edit.textarea.is_empty());
+        assert!(!edit.editing, "Esc returns to navigation");
         assert_eq!(app.mode, Mode::Edit, "Esc on a field edit keeps the pane");
         // Esc in navigation closes the pane.
-        edit_key(&mut app, KeyCode::Esc).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Esc)).unwrap();
         assert_eq!(app.mode, Mode::Browser);
         assert!(app.edit.is_none());
     }
@@ -3221,224 +3279,185 @@ mod tests {
         let (mut app, _) = edit_app();
         // One Enter on a typed field must not apply anything: it enters
         // editing mode (cycled fields do apply on the first Enter).
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        edit_key(&mut app, KeyCode::Esc).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Esc)).unwrap();
         let rows = draw(&mut app);
         assert!(
             rows.iter().any(|r| r.contains("> Title: The epic")),
             "title untouched after Enter + Esc: {rows:?}"
         );
         // Tab moves to the next field; BackTab back.
-        edit_key(&mut app, KeyCode::Tab).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Tab)).unwrap();
         assert_eq!(app.edit.as_ref().unwrap().field, EditField::Description);
-        edit_key(&mut app, KeyCode::BackTab).unwrap();
+        edit_key(&mut app, key_event(KeyCode::BackTab)).unwrap();
         assert_eq!(app.edit.as_ref().unwrap().field, EditField::Title);
     }
 
     #[test]
     fn q_quits_from_edit_navigation() {
         let (mut app, _) = edit_app();
-        edit_key(&mut app, KeyCode::Char('q')).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('q'))).unwrap();
         assert!(app.should_quit, "q quits while navigating the pane");
+    }
+
+    // ---- widget probe (ratatui-textarea adoption, d31) ----
+
+    #[test]
+    fn textarea_probe_feeds_crossterm_keycodes() {
+        let mut ta = ratatui_textarea::TextArea::from(vec!["The epic".to_string()]);
+        // Cursor starts at the head; move it to the end so typed chars
+        // append, mirroring the pane's arm-then-append behavior.
+        ta.move_cursor(ratatui_textarea::CursorMove::Jump(
+            0,
+            ta.lines()[0].chars().count() as u16,
+        ));
+        let key_event = crossterm::event::KeyEvent::new(
+            KeyCode::Char('q'),
+            crossterm::event::KeyModifiers::empty(),
+        );
+        let input = ratatui_textarea::Input::from(key_event);
+        assert!(ta.input(input), "typing modifies the buffer");
+        assert_eq!(ta.lines(), vec!["The epicq".to_string()]);
+        // Arrows move the cursor without touching the text.
+        ta.move_cursor(ratatui_textarea::CursorMove::Back);
+        assert_eq!(ta.cursor(), (0, 8));
     }
 
     // ---- in-buffer editing (r[tui-edit]) ----
 
-    /// The TextArea's content as one string, lines joined by `\n` (the
-    /// pane's `EditState::buffer_text`).
-    fn ta(edit: &EditState) -> String {
-        edit.textarea.lines().join("\n")
-    }
-
     #[test]
-    fn edit_textarea_loads_lines_and_starts_cursor_at_end() {
-        // The pane pre-fills the widget on arm: TextArea::new keeps the
-        // lines and `arm_text` puts the cursor at the end (append-first).
-        let mut edit =
-            EditState::for_issue(&issue(0x4444, "The epic", Status::Todo, IssueType::Epic));
-        edit.arm_text("The epic".to_string());
-        assert_eq!(ta(&edit), "The epic");
-        assert_eq!(edit.textarea.cursor(), (0, 8), "cursor at end");
-        // Multi-line text keeps its lines.
-        edit.arm_text("one\ntwo".to_string());
+    fn textarea_buffer_roundtrips_and_starts_cursor_at_end() {
+        let b = textarea_for("The epic".to_string(), end_cursor("The epic".to_string()));
+        assert_eq!(b.lines().join("\n"), "The epic");
         assert_eq!(
-            edit.textarea.lines(),
-            vec!["one".to_string(), "two".to_string()]
+            textarea_lines_of(&b),
+            (0, 8),
+            "cursor at end for append typing"
         );
-        assert_eq!(ta(&edit), "one\ntwo");
-        assert_eq!(edit.textarea.cursor(), (1, 3), "cursor at the very end");
-        // Empty text is a single empty line; a fresh pane TextArea is empty.
-        let empty = TextArea::default();
+        let empty = textarea_for(String::new(), end_cursor(String::new()));
         assert!(empty.is_empty());
-        assert_eq!(empty.lines(), vec![String::new()]);
+        assert_eq!(textarea_lines_of(&empty), (0, 0));
+        // Multi-line text keeps its lines.
+        let multi = textarea_for("one\ntwo".to_string(), end_cursor("one\ntwo".to_string()));
+        assert_eq!(multi.lines(), vec!["one".to_string(), "two".to_string()]);
+    }
+
+    fn textarea_lines_of(ta: &TextArea<'static>) -> (usize, usize) {
+        let cursor = ta.cursor();
+        (cursor.0 as usize, cursor.1 as usize)
     }
 
     #[test]
-    fn edit_textarea_inserts_at_cursor_and_moves() {
-        let mut textarea = TextArea::from(["abc"]);
-        // Type at the cursor: end, back one (col 2), insert.
-        textarea.move_cursor(CursorMove::End);
-        textarea.move_cursor(CursorMove::Back);
-        textarea.insert_char('X');
-        assert_eq!(textarea.lines().join("\n"), "abXc");
-        assert_eq!(textarea.cursor(), (0, 3));
-        textarea.move_cursor(CursorMove::Head);
-        textarea.insert_char('0');
-        assert_eq!(textarea.lines().join("\n"), "0abXc");
-        textarea.move_cursor(CursorMove::End);
-        textarea.insert_char('Z');
-        assert_eq!(textarea.lines().join("\n"), "0abXcZ");
-        // Back at the start of line 0 is a no-op.
-        textarea.move_cursor(CursorMove::Head);
-        textarea.move_cursor(CursorMove::Back);
-        assert_eq!(textarea.cursor(), (0, 0));
+    fn textarea_buffer_inserts_at_cursor_and_moves() {
+        let mut b = textarea_for("abc".to_string(), end_cursor("abc".to_string()));
+        move_left(&mut b);
+        b.insert_char('X');
+        assert_eq!(b.lines().join("\n"), "abXc");
+        assert_eq!(textarea_lines_of(&b), (0, 3));
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        b.insert_char('0');
+        assert_eq!(b.lines().join("\n"), "0abXc");
+        b.move_cursor(ratatui_textarea::CursorMove::End);
+        b.insert_char('Z');
+        assert_eq!(b.lines().join("\n"), "0abXcZ");
+        // Left at the start of line 0 is a no-op.
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        move_left(&mut b);
+        assert_eq!(textarea_lines_of(&b), (0, 0));
+    }
+
+    fn move_left(ta: &mut TextArea<'static>) {
+        ta.move_cursor(ratatui_textarea::CursorMove::Back);
     }
 
     #[test]
-    fn edit_textarea_backspace_and_delete_at_cursor() {
-        let mut textarea = TextArea::from(["abc"]);
-        // Backspace edits the char before the cursor: go to the end first.
-        textarea.move_cursor(CursorMove::End);
-        textarea.delete_char();
-        assert_eq!(textarea.lines().join("\n"), "ab");
-        textarea.move_cursor(CursorMove::Head);
-        textarea.delete_next_char();
-        assert_eq!(textarea.lines().join("\n"), "b");
-        assert_eq!(textarea.cursor(), (0, 0), "delete keeps the cursor put");
-        textarea.move_cursor(CursorMove::Head);
-        textarea.delete_char();
-        assert_eq!(
-            textarea.lines().join("\n"),
-            "b",
-            "backspace at start is a no-op"
-        );
-        textarea.delete_next_char();
-        textarea.delete_next_char();
-        assert!(textarea.is_empty(), "delete to the end");
+    fn textarea_buffer_backspace_and_delete_at_cursor() {
+        let mut b = textarea_for("abc".to_string(), end_cursor("abc".to_string()));
+        b.delete_char();
+        assert_eq!(b.lines().join("\n"), "ab");
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        b.delete_next_char();
+        assert_eq!(b.lines().join("\n"), "b");
+        assert_eq!(textarea_lines_of(&b), (0, 0), "delete keeps the cursor put");
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        b.delete_char();
+        assert_eq!(b.lines().join("\n"), "b", "backspace at start is a no-op");
+        b.delete_next_char();
+        b.delete_next_char();
+        assert!(b.is_empty(), "delete to the end");
     }
 
     #[test]
-    fn edit_textarea_newline_splits_lines_and_joins_on_commit() {
-        let mut textarea = TextArea::from(["first"]);
-        textarea.move_cursor(CursorMove::End);
-        textarea.insert_newline();
-        assert_eq!(textarea.lines(), vec!["first".to_string(), String::new()]);
-        assert_eq!(textarea.cursor(), (1, 0), "cursor on the fresh line");
-        for c in "second".chars() {
-            textarea.insert_char(c);
-        }
-        assert_eq!(textarea.lines().join("\n"), "first\nsecond");
+    fn textarea_buffer_newline_splits_lines_and_joins_on_commit() {
+        let mut b = textarea_for("first".to_string(), end_cursor("first".to_string()));
+        b.insert_newline();
+        assert_eq!(b.lines(), vec!["first".to_string(), String::new()]);
+        assert_eq!(textarea_lines_of(&b), (1, 0), "cursor on the fresh line");
+        b.insert_str("second".to_string());
+        assert_eq!(b.lines().join("\n"), "first\nsecond");
         // Backspace at the start of a line merges it into the previous one.
-        textarea.move_cursor(CursorMove::Head);
-        textarea.delete_char();
-        assert_eq!(textarea.lines().join("\n"), "firstsecond", "joined lines");
-        assert_eq!(textarea.cursor(), (0, 5), "cursor at the join point");
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        b.delete_char();
+        assert_eq!(b.lines().join("\n"), "firstsecond", "joined lines");
+        assert_eq!(textarea_lines_of(&b), (0, 5), "cursor at the join point");
         // Delete at the join point removes the merged line's first char.
-        textarea.delete_next_char();
-        assert_eq!(textarea.lines().join("\n"), "firstecond");
+        b.delete_next_char();
+        assert_eq!(b.lines().join("\n"), "firstecond");
     }
 
     #[test]
-    fn edit_textarea_home_end_and_cross_line_navigation() {
-        let mut textarea = TextArea::from(["line one", "line two"]);
-        textarea.move_cursor(CursorMove::Bottom);
-        assert_eq!(textarea.cursor(), (1, 0), "bottom of the text");
-        textarea.move_cursor(CursorMove::Up);
-        assert_eq!(textarea.cursor(), (0, 0), "up keeps the column");
-        textarea.move_cursor(CursorMove::End);
-        assert_eq!(textarea.cursor(), (0, 8));
-        // Right at the end of line 0 moves to the start of line 1.
-        textarea.move_cursor(CursorMove::Forward);
-        assert_eq!(textarea.cursor(), (1, 0));
-        // Left at the start of line 1 moves to the end of line 0.
-        textarea.move_cursor(CursorMove::Back);
-        assert_eq!(textarea.cursor(), (0, 8));
-        textarea.move_cursor(CursorMove::Head);
-        assert_eq!(textarea.cursor(), (0, 0), "head is line-scoped");
-    }
-
-    #[test]
-    fn edit_textarea_multibyte_chars_stay_on_boundaries() {
-        let mut textarea = TextArea::from(["caf\u{e9}"]);
-        assert_eq!(textarea.cursor(), (0, 0));
-        textarea.move_cursor(CursorMove::End);
-        assert_eq!(textarea.cursor(), (0, 4), "é is one char");
-        textarea.move_cursor(CursorMove::Back);
-        textarea.insert_char('\u{e9}');
-        assert_eq!(textarea.lines().join("\n"), "caf\u{e9}\u{e9}");
-        textarea.delete_char();
-        assert_eq!(textarea.lines().join("\n"), "caf\u{e9}");
-        textarea.move_cursor(CursorMove::Head);
-        textarea.delete_next_char();
-        assert_eq!(textarea.lines().join("\n"), "af\u{e9}");
-    }
-
-    #[test]
-    fn edit_textarea_selects_copies_cuts_and_pastes() {
-        let mut textarea = TextArea::from(["one two"]);
-        // Select "two" (cols 4..=6): cursor to col 4, start the selection,
-        // move forward to the end of the word.
-        (0..4).for_each(|_| textarea.move_cursor(CursorMove::Forward));
-        textarea.start_selection();
-        (0..3).for_each(|_| textarea.move_cursor(CursorMove::Forward));
-        assert_eq!(textarea.selection_range(), Some(((0, 4), (0, 7))));
-        textarea.copy();
-        assert_eq!(textarea.yank_text(), "two");
-        // Paste at the cursor (now at the selection end): yank inserts.
-        textarea.paste();
-        assert_eq!(textarea.lines().join("\n"), "one twotwo");
-        // Cut the same "two" (cols 4..=6 of the doubled text) and paste it
-        // back: cut yanks and deletes the selection.
-        textarea.move_cursor(CursorMove::Head);
-        (0..4).for_each(|_| textarea.move_cursor(CursorMove::Forward));
-        textarea.start_selection();
-        (0..3).for_each(|_| textarea.move_cursor(CursorMove::Forward));
-        textarea.cut();
-        assert_eq!(textarea.lines().join("\n"), "one two");
-        assert_eq!(textarea.yank_text(), "two");
-        textarea.paste();
-        assert_eq!(textarea.lines().join("\n"), "one twotwo");
-    }
-
-    #[test]
-    fn edit_key_routes_text_keys_to_textarea() {
-        let (mut app, _) = edit_app();
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        // Shift+Left selects backwards from the end; the pane passes the
-        // modifier state through to the TextArea.
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        assert_eq!(
-            app.edit.as_ref().unwrap().textarea.selection_range(),
-            Some(((0, 5), (0, 8))),
-            "shift+left selects three chars"
+    fn textarea_buffer_home_end_and_cross_line_navigation() {
+        let mut b = textarea_for(
+            "line one\nline two".to_string(),
+            end_cursor("line one\nline two".to_string()),
         );
-        // Ctrl+c copies into the widget's yank buffer (and cancels the
-        // selection); End then Ctrl+y pastes at the end of the text.
-        edit_key_mods(&mut app, KeyCode::Char('c'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(app.edit.as_ref().unwrap().textarea.yank_text(), "pic");
-        edit_key(&mut app, KeyCode::End).unwrap();
-        edit_key_mods(&mut app, KeyCode::Char('y'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epicpic");
-        // Ctrl+x cuts the same selection; Ctrl+y pastes it back.
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        edit_key_mods(&mut app, KeyCode::Left, KeyModifiers::SHIFT).unwrap();
-        edit_key_mods(&mut app, KeyCode::Char('x'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epic");
-        assert_eq!(app.edit.as_ref().unwrap().textarea.yank_text(), "pic");
-        edit_key_mods(&mut app, KeyCode::Char('y'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epicpic");
-        // Ctrl+u undoes the last edit (the paste), Ctrl+r redoes it.
-        edit_key_mods(&mut app, KeyCode::Char('u'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epic");
-        edit_key_mods(&mut app, KeyCode::Char('r'), KeyModifiers::CONTROL).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "The epicpic");
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        assert_eq!(
+            textarea_lines_of(&b),
+            (1, 0),
+            "Head goes to the current line's start"
+        );
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        assert_eq!(textarea_lines_of(&b), (1, 0), "Head is line-scoped");
+        b.move_cursor(ratatui_textarea::CursorMove::Back);
+        assert_eq!(
+            textarea_lines_of(&b),
+            (0, 8),
+            "Back from line start joins line 0"
+        );
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        assert_eq!(textarea_lines_of(&b), (0, 0));
+        b.move_cursor(ratatui_textarea::CursorMove::Forward);
+        assert_eq!(textarea_lines_of(&b), (0, 1));
+        b.move_cursor(ratatui_textarea::CursorMove::End);
+        assert_eq!(textarea_lines_of(&b), (0, 8));
+        // Forward at the end of line 0 moves to the start of line 1.
+        b.move_cursor(ratatui_textarea::CursorMove::Forward);
+        assert_eq!(textarea_lines_of(&b), (1, 0));
+        // Back at the start of line 1 moves to the end of line 0.
+        b.move_cursor(ratatui_textarea::CursorMove::Back);
+        assert_eq!(textarea_lines_of(&b), (0, 8));
     }
 
     #[test]
-    fn edit_pane_multi_line_description_renders_lines_with_cursor() {
+    fn textarea_buffer_multibyte_chars_stay_on_boundaries() {
+        let mut b = textarea_for("caf\u{e9}".to_string(), end_cursor("caf\u{e9}".to_string()));
+        assert_eq!(
+            textarea_lines_of(&b),
+            (0, 4),
+            "é is one char (cursor col = char count)"
+        );
+        b.move_cursor(ratatui_textarea::CursorMove::Back);
+        b.insert_char('\u{e9}');
+        assert_eq!(b.lines().join("\n"), "caf\u{e9}\u{e9}");
+        b.delete_char();
+        assert_eq!(b.lines().join("\n"), "caf\u{e9}");
+        b.move_cursor(ratatui_textarea::CursorMove::Head);
+        b.delete_next_char();
+        assert_eq!(b.lines().join("\n"), "af\u{e9}");
+    }
+
+    fn edit_pane_multi_line_description_reserves_slot_and_renders() {
         let (mut app, epic_id) = edit_app();
         let issue = app
             .projects
@@ -3448,51 +3467,61 @@ mod tests {
             .unwrap();
         issue.description = Some("first line\nsecond line".to_string());
         // Step to Description and arm its edit.
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        assert!(app.edit.as_ref().unwrap().editing);
-        assert_eq!(
-            app.edit.as_ref().unwrap().textarea.lines(),
-            vec!["first line".to_string(), "second line".to_string()],
-            "pre-filled with both lines"
-        );
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert!(edit.editing);
+        assert_eq!(edit.textarea.lines().len(), 2, "pre-filled with both lines");
         // The cursor pre-fills at the end of the text; Home then Left puts
         // it at the end of line 0, so Enter splits the first line.
-        edit_key(&mut app, KeyCode::Home).unwrap();
-        edit_key(&mut app, KeyCode::Left).unwrap();
-        assert_eq!(app.edit.as_ref().unwrap().textarea.cursor(), (0, 10));
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "first line\n\nsecond line");
+        edit_key(&mut app, key_event(KeyCode::Home)).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Left)).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().cursor(), (0, 10));
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().text(),
+            "first line\n\nsecond line"
+        );
         let rows = draw(&mut app);
         let joined = rows.join("\n");
+        // The Description label row stays above the widget slot; the slot
+        // is reserved so later buffer lines render there, never over other
+        // fields (d31).
         assert!(
-            joined.contains("> Description:"),
-            "label on the active field: {joined}"
+            joined.contains("Description:"),
+            "label row renders: {joined}"
         );
-        assert!(joined.contains("first line"), "{joined}");
+        assert!(
+            rows.iter().any(|r| r.contains("first line")),
+            "first buffer line visible: {rows:?}"
+        );
         assert!(
             rows.iter().any(|r| r.contains("second line")),
             "later buffer lines are their own rows: {rows:?}"
         );
-        // Non-active rows still show live values.
+        // Non-active rows still show live values and keep the old row
+        // format (`> ` marker only on the active field row).
         assert!(joined.contains("Title: The epic"), "{joined}");
         assert!(
-            joined.contains("Enter new line, Tab applies"),
+            joined.contains("Enter: new line, Tab: apply, Esc: cancel"),
             "multi-line hint: {joined}"
+        );
+        assert!(
+            !joined.contains("> Title: The epic"),
+            "the active field is the widget slot, not a highlighted row: {joined}"
         );
     }
 
-    #[test]
     fn edit_cycle_applies_on_first_enter_and_stays() {
         let (tempdir, mut app, id) = edit_app_ops();
         let root = tempdir.path().to_path_buf();
         // Status: step to it, cycle todo -> in_progress, one Enter applies.
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
         assert_eq!(app.edit.as_ref().unwrap().field, EditField::Status);
-        edit_key(&mut app, KeyCode::Right).unwrap();
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Right)).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         let edit = app.edit.as_ref().unwrap();
         assert_eq!(app.mode, Mode::Edit, "pane stays open");
         assert!(!edit.editing, "no re-arm after the apply");
@@ -3513,7 +3542,7 @@ mod tests {
         let content = std::fs::read_to_string(issue_file(&root, id)).unwrap();
         assert!(content.contains("\"status\": \"in_progress\""), "{content}");
         // Enter again without cycling: no-change, still stays.
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         assert_eq!(
             app.message.as_deref().unwrap(),
             "No changes: nothing to update"
@@ -3522,11 +3551,11 @@ mod tests {
         assert!(!app.edit.as_ref().unwrap().editing);
         // Type: back to Type, cycle bug -> ux_problem -> usecase (two
         // Rights in cycle order), one Enter applies.
-        edit_key(&mut app, KeyCode::Char('k')).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('k'))).unwrap();
         assert_eq!(app.edit.as_ref().unwrap().field, EditField::Type);
-        edit_key(&mut app, KeyCode::Right).unwrap();
-        edit_key(&mut app, KeyCode::Right).unwrap();
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Right)).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Right)).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         assert_eq!(app.mode, Mode::Edit, "still stays after type apply");
         assert!(
             app.message
@@ -3539,7 +3568,7 @@ mod tests {
         let content = std::fs::read_to_string(issue_file(&root, id)).unwrap();
         assert!(content.contains("\"issue_type\": \"usecase\""), "{content}");
         // Esc closes the pane (navigation).
-        edit_key(&mut app, KeyCode::Esc).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Esc)).unwrap();
         assert_eq!(app.mode, Mode::Browser);
         assert!(app.edit.is_none());
     }
@@ -3549,22 +3578,22 @@ mod tests {
         let (tempdir, mut app, id) = edit_app_ops();
         let root = tempdir.path().to_path_buf();
         // Step to Description, arm, type a two-line value.
-        edit_key(&mut app, KeyCode::Char('j')).unwrap();
-        edit_key(&mut app, KeyCode::Enter).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
         for c in "Fixes login".chars() {
-            edit_key(&mut app, KeyCode::Char(c)).unwrap();
+            edit_key(&mut app, key_event(KeyCode::Char(c))).unwrap();
         }
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        assert_eq!(ta(app.edit.as_ref().unwrap()), "Fixes login\n");
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().text(), "Fixes login\n");
         for c in "for real".chars() {
-            edit_key(&mut app, KeyCode::Char(c)).unwrap();
+            edit_key(&mut app, key_event(KeyCode::Char(c))).unwrap();
         }
         // Tab applies the multi-line description (Enter is the newline key).
-        edit_key(&mut app, KeyCode::Tab).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Tab)).unwrap();
         let edit = app.edit.as_ref().unwrap();
         assert!(!edit.editing, "Tab applies and leaves the field edit");
         assert_eq!(
-            ta(edit),
+            edit.text(),
             "Fixes login\nfor real",
             "textarea retains the committed text until the next arm"
         );
