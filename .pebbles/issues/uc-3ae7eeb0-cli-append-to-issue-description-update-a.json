@@ -1,0 +1,12 @@
+{
+  "id": "3ae7eeb0-cb7e-41a6-af74-e1168cfbfed9",
+  "title": "CLI: append to issue description (update --append-description)",
+  "description": "Add `pebbles update --append-description <TEXT>` (long flag only; no short form) to append TEXT to the issue description instead of replacing it with -d/--description.\n\nSemantics (pure helper append_description, unit-testable without I/O, modeled on add_tags_to_issue):\n- no current description -> TEXT (verbatim)\n- current description ends with a newline -> current + TEXT\n- otherwise -> current + \"\\n\" + TEXT (append a line)\n- appending the empty string is a no-op: no file write, no jj commit, \"No changes: nothing to update\" (pebble e74 no-op discipline)\n\nCombination rule: -d/--description sets the description first, then --append-description appends to that result. Multi-ID/stdin input, per-ID failure summary, and exit codes are unchanged (r[bulk-input], r[bulk-fail-soft]).\n\nImplementation plan: pure fn + thin operations shell (update gains the append parameter), CLI flag in src/cli.rs (Update command), SPEC CLI bullet + README Quick Start update-issues section, unit tests, and a trycmd fixture test tests/cmd/update-append (in/out dirs, .no_jj per tests/cli_tests.rs) asserting screen output and the resulting description.\n\nReference: user requested 2026-09-24 (\"option to from the CLI append something to the description\").",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-24T17:56:20.049945069Z",
+  "updated_at": "2026-09-24T17:56:20.049945069Z"
+}
