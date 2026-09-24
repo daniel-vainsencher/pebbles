@@ -1,0 +1,20 @@
+{
+  "issues": [
+    {
+      "id": "d3076153-0b98-4454-a43e-8f0b1cd25738",
+      "file_name": "validation-d3076153-diamond-root.json"
+    },
+    {
+      "id": "60936cd1-7c04-4e44-b67e-fc844e34120a",
+      "file_name": "validation-60936cd1-branch-a.json"
+    },
+    {
+      "id": "6b16d65f-34f7-4bd0-a251-d56f15e2c7e0",
+      "file_name": "validation-6b16d65f-branch-b.json"
+    },
+    {
+      "id": "0e3136a6-60c8-4634-9440-b39764f5e58f",
+      "file_name": "validation-0e3136a6-diamond-goal.json"
+    }
+  ]
+}

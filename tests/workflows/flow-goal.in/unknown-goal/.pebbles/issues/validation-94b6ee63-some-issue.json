@@ -1,0 +1,12 @@
+{
+  "id": "94b6ee63-3a7f-4a06-96c5-9299c6c88da5",
+  "title": "Some issue",
+  "description": "",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
+}

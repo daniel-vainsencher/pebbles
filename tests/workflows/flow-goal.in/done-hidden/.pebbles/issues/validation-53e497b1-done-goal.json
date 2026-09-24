@@ -1,0 +1,17 @@
+{
+  "id": "53e497b1-84c8-40c4-9b74-59c827454ced",
+  "title": "Done Goal",
+  "description": "",
+  "status": "done",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "ff40ff74-b938-499d-bf7f-778831722b82"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
+}

@@ -1,0 +1,12 @@
+{
+  "issues": [
+    {
+      "id": "5336b992-cd55-4aad-84f5-ef1a00a9fe46",
+      "file_name": "validation-5336b992-single-path-root.json"
+    },
+    {
+      "id": "5d50ce98-ccc7-474d-9f4e-840fce75d66b",
+      "file_name": "validation-5d50ce98-single-path-goal.json"
+    }
+  ]
+}

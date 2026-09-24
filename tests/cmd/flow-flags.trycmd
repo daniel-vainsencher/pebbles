@@ -52,8 +52,8 @@ to the goal is the separate loan e4937f0b.
 $ pebbles flow --goal 22222222
 ═══ Project Flow ═══
 
-Layer 0:                  Layer 1:
-→ 222 Design auth flow  ⚠ 333 Implement login
+Layer 0:                   Layer 1:
+*→ 222 Design auth flow  ⚠ 333 Implement login
 
 ```
 

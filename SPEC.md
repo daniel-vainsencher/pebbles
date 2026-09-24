@@ -886,3 +886,17 @@ Features mentioned in historical documentation but not yet implemented:
 - Templates per issue type
 
 These features are tracked as pebbles issues in the repository.
+
+
+## r[critical-path]
+
+Critical‑path highlighting for `pebbles flow --goal <id>` marks every issue that lies on any dependency path from any root to the goal. A root is an issue with no incoming `required_for` or `scheduled_before` edges. The algorithm performs a reverse breadth‑first search from the goal over the predecessor edges (`required_for` and `scheduled_before`). If the goal UUID is not present in the visualized set, the `--goal` flag already reports an error (loan 70c). If the goal has no path to any root (i.e., the goal is isolated), the command fails with a clear error.
+
+When a goal thread is given:
+
+- **Text output** prepends an asterisk (`*`) to the indicator glyph of each critical issue.
+- **SVG output** adds a `critical` CSS class to the rectangle of critical nodes and a `critical‑edge` class to edges whose source and target are both critical (the CSS defines thicker strokes and a different color).
+- **DOT output** adds `penwidth=2` to critical nodes and edges.
+- **JSON output** sets `in_critical_path: true` for critical nodes, `false` for non‑critical nodes (when a goal is given).
+
+All visual backends share the same underlying critical‑path detection, implemented in `flow::critical_issues`.

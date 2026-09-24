@@ -618,9 +618,13 @@ fn main() -> Result<()> {
                 issues.retain(|issue| issue.status != Status::Done);
             }
 
+            // Validate goal (if any) has a path to roots
+            if let Some(g) = goal {
+                flow::critical_issues(&issues, g).map_err(|e| anyhow::anyhow!(e))?;
+            }
+
             // Compute layout
             let layout = flow::compute_flow_layout(&issues)?;
-
             // r[impl appropriate-length-id]
             let id_prefixes = ops.id_prefixes()?;
             let content = match format {

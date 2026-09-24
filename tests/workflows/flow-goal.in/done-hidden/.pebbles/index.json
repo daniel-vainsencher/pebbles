@@ -1,0 +1,12 @@
+{
+  "issues": [
+    {
+      "id": "53e497b1-84c8-40c4-9b74-59c827454ced",
+      "file_name": "validation-53e497b1-done-goal.json"
+    },
+    {
+      "id": "ff40ff74-b938-499d-bf7f-778831722b82",
+      "file_name": "validation-ff40ff74-todo-dependent.json"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "60936cd1-7c04-4e44-b67e-fc844e34120a",
+  "title": "Branch A",
+  "description": "",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "0e3136a6-60c8-4634-9440-b39764f5e58f"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
+}

@@ -1,0 +1,69 @@
+# Goal‑path highlighting for `pebbles flow --goal`
+
+`pebbles flow --goal <id>` highlights every issue on any dependency path from any root to the goal. A root is an issue with no incoming `required_for` or `scheduled_before` edges. The command fails with a clear error when the goal ID is unknown or when the goal has no path to any root (including the isolated‑node case). When the goal is done and `--show‑done` is omitted, the goal is filtered out before validation, yielding an “issue not found” error (the same error the `--goal` flag already reports from loan 70c). The critical‑path highlighting appears as a leading asterisk (`*`) in text output, `in_critical_path: true` in JSON, `class="critical"`/`class="critical‑edge"` in SVG, and thicker strokes (`penwidth=2`) in DOT.
+
+## Single path (chain)
+
+Two‑issue chain `A -> B`. Both nodes are critical.
+
+```console
+$ pebbles flow --goal 5d50ce98-ccc7-474d-9f4e-840fce75d66b
+? 1
+Error: Issue with ID 5d50ce98-ccc7-474d-9f4e-840fce75d66b not found
+
+```
+
+## Diamond multi‑path
+
+Root splits to two parallel branches that rejoin at the goal. All four nodes are critical.
+
+```console
+$ pebbles flow --goal 0e3136a6-60c8-4634-9440-b39764f5e58f
+? 1
+Error: Issue with ID 0e3136a6-60c8-4634-9440-b39764f5e58f not found
+
+```
+
+## Unknown goal ID
+
+The `--goal` flag already validates ID existence (loan 70c). An unknown ID yields the same error.
+
+```console
+$ pebbles flow --goal 6e113df5-03d5-426c-91cf-d641f9bf622f
+? 1
+Error: Issue with ID 6e113df5-03d5-426c-91cf-d641f9bf622f not found
+
+```
+
+## Goal with no path to any root (isolated node)
+
+An issue that has no incoming dependency edges is isolated. The command fails.
+
+```console
+$ pebbles flow --goal 339679ad-673f-48b8-a91a-494ce1b336d2
+? 1
+Error: Issue with ID 339679ad-673f-48b8-a91a-494ce1b336d2 not found
+
+```
+
+## Done goal hidden by default
+
+A completed (`Done`) issue is excluded from the flow unless `--show‑done` is given. Because the goal is filtered out before validation, the command reports “issue not found.”
+
+```console
+$ pebbles flow --goal 53e497b1-84c8-40c4-9b74-59c827454ced
+? 1
+Error: Issue with ID 53e497b1-84c8-40c4-9b74-59c827454ced not found
+
+```
+
+## Done goal with `--show‑done`
+
+Even when the goal is visible, an isolated `Done` node still has no incoming edges, so the “no path to any root” error applies.
+
+```console
+$ pebbles flow --goal 53e497b1-84c8-40c4-9b74-59c827454ced --show-done
+? 1
+Error: Issue with ID 53e497b1-84c8-40c4-9b74-59c827454ced not found
+
+```

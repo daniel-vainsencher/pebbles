@@ -1,0 +1,17 @@
+{
+  "id": "5336b992-cd55-4aad-84f5-ef1a00a9fe46",
+  "title": "Single Path Root",
+  "description": "Root issue",
+  "status": "todo",
+  "issue_type": "validation",
+  "tags": [],
+  "relationships": [
+    {
+      "relation_type": "required_for",
+      "target_id": "5d50ce98-ccc7-474d-9f4e-840fce75d66b"
+    }
+  ],
+  "metadata": {},
+  "created_at": "2025-01-01T00:00:00Z",
+  "updated_at": "2025-01-01T00:00:00Z"
+}

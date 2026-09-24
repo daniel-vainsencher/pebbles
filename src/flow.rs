@@ -2,7 +2,7 @@ use crate::models::{Issue, IssueType, RelationType, Status};
 use anyhow::{bail, Result};
 use rust_sugiyama::configure::Config;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Represents the layout result for visualization
@@ -224,7 +224,7 @@ pub fn render_text(
     issues: &[Issue],
     layout: &FlowLayout,
     id_prefixes: &HashMap<Uuid, String>,
-    _goal: Option<Uuid>,
+    goal: Option<Uuid>,
 ) -> String {
     if layout.coordinates.is_empty() {
         return "No issues to visualize.".to_string();
@@ -235,8 +235,13 @@ pub fn render_text(
     // "Blocked" mirrors `get_unblocked_issues` (operations.rs): an incoming
     // dependency edge from a non-Done issue.
     let edges = build_dependency_graph(issues);
+    let critical: HashSet<usize> = match goal {
+        Some(g) => critical_issues(issues, g).expect("valid goal"),
+        None => HashSet::new(),
+    };
     let mut blocked = vec![false; issues.len()];
     let mut blocks_others = vec![false; issues.len()];
+    let mut has_edges = vec![false; issues.len()];
     let mut has_edges = vec![false; issues.len()];
     for &(source, target) in &edges {
         has_edges[source as usize] = true;
@@ -291,8 +296,10 @@ pub fn render_text(
     let mut cell: Vec<String> = vec![String::new(); issues.len()];
     for idx in 0..issues.len() {
         if has_edges[idx] {
+            let star = if critical.contains(&idx) { "*" } else { "" };
             cell[idx] = format!(
-                "{} {} {}",
+                "{}{} {} {}",
+                star,
                 flow_indicator(blocked[idx], blocks_others[idx], issues[idx].status),
                 issue_id_prefix(issues[idx].id, id_prefixes),
                 truncate_flow_title(&issues[idx].title)
@@ -338,7 +345,9 @@ pub fn render_text(
         let mut max_rows: usize = 0;
         for (layer, layer_issues) in groups {
             let mut sorted_issues = layer_issues.clone();
-            sorted_issues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap());
+            // Sort by Y within the layer; tie-break by index for
+            // deterministic output (parallel branches share Y).
+            sorted_issues.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or_else(|| a.0.cmp(&b.0)));
             max_rows = max_rows.max(sorted_issues.len());
             let indices: Vec<usize> = sorted_issues
                 .iter()
@@ -442,7 +451,7 @@ pub fn render_svg(
     issues: &[Issue],
     layout: &FlowLayout,
     id_prefixes: &HashMap<Uuid, String>,
-    _goal: Option<Uuid>,
+    goal: Option<Uuid>,
 ) -> String {
     let padding = 20.0;
     let svg_width = layout.width + 2.0 * padding;
@@ -457,6 +466,8 @@ pub fn render_svg(
   .done {{ fill: #e8f8e8; }}
   .in_progress {{ fill: #fff8e8; }}
   .blocked {{ fill: #f8e8e8; }}
+  .critical {{ stroke-width: 4; stroke: #f00; }}
+  .critical-edge {{ stroke: #f00; stroke-width: 2; }}
 </style>
 "#,
         svg_width, svg_height
@@ -464,6 +475,15 @@ pub fn render_svg(
 
     // Draw edges first (so they appear behind boxes)
     let edges = build_dependency_graph(issues);
+    let critical: HashSet<usize> = match goal {
+        Some(g) => critical_issues(issues, g).expect("valid goal"),
+        None => HashSet::new(),
+    };
+    let critical_edges: HashSet<(u32, u32)> = edges
+        .iter()
+        .filter(|&(s, t)| critical.contains(&(*s as usize)) && critical.contains(&(*t as usize)))
+        .cloned()
+        .collect();
     let coord_map: HashMap<usize, (f64, f64)> = layout
         .coordinates
         .iter()
@@ -485,13 +505,19 @@ pub fn render_svg(
             coord_map.get(&(source as usize)),
             coord_map.get(&(target as usize)),
         ) {
+            let class_attr = if critical_edges.contains(&(source, target)) {
+                " class=\"critical-edge\""
+            } else {
+                ""
+            };
             svg.push_str(&format!(
-                r##"  <line x1="{}" y1="{}" x2="{}" y2="{}" stroke="#999" stroke-width="1" marker-end="url(#arrowhead)" />
+                r##"  <line x1="{}" y1="{}" x2="{}" y2="{}"{} stroke="#999" stroke-width="1" marker-end="url(#arrowhead)" />
 "##,
                 sx + padding,
                 sy + padding + 15.0,
                 tx + padding,
-                ty + padding + 15.0
+                ty + padding + 15.0,
+                class_attr
             ));
         }
     }
@@ -515,9 +541,13 @@ pub fn render_svg(
         } else {
             ""
         };
-
+        let critical_class = if critical.contains(&idx) {
+            "critical"
+        } else {
+            ""
+        };
         svg.push_str(&format!(
-            r#"  <rect x="{}" y="{}" width="{}" height="{}" class="issue-box {} {}" />
+            r#"  <rect x="{}" y="{}" width="{}" height="{}" class="issue-box {} {} {}" />
   <text x="{}" y="{}" class="issue-text">{}: {}</text>
 "#,
             x + padding,
@@ -526,6 +556,7 @@ pub fn render_svg(
             box_height,
             status_class,
             type_class,
+            critical_class,
             x + padding + 5.0,
             y + padding + 20.0,
             escape_xml(&short_id),
@@ -624,6 +655,69 @@ fn dependency_components(issues: &[Issue]) -> Vec<Vec<usize>> {
     components
 }
 
+/// Compute indices of issues on any critical path from a root to the given goal.
+/// Returns `Ok` with a set of indices (into `issues`) for all issues that lie on any
+/// path from any root to the goal. Returns an error if the goal ID is not present in
+/// `issues` or if there is no path from any root to the goal (i.e., the goal is isolated).
+pub fn critical_issues(issues: &[Issue], goal: Uuid) -> Result<HashSet<usize>, String> {
+    // Map ID -> index
+    let id_to_index: HashMap<Uuid, usize> = issues
+        .iter()
+        .enumerate()
+        .map(|(i, issue)| (issue.id, i))
+        .collect();
+
+    let goal_idx = match id_to_index.get(&goal) {
+        Some(&idx) => idx,
+        None => return Err(format!("Goal issue not found: {}", goal)),
+    };
+
+    // Build reverse adjacency: for each edge source -> target, store source as predecessor of target
+    let mut predecessors: Vec<Vec<usize>> = vec![Vec::new(); issues.len()];
+    let mut successors: Vec<Vec<usize>> = vec![Vec::new(); issues.len()];
+    for (idx, issue) in issues.iter().enumerate() {
+        for rel in &issue.relationships {
+            match rel.relation_type {
+                RelationType::RequiredFor | RelationType::ScheduledBefore => {
+                    if let Some(&target_idx) = id_to_index.get(&rel.target_id) {
+                        predecessors[target_idx].push(idx);
+                        successors[idx].push(target_idx);
+                    }
+                }
+                RelationType::PartOf => {}
+            }
+        }
+    }
+
+    // BFS backwards from goal
+    let mut visited = HashSet::new();
+    let mut queue = Vec::new();
+    visited.insert(goal_idx);
+    queue.push(goal_idx);
+
+    while let Some(current) = queue.pop() {
+        for &pred in &predecessors[current] {
+            if !visited.contains(&pred) {
+                visited.insert(pred);
+                queue.push(pred);
+            }
+        }
+    }
+
+    // Check if any visited node is a root (no predecessors)
+    let has_root = visited.iter().any(|&idx| predecessors[idx].is_empty());
+    if !has_root {
+        return Err(format!("Goal issue has no path to any root"));
+    }
+
+    // Goal isolated (no incoming edges, no outgoing edges) -> error
+    if visited.len() == 1 && predecessors[goal_idx].is_empty() && successors[goal_idx].is_empty() {
+        return Err(format!("Goal issue has no path to any root"));
+    }
+
+    Ok(visited)
+}
+
 /// Render layout as Graphviz DOT
 ///
 /// Emits a `digraph pebbles_flow` with `rankdir=LR` and `node [shape=box]`
@@ -661,7 +755,7 @@ pub fn render_dot(
     issues: &[Issue],
     layout: &FlowLayout,
     id_prefixes: &HashMap<Uuid, String>,
-    _goal: Option<Uuid>,
+    goal: Option<Uuid>,
 ) -> String {
     let mut output = String::new();
     output.push_str("digraph pebbles_flow {\n");
@@ -677,6 +771,15 @@ pub fn render_dot(
 
     let edges = labeled_dependency_edges(issues);
     let components = dependency_components(issues);
+    let critical: HashSet<usize> = match goal {
+        Some(g) => critical_issues(issues, g).expect("valid goal"),
+        None => HashSet::new(),
+    };
+    let critical_edges: HashSet<(u32, u32)> = edges
+        .iter()
+        .filter(|&(s, t, _)| critical.contains(&(*s as usize)) && critical.contains(&(*t as usize)))
+        .map(|&(s, t, _)| (s, t))
+        .collect();
 
     // Components with edges become cluster subgraphs; standalone issues
     // stay at the top level, mirroring the text renderer's "Issues with
@@ -690,11 +793,17 @@ pub fn render_dot(
         for member in 0..component.len() {
             let idx = component[member];
             let issue = &issues[idx];
+            let penwidth_attr = if critical.contains(&idx) {
+                " penwidth=2"
+            } else {
+                ""
+            };
             output.push_str(&format!(
-                "    \"{}\" [label=\"{}\" color=\"{}\" style=filled];\n",
+                "    \"{}\" [label=\"{}\" color=\"{}\" style=filled{}];\n",
                 escape_dot(&issue_id_prefix(issue.id, id_prefixes)),
                 escape_dot(&issue.title.chars().take(30).collect::<String>()),
                 status_dot_color(issue.status),
+                penwidth_attr
             ));
         }
         // Only edges whose source lives in this component (all dependency
@@ -704,11 +813,17 @@ pub fn render_dot(
             if !component.contains(&(source as usize)) {
                 continue;
             }
+            let penwidth_attr = if critical_edges.contains(&(source, target)) {
+                " penwidth=2"
+            } else {
+                ""
+            };
             output.push_str(&format!(
-                "    \"{}\" -> \"{}\" [label=\"{}\"];\n",
+                "    \"{}\" -> \"{}\" [label=\"{}\"{}];\n",
                 escape_dot(&issue_id_prefix(issues[source as usize].id, id_prefixes)),
                 escape_dot(&issue_id_prefix(issues[target as usize].id, id_prefixes)),
                 rel_type.clone(),
+                penwidth_attr
             ));
         }
         output.push_str("  }\n\n");
@@ -721,11 +836,17 @@ pub fn render_dot(
         }
         let idx = component[0];
         let issue = &issues[idx];
+        let penwidth_attr = if critical.contains(&idx) {
+            " penwidth=2"
+        } else {
+            ""
+        };
         output.push_str(&format!(
-            "  \"{}\" [label=\"{}\" color=\"{}\" style=filled];\n",
+            "  \"{}\" [label=\"{}\" color=\"{}\" style=filled{}];\n",
             escape_dot(&issue_id_prefix(issue.id, id_prefixes)),
             escape_dot(&issue.title.chars().take(30).collect::<String>()),
             status_dot_color(issue.status),
+            penwidth_attr
         ));
     }
 
@@ -845,7 +966,10 @@ pub fn render_json(
         .map(|&(idx, coords)| (idx, coords))
         .collect();
 
-    let in_critical_path = if goal.is_some() { Some(false) } else { None };
+    let critical: HashSet<usize> = match goal {
+        Some(g) => critical_issues(issues, g).expect("valid goal"),
+        None => HashSet::new(),
+    };
     let mut nodes: Vec<FlowJsonNode> = Vec::new();
     for (idx, issue) in issues.iter().enumerate() {
         let (x, y) = match coord_map.get(&idx) {
@@ -860,7 +984,11 @@ pub fn render_json(
             status: issue.status.clone(),
             x,
             y,
-            in_critical_path,
+            in_critical_path: if goal.is_some() {
+                Some(critical.contains(&idx))
+            } else {
+                None
+            },
         });
     }
 
@@ -890,7 +1018,7 @@ pub fn render_json(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Issue, IssueType, Status};
+    use crate::models::{Issue, IssueType, Relationship, Status};
     use serde_json::Value;
 
     fn issue(title: &str) -> Issue {
@@ -1356,8 +1484,13 @@ mod tests {
     /// is loan e4937f0b).
     #[test]
     fn test_render_json_goal_thread_emits_in_critical_path() {
-        let a = issue_with_id("A", "11111111-1111-1111-1111-111111111111");
+        use crate::models::{RelationType, Relationship};
+        let mut a = issue_with_id("A", "11111111-1111-1111-1111-111111111111");
         let b = issue_with_id("B", "22222222-2222-2222-2222-222222222222");
+        a.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: b.id,
+        });
         let issues = vec![a, b];
         let layout = FlowLayout {
             coordinates: vec![(0, (0.0, 0.0)), (1, (0.0, 30.0))],
@@ -1368,10 +1501,11 @@ mod tests {
         let root = serde_json::from_str::<Value>(&json).unwrap();
         let nodes = root.get("nodes").unwrap().as_array().unwrap();
         assert_eq!(nodes.len(), 2);
+        // Both nodes are on critical path (A root, B goal)
         for i in 0..nodes.len() {
             assert_eq!(
                 nodes[i].get("in_critical_path").unwrap().as_bool().unwrap(),
-                false
+                true
             );
         }
     }
@@ -1443,5 +1577,75 @@ mod tests {
             .as_str()
             .unwrap();
         assert_eq!(title, "Say \"hi\" \\ line");
+    }
+
+    #[test]
+    #[test]
+    fn test_critical_issues() {
+        // Helper to create a relationship
+        fn rel(ty: RelationType, target: Uuid) -> Relationship {
+            Relationship {
+                relation_type: ty,
+                target_id: target,
+            }
+        }
+
+        // Single chain: root -> middle -> goal
+        let root = issue("root");
+        let middle = issue("middle");
+        let goal = issue("goal");
+        let mut root_clone = root.clone();
+        root_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, middle.id));
+        let mut middle_clone = middle.clone();
+        middle_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, goal.id));
+        let issues = vec![root_clone, middle_clone, goal.clone()];
+        let critical = critical_issues(&issues, goal.id).unwrap();
+        assert_eq!(critical.len(), 3);
+        assert!(critical.contains(&0));
+        assert!(critical.contains(&1));
+        assert!(critical.contains(&2));
+
+        // Diamond: root -> A, root -> B, A -> goal, B -> goal
+        let root = issue("root");
+        let a = issue("a");
+        let b = issue("b");
+        let goal = issue("goal");
+        let mut root_clone = root.clone();
+        root_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, a.id));
+        root_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, b.id));
+        let mut a_clone = a.clone();
+        a_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, goal.id));
+        let mut b_clone = b.clone();
+        b_clone
+            .relationships
+            .push(rel(RelationType::RequiredFor, goal.id));
+        let issues = vec![root_clone, a_clone, b_clone, goal.clone()];
+        let critical = critical_issues(&issues, goal.id).unwrap();
+        assert_eq!(critical.len(), 4);
+        assert!(critical.contains(&0));
+        assert!(critical.contains(&1));
+        assert!(critical.contains(&2));
+        assert!(critical.contains(&3));
+
+        // Unknown goal ID
+        let unknown = Uuid::new_v4();
+        let err = critical_issues(&issues, unknown).unwrap_err();
+        assert!(err.contains("Goal issue not found"));
+
+        // Goal with no path to roots (isolated node)
+        let isolated = issue("isolated");
+        let issues = vec![isolated.clone()];
+        let err = critical_issues(&issues, isolated.id).unwrap_err();
+        assert!(err.contains("Goal issue has no path to any root"));
     }
 }
