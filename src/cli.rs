@@ -15,6 +15,13 @@ use clap::{Parser, Subcommand};
     'pebbles list' to verify that every issue still loads."
 )]
 pub struct Cli {
+    #[arg(
+        long,
+        global = true,
+        help = "Disable colored output for this invocation (overrides NO_COLOR, CLICOLOR, and tty detection)"
+    )]
+    pub no_color: bool,
+
     #[command(subcommand)]
     pub command: Commands,
 }

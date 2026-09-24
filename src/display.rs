@@ -4,6 +4,25 @@ use colored::*;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+/// Decide whether CLI output should carry ANSI color (SPEC r[no-color-flag]).
+///
+/// Pure decision helper; precedence from strongest to weakest:
+/// 1. `no_color_flag` - the explicit `--no-color` CLI flag always wins;
+/// 2. `env_no_color` - `NO_COLOR` set (any value) suppresses color;
+/// 3. `clicolor_zero` - `CLICOLOR=0` suppresses color;
+/// 4. `is_tty` - with no suppressor present, only a terminal gets color.
+/// The imperative shell reads the environment and the flag, then routes
+/// every render through the `colored` crate's global override with this
+/// decision, so list/show/epic/summary/flow/tips all honor it uniformly.
+pub fn should_color(
+    no_color_flag: bool,
+    env_no_color: bool,
+    clicolor_zero: bool,
+    is_tty: bool,
+) -> bool {
+    !no_color_flag && !env_no_color && !clicolor_zero && is_tty
+}
+
 /// Format an epic's child progress as ` (done/total)`.
 ///
 /// `filtered` counts are computed over the view slice; `full` over the
@@ -30,9 +49,10 @@ fn format_epic_count(
 /// r[blocker-colors]). The palette is fixed: green = ready, yellow =
 /// blocked, red = circular dependency, blue = blocking others
 /// (informational), gray = not part of any epic. Rendering is delegated to
-/// the `colored` crate, which suppresses colors when stdout is not a
-/// terminal, when `NO_COLOR` is set, or when `CLICOLOR=0` is set - so the
-/// plain-text markers below never carry escape codes in those cases.
+/// the `colored` crate; main.rs computes one decision per invocation
+/// through should_color (SPEC r[no-color-flag]) and applies it as the
+/// crate's global override, so every render path honors it uniformly -
+/// the plain-text markers below never carry escape codes when suppressed.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IndicatorColor {
     /// Issue has no blockers, ready to work on.
@@ -110,8 +130,9 @@ fn blocker_marker(
 }
 
 /// Paint a marker's text with its indicator color. The `colored` crate
-/// decides at print time whether escape codes are emitted (tty, `NO_COLOR`,
-/// `CLICOLOR`), so this is the single place the palette maps to styles.
+/// emits escape codes only when main.rs's per-invocation decision
+/// (should_color, SPEC r[no-color-flag]) allows color; this is the single
+/// place the palette maps to styles.
 fn paint_indicator(color: IndicatorColor, text: &str) -> colored::ColoredString {
     match color {
         IndicatorColor::Green => text.green(),
@@ -853,7 +874,7 @@ pub fn print_summary(summary: &ProjectSummary) {
 mod tests {
     use super::{
         blocker_marker, epic_count_color, epic_membership_gray, format_blocker_indicator,
-        format_epic_count, show_relationship_health, IndicatorColor,
+        format_epic_count, should_color, show_relationship_health, IndicatorColor,
     };
     use crate::models::Status;
     use crate::operations::BlockerStatus;
@@ -962,6 +983,43 @@ mod tests {
             format_epic_count(None, Some((3, 1)), true),
             " (0/0, 1/3 total)"
         );
+    }
+
+    // r[verify no-color-flag] - precedence: --no-color > NO_COLOR/CLICOLOR
+    // > tty detection. Pure and unit-tested; the imperative shell reads the
+    // environment and routes every render through the `colored` crate's
+    // override with this decision.
+    #[test]
+    fn should_color_flag_always_wins() {
+        // --no-color suppresses color no matter what the env or tty say.
+        assert!(!should_color(true, false, false, true));
+        assert!(!should_color(true, false, false, false));
+        assert!(!should_color(true, true, false, true));
+        assert!(!should_color(true, false, true, true));
+        assert!(!should_color(true, true, true, true));
+    }
+
+    #[test]
+    fn should_color_env_no_color_beats_clicolor_and_tty() {
+        // NO_COLOR suppresses color even on a tty and even when CLICOLOR=0
+        // is not set; the flag is absent.
+        assert!(!should_color(false, true, false, true));
+        assert!(!should_color(false, true, false, false));
+        assert!(!should_color(false, true, true, true));
+    }
+
+    #[test]
+    fn should_color_clicolor_zero_beats_tty() {
+        // CLICOLOR=0 is the next tier: it suppresses color on a tty.
+        assert!(!should_color(false, false, true, true));
+        assert!(!should_color(false, false, true, false));
+    }
+
+    #[test]
+    fn should_color_tty_decides_last() {
+        // With no suppressor present, the terminal decides.
+        assert!(should_color(false, false, false, true));
+        assert!(!should_color(false, false, false, false));
     }
 
     // r[verify blocker-colors] - the color-selection helpers are pure and

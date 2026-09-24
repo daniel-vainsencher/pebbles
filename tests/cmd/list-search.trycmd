@@ -22,6 +22,33 @@ $ pebbles list
 
 ```
 
+## --no-color parses (r[verify no-color-flag])
+
+The flag is root-level global: accepted before or after the subcommand.
+trycmd runs piped, so colors are already suppressed and the output equals
+the plain list; the precedence matrix itself is covered by the
+`should_color` unit tests (flag > NO_COLOR/CLICOLOR > tty).
+
+```console
+$ pebbles --no-color list
+555 [des] [PROPOSED] Log out flow design ✓
+444 [uc] [DONE] Export users to CSV
+333 [uc] [IN PROGRESS] User can login with email and password ✓
+222 [des] [TODO] JWT token authentication system ✓
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+
+```
+
+```console
+$ pebbles list --no-color
+555 [des] [PROPOSED] Log out flow design ✓
+444 [uc] [DONE] Export users to CSV
+333 [uc] [IN PROGRESS] User can login with email and password ✓
+222 [des] [TODO] JWT token authentication system ✓
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+
+```
+
 ## Fuzzy title match, best match first
 
 The query matches contiguously in "Login button..." and "User can login

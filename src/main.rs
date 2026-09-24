@@ -31,6 +31,22 @@ fn main() -> Result<()> {
     unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
 
     let cli = Cli::parse();
+
+    // r[no-color-flag] - precedence: --no-color > NO_COLOR/CLICOLOR > tty.
+    // The pure decision is display::should_color; this shell reads the
+    // environment once and routes every render path through the `colored`
+    // crate's global override, so list/show/epic/summary/flow/tips all
+    // honor it uniformly. CLICOLOR_FORCE=1 still forces color (folded into
+    // the tty check), but NO_COLOR beats it here, per the NO_COLOR spec.
+    let env_no_color = env::var_os("NO_COLOR").is_some();
+    let clicolor_zero = env::var("CLICOLOR").map(|v| v == "0").unwrap_or(false);
+    let is_tty = std::io::stdout().is_terminal()
+        || env::var("CLICOLOR_FORCE")
+            .map(|v| v != "0")
+            .unwrap_or(false);
+    let colorize = display::should_color(cli.no_color, env_no_color, clicolor_zero, is_tty);
+    colored::control::set_override(colorize);
+
     let current_dir = env::current_dir()?;
     let ops = Operations::new(&current_dir)?;
 

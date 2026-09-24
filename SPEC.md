@@ -420,14 +420,13 @@ is the minimal cycle. Implementation: [`build_circular_issues()`](src/operations
 [`epic_membership_gray()`](src/display.rs) (pure) | Verify: [display unit
 tests](src/display.rs), [operations unit tests](src/operations.rs)
 
-**No color when the terminal does not support it:** the `colored` crate
-decides at print time, so escape codes are emitted only when stdout is a
-terminal, `NO_COLOR` is unset, and `CLICOLOR` is not `0`. Piped output
-(including every trycmd fixture) and `NO_COLOR=1` therefore render the
-plain markers above with no escape codes. There is no `--no-color` CLI
-flag; the environment variables are the suppression mechanism (the flag
-would require main.rs wiring outside this loan's file set - documented
-limitation).
+**No color when the terminal does not support it:** one decision per
+invocation is made through `should_color()` in display.rs (SPEC
+r[no-color-flag]) and applied as the `colored` crate's global override.
+With no suppressor present, escape codes are emitted only when stdout is
+a terminal. Piped output (including every trycmd fixture), `NO_COLOR=1`,
+`CLICOLOR=0`, and `--no-color` all render the plain markers above with no
+escape codes.
 
 **Invalid relationships in `show`:** the detail view prints its outgoing
 relationship lines with the target id cyan, but a self-referencing edge
@@ -438,6 +437,28 @@ are not visible to the detail view because it does not receive the
 relationship graph; those are flagged by the list markers instead.
 Implementation: [`show_relationship_health()`](src/display.rs) (pure) |
 Verify: [display unit tests](src/display.rs)
+
+r[no-color-flag]
+Every colored command (list, show, epic, summary, flow, `next` tips, and the
+post-create guidance) accepts `--no-color`. It is a root-level global flag
+(clap `global = true`): `pebbles --no-color list` and, like other global
+arguments, `pebbles list --no-color` both work. Precedence, strongest first:
+
+1. `--no-color` - the explicit flag always suppresses color;
+2. `NO_COLOR` set (any value) suppresses color;
+3. `CLICOLOR=0` suppresses color;
+4. otherwise color is emitted only when stdout is a terminal (piped output
+   stays plain).
+
+`CLICOLOR_FORCE=1` still forces color even when stdout is not a terminal,
+but it ranks below `--no-color`, `NO_COLOR`, and `CLICOLOR=0` (the NO_COLOR
+convention wins over forced color when both are set).
+
+One decision per invocation: main.rs reads the flag and the environment,
+calls the pure `should_color()` in display.rs, and applies the result as the
+`colored` crate's global override, so every render path honors it uniformly.
+Implementation: [`should_color()`](src/display.rs) (pure) | Verify: [display
+unit tests](src/display.rs)
 
 r[grep-query-syntax]
 `pebbles list --grep <query>` runs a full-text search over issue titles and
