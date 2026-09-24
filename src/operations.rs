@@ -1129,11 +1129,19 @@ impl Operations {
         }
 
         let uuid = self.resolve_id(id)?;
-        let issue = self.storage.load_issue(&uuid)?;
-        // Load the issue set once up front so the caller's related/incoming
-        // queries are served from the in-memory graph, not per-issue
-        // storage reads.
-        self.load_graph()?;
+        // Serve the target lookup from a fresh single-load graph: show must
+        // always reflect the store (a long-lived TUI session displays issues
+        // after every mutation), so this reloads the set rather than reusing
+        // the cache, and the caller's related/incoming queries reuse the same
+        // load (r[187 graph layer]).
+        let (graph, _) = self.load_graph()?;
+        let issue = match graph.issues().find(|candidate| candidate.id == uuid) {
+            Some(candidate) => candidate.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&uuid)?,
+        };
         Ok(issue)
     }
 
@@ -1500,14 +1508,34 @@ impl Operations {
 
         let uuid = self.resolve_id(id)?;
         let short = self.appropriate_length_id(&uuid)?;
-        let issue = self.storage.load_issue(&uuid)?;
+        // Serve the query phase (target lookup + broken-link guards) from
+        // the invocation's single-load graph; the save path below writes
+        // through Storage (r[187 graph layer]).
+        let (graph, _) = self.graph_or_load()?;
+        let issue = match graph.issues().find(|candidate| candidate.id == uuid) {
+            Some(candidate) => candidate.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&uuid)?,
+        };
         let issue_path = self.storage.issue_path(&issue.file_name());
 
-        // Find every issue with a relationship pointing at this one.
-        let (all_issues, _) = self.storage.load_all_issues()?;
-        let referencing: Vec<Issue> = all_issues
-            .into_iter()
+        // Find every issue with a relationship pointing at this one. The
+        // referencing set is served from the graph (no second issue-set
+        // read); the index supplies the store order so the guarded-delete
+        // listing stays byte-identical.
+        let referencing_by_id: HashMap<Uuid, Issue> = graph
+            .issues()
             .filter(|i| i.relationships.iter().any(|rel| rel.target_id == uuid))
+            .map(|i| (i.id, i.clone()))
+            .collect();
+        let referencing: Vec<Issue> = self
+            .storage
+            .load_index()?
+            .issues
+            .iter()
+            .filter_map(|metadata| referencing_by_id.get(&metadata.id).cloned())
             .collect();
 
         if !referencing.is_empty() && !delete_links_too {
@@ -1741,7 +1769,17 @@ impl Operations {
         }
 
         let uuid = self.resolve_id(id)?;
-        let epic = self.storage.load_issue(&uuid)?;
+        // Serve the epic lookup and its child search from one fresh load of
+        // the set (epic is a display command, so load_graph reloads rather
+        // than reusing the cache; the caller surfaces its warnings).
+        let (graph, warnings) = self.load_graph()?;
+        let epic = match graph.issues().find(|candidate| candidate.id == uuid) {
+            Some(candidate) => candidate.clone(),
+            // The graph skips issues whose files fail to load (they surface
+            // as load warnings); keep the exact `load_issue` errors for
+            // that inconsistent-store path.
+            None => self.storage.load_issue(&uuid)?,
+        };
 
         if epic.issue_type != IssueType::Epic {
             let short = self.appropriate_length_id(&uuid)?;
@@ -1752,7 +1790,6 @@ impl Operations {
             );
         }
 
-        let (graph, warnings) = self.load_graph()?;
         let mut child_issues: Vec<Issue> = graph
             .issues()
             .filter(|issue| {
@@ -2346,6 +2383,57 @@ mod tests {
         // Source/target lookup by id, as link resolves its two endpoints.
         assert_eq!(graph.issues().find(|i| i.id == b.id).unwrap().title, "B");
         assert_eq!(graph.issues().find(|i| i.id == c.id).unwrap().title, "C");
+    }
+
+    #[test]
+    fn graph_serves_delete_referencing_search() {
+        // delete's query phase looks the target up by id and collects every
+        // issue with a relationship pointing at it from the graph (the old
+        // second load_all_issues). The graph iterates a HashMap, so the
+        // referencing set is compared order-insensitively; ordering for the
+        // guarded-delete listing comes from the index at call time.
+        let mut target = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Target",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let mut source = issue_with_type(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "Source",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let mut other = issue_with_type(
+            "cccccccc-1111-2222-3333-444444444444",
+            "Other",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        relate(&mut source, RelationType::RequiredFor, &target);
+        relate(&mut other, RelationType::PartOf, &target);
+
+        let graph = build_project_graph(&[target.clone(), source.clone(), other.clone()]);
+
+        // The graph serves the target by id exactly as load_issue would.
+        assert_eq!(
+            graph.issues().find(|i| i.id == target.id).unwrap().title,
+            "Target"
+        );
+
+        // Every issue with a relationship pointing at the target surfaces,
+        // and issues pointing elsewhere never do: the predicate delete's
+        // broken-link guards run over the graph.
+        let referencing: Vec<Issue> = graph
+            .issues()
+            .filter(|i| i.relationships.iter().any(|rel| rel.target_id == target.id))
+            .cloned()
+            .collect();
+        let mut got = ids(&referencing);
+        got.sort();
+        let mut want = vec![source.id, other.id];
+        want.sort();
+        assert_eq!(got, want);
     }
 
     #[test]
