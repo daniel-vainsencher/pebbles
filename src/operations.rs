@@ -418,9 +418,11 @@ fn as_path_refs(paths: &[PathBuf]) -> Vec<&Path> {
 
 /// The issues from `issues` that `pebbles next` shows: status `Todo` and
 /// not blocked by an incoming `required_for` or `scheduled_before`
-/// relationship from a non-Done issue (SPEC `next`). Sorted by
-/// `updated_at` descending (r[impl issue-ordering]). Pure: no storage
-/// access, so the blocking rules are unit-testable without I/O.
+/// relationship from a non-Done issue (SPEC `next`). An `Epic` with any
+/// unblocked `part_of` child is dropped: those children already represent
+/// the work. Sorted by `updated_at` descending (r[impl issue-ordering]).
+/// Pure: no storage access, so the blocking rules are unit-testable
+/// without I/O.
 ///
 /// ```rust
 /// # use pebbles::models::{Issue, IssueType, RelationType, Relationship, Status};
@@ -458,6 +460,22 @@ pub fn get_unblocked_issues(issues: &[Issue]) -> Vec<Issue> {
         })
         .cloned()
         .collect();
+
+    // An epic is noise in `next` when any of its `part_of` children are
+    // themselves unblocked: those children already represent the
+    // actionable work. An epic with no unblocked children (all blocked,
+    // or none yet) stays as a placeholder.
+    let unblocked_ids: HashSet<Uuid> = unblocked_issues.iter().map(|i| i.id).collect();
+    unblocked_issues.retain(|issue| {
+        if issue.issue_type != IssueType::Epic {
+            return true;
+        }
+        !incoming_map.get(&issue.id).is_some_and(|incoming| {
+            incoming.iter().any(|rel| {
+                rel.relation_type == RelationType::PartOf && unblocked_ids.contains(&rel.source_id)
+            })
+        })
+    });
 
     // r[impl issue-ordering]
     unblocked_issues.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
@@ -2804,6 +2822,13 @@ mod tests {
         issue
     }
 
+    fn epic_with(id: &str, title: &str, status: Status) -> Issue {
+        let mut issue = Issue::new(title.to_string(), None, IssueType::Epic);
+        issue.id = uuid(id);
+        issue.status = status;
+        issue
+    }
+
     /// Record `rel` from `source` pointing at `target` (as `pebbles link
     /// <source> <rel> <target>` does): the relationship lives on the source
     /// issue and the block lands on the target.
@@ -2945,6 +2970,63 @@ mod tests {
         newer.updated_at = chrono::Utc::now();
         let out = get_unblocked_issues(&[older.clone(), newer.clone()]);
         assert_eq!(ids(&out), vec![newer.id, older.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_epic_with_unblocked_child_is_hidden() {
+        let epic = epic_with("11111111-2222-3333-4444-555555555555", "epic", Status::Todo);
+        let mut child = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "child",
+            Status::Todo,
+        );
+        relate(&mut child, RelationType::PartOf, &epic);
+        let out = get_unblocked_issues(&[epic, child.clone()]);
+        assert_eq!(ids(&out), vec![child.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_epic_with_only_blocked_children_stays() {
+        // The child is blocked by its dependency, so the epic still
+        // represents the work in next.
+        let epic = epic_with("11111111-2222-3333-4444-555555555555", "epic", Status::Todo);
+        let mut blocker = issue_with(
+            "22222222-2222-3333-4444-555555555555",
+            "blocker",
+            Status::Todo,
+        );
+        let mut child = issue_with(
+            "33333333-2222-3333-4444-555555555555",
+            "child",
+            Status::Todo,
+        );
+        relate(&mut child, RelationType::PartOf, &epic);
+        relate(&mut blocker, RelationType::RequiredFor, &child);
+        let mut sorted = vec![epic.clone(), blocker.clone()];
+        sorted.sort_by_key(|issue| std::cmp::Reverse(issue.updated_at));
+        let out = get_unblocked_issues(&[epic, blocker, child]);
+        assert_eq!(ids(&out), ids(&sorted));
+    }
+
+    #[test]
+    fn get_unblocked_issues_epic_with_no_children_stays() {
+        let epic = epic_with("11111111-2222-3333-4444-555555555555", "epic", Status::Todo);
+        let out = get_unblocked_issues(&[epic.clone()]);
+        assert_eq!(ids(&out), vec![epic.id]);
+    }
+
+    #[test]
+    fn get_unblocked_issues_nested_epics_hide_up_to_innermost_unblocked() {
+        // epic A contains epic B contains child C; with all three
+        // unblocked, A is represented by B and B by C, so only C
+        // surfaces in next.
+        let a = epic_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
+        let mut b = epic_with("22222222-2222-3333-4444-555555555555", "B", Status::Todo);
+        let mut c = issue_with("33333333-2222-3333-4444-555555555555", "C", Status::Todo);
+        relate(&mut b, RelationType::PartOf, &a);
+        relate(&mut c, RelationType::PartOf, &b);
+        let out = get_unblocked_issues(&[a, b, c.clone()]);
+        assert_eq!(ids(&out), vec![c.id]);
     }
 
     // -- build_blocker_status -------------------------------------------------
