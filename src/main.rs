@@ -284,6 +284,21 @@ fn main() -> Result<()> {
             finish_bulk("Delete", succeeded, &failed, uuids.len());
         }
 
+        Commands::Doctor => {
+            let outcome = ops.doctor()?;
+            for line in operations::doctor_lines(outcome.total_issues, &outcome.diagnostics) {
+                println!("{}", line);
+            }
+            if !outcome.diagnostics.is_empty() {
+                // Report and exit non-zero (r[index-consistent]); no error
+                // line: the report already states the divergence (same
+                // exit-without-error pattern as finish_bulk).
+                let mut stdout = std::io::stdout();
+                let _ = stdout.flush();
+                std::process::exit(1);
+            }
+        }
+
         Commands::Link { args } => {
             let (sources, relation, target) = split_source_args(&args);
             let relation_type: crate::models::RelationType =

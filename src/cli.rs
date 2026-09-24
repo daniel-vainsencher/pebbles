@@ -169,6 +169,9 @@ pub enum Commands {
         delete_links_too: bool,
     },
 
+    #[command(about = "Check the store for index/issue divergence (read-only)")]
+    Doctor,
+
     #[command(
         about = "Add a relationship (multi-source or stdin); per-ID failure summary (N/M succeeded), non-zero exit on any failure"
     )]

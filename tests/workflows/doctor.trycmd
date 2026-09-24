@@ -1,0 +1,78 @@
+# pebbles doctor
+
+`pebbles doctor` reports divergence between .pebbles/index.json and
+.pebbles/issues/ without touching the store (the repair half is `pebbles
+reindex`, SPEC r[reindex]). Each fixture store below is addressed through
+`PEBBLES_DB_PATH`: a consistent store, an orphaned-file store, a
+missing-file store, a mixed store (mismatch + unknown + orphaned in one),
+and a store whose index is unparsable.
+
+## A consistent store is a one-line clean bill of health (exit 0)
+
+```console
+$ PEBBLES_DB_PATH=consistent/.pebbles pebbles doctor
+✓ Store is consistent: 2 indexed issue(s); every issue file and index entry match.
+
+```
+
+## Orphaned files: issue files on disk the index does not map
+
+The repo's historical test-pollution files land here. Both strays are
+reported by name, sorted; one parses as an issue, one is junk - doctor
+only checks whether the file is indexed, never parses orphans.
+
+```console
+$ PEBBLES_DB_PATH=orphaned/.pebbles pebbles doctor
+? failed
+✗ Found 2 divergence(s) between .pebbles/index.json and .pebbles/issues/:
+orphaned (2):
+  stray-test-pollution.json (file not in index)
+  zz-backup-copy.json (file not in index)
+
+```
+
+## Missing files: index entries whose file is not on disk
+
+```console
+$ PEBBLES_DB_PATH=missing/.pebbles pebbles doctor
+? failed
+✗ Found 1 divergence(s) between .pebbles/index.json and .pebbles/issues/:
+missing (1):
+  uc-33333333-export-csv.json (index entry 33333333-1111-1111-1111-111111111111, file not on disk)
+
+```
+
+## Mixed divergences in one store, grouped per class
+
+The jwt entry's file parses as an issue declaring a different id
+(mismatch), the broken entry's file does not parse as an issue (unknown),
+and a stray file is orphaned. Class blocks appear in fixed order, files
+within a block sorted by name.
+
+```console
+$ PEBBLES_DB_PATH=mixed/.pebbles pebbles doctor
+? failed
+✗ Found 3 divergence(s) between .pebbles/index.json and .pebbles/issues/:
+orphaned (1):
+  zz-stray.json (file not in index)
+unknown (1):
+  broken-44444444-x.json (index entry 44444444-1111-1111-1111-111111111111, file does not parse as an issue)
+mismatch (1):
+  bug-22222222-jwt-auth.json (index id 22222222-1111-1111-1111-111111111111, file declares 55555555-1111-1111-1111-111111111111)
+
+```
+
+## An unparsable index is a store-level unknown
+
+An index entry whose id is not a UUID (or malformed index JSON) makes the
+whole index unreadable; doctor reports it as an unknown on index.json and
+stops, pointing at `pebbles reindex` as the repair.
+
+```console
+$ PEBBLES_DB_PATH=bad-index/.pebbles pebbles doctor
+? failed
+✗ Found 1 divergence(s) between .pebbles/index.json and .pebbles/issues/:
+unknown (1):
+  index.json (the index does not parse: Failed to parse index file; run 'pebbles reindex' to rebuild)
+
+```

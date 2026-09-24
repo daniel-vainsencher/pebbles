@@ -187,8 +187,17 @@ r[no-broken-links]
 r[index-consistent]
 **Index consistency:**
 - `.pebbles/index.json` must map exactly the set of files under `.pebbles/issues/`: every index entry resolves to an issue file, and every issue file is indexed.
-- Divergence (missing files, orphaned files, unknown entries) is detectable on demand and reported.
-- Implementation: pending (repository graph layer) | Test: pending
+- Divergence (missing files, orphaned files, unknown entries) is detectable on demand and reported by `pebbles doctor` (r[doctor]); the repair half is `pebbles reindex` (r[reindex]).
+- Implementation: [`doctor()`](src/operations.rs) | Test: [operations unit tests](src/operations.rs), [doctor workflow](tests/workflows/doctor.trycmd)
+
+r[doctor]
+**`pebbles doctor` (diagnostic command):**
+- Reports divergence between `.pebbles/index.json` and `.pebbles/issues/` without touching the store. Reports only; the repair half is `pebbles reindex` (r[reindex]).
+- Four divergence classes, reported with a per-class summary and one line per divergence: `missing` (index entry whose file is not on disk), `orphaned` (issue file on disk the index does not map), `unknown` (entry whose file does not parse as an issue; an unparsable index - e.g. an entry whose id is not a UUID - is reported as a store-level `unknown` on `index.json`), `mismatch` (indexed file that parses as an issue declaring a different id than the entry maps).
+- Loads the issue set at most once per invocation (one read pass over the indexed files; orphan files are only listed, never parsed).
+- Output is deterministic (diagnostics sorted by file name, class blocks in fixed order) and machine-greppable (a `class (count):` header followed by one indented `file (detail)` line per diagnostic).
+- Exit status is 0 when the store is consistent and non-zero when any divergence is found.
+- Implementation: [`doctor()`](src/operations.rs) | Test: [operations unit tests](src/operations.rs), [doctor workflow](tests/workflows/doctor.trycmd)
 
 r[schema-valid-issues]
 **Schema-valid issue files:**

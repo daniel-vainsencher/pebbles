@@ -3,6 +3,7 @@ use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -10,7 +11,7 @@ use crate::export::{drop_missing_relationships, parse_export_bundle, validate_im
 use crate::jj::JJ;
 use crate::models::{
     build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
-    IncomingRelationship, Issue, IssueType, RelationType, Relationship, Status,
+    IncomingRelationship, Index, Issue, IssueType, RelationType, Relationship, Status,
 };
 use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
 
@@ -109,6 +110,174 @@ pub fn build_project_graph(issues: &[Issue]) -> ProjectGraph {
         incoming: build_incoming_relationships_map(issues),
         epic_counts: build_epic_counts(issues),
     }
+}
+
+/// The class of one index/disk divergence reported by `pebbles doctor`
+/// (SPEC r[index-consistent]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DiagnosticClass {
+    /// Index entry whose issue file does not exist on disk.
+    MissingFile,
+    /// Issue file on disk with no index entry (the repo's historical
+    /// test-pollution files land here).
+    OrphanedFile,
+    /// Index entry that does not resolve to a valid issue: the entry's
+    /// file exists but does not parse as an `Issue`.
+    UnknownIndexEntry,
+    /// Index entry whose file parses as an issue declaring a different id
+    /// than the entry maps (e.g. a file copied over the indexed name).
+    FileMismatch,
+}
+
+impl DiagnosticClass {
+    /// Stable lowercase tag for one diagnostic class: the greppable prefix
+    /// of every `pebbles doctor` output line and the sort tie-break.
+    pub fn tag(&self) -> &'static str {
+        match self {
+            DiagnosticClass::MissingFile => "missing",
+            DiagnosticClass::OrphanedFile => "orphaned",
+            DiagnosticClass::UnknownIndexEntry => "unknown",
+            DiagnosticClass::FileMismatch => "mismatch",
+        }
+    }
+}
+
+/// One index/disk divergence reported by `pebbles doctor`. `id` is the
+/// index entry's id when the diagnostic concerns an index entry, otherwise
+/// `None`; `detail` is a human-readable one-line explanation rendered
+/// verbatim by the CLI.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
+    pub class: DiagnosticClass,
+    pub id: Option<Uuid>,
+    pub file_name: String,
+    pub detail: String,
+}
+
+/// Load outcome for one indexed issue file, fed to `doctor` by the
+/// operation shell after its single read pass over the issue set: the file
+/// name the index maps, plus `Some(id)` when the file parses as an issue
+/// (the id it declares) and `None` when it does not parse.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexedFileLoad {
+    pub file_name: String,
+    pub id: Option<Uuid>,
+}
+
+/// Result of `pebbles doctor` (SPEC r[index-consistent]): the indexed
+/// issue count plus every divergence found. Report only; the repair half
+/// is `pebbles reindex` (r[reindex]).
+pub struct DoctorOutcome {
+    pub total_issues: usize,
+    pub diagnostics: Vec<Diagnostic>,
+}
+
+/// Detect divergence between `.pebbles/index.json` and `.pebbles/issues/`
+/// (SPEC r[index-consistent]): index entries whose file is missing on
+/// disk, issue files the index does not know, entries whose file does not
+/// parse as a valid issue, and entries whose file declares a different id
+/// than the index maps. Pure and deterministic: takes the index, the
+/// issue file names on disk, and the per-indexed-file load outcomes, and
+/// returns every divergence sorted by file name. Only reports; the repair
+/// half is `pebbles reindex` (r[reindex]).
+pub fn doctor(index: &Index, disk_files: &[&str], loads: &[IndexedFileLoad]) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+
+    // One diagnostic per index entry, in index order: unknown (the file
+    // exists but does not parse), then mismatch (it parses under a
+    // different id), then missing (no file on disk at all). An entry whose
+    // file parses as its own id is consistent and stays silent.
+    for metadata in &index.issues {
+        let Some(load) = loads.iter().find(|l| l.file_name == metadata.file_name) else {
+            // The load pass reads only files that exist on disk: no load
+            // row means the indexed file is missing.
+            diagnostics.push(Diagnostic {
+                class: DiagnosticClass::MissingFile,
+                id: Some(metadata.id),
+                file_name: metadata.file_name.clone(),
+                detail: format!("(index entry {}, file not on disk)", metadata.id),
+            });
+            continue;
+        };
+        match load.id {
+            None => diagnostics.push(Diagnostic {
+                class: DiagnosticClass::UnknownIndexEntry,
+                id: Some(metadata.id),
+                file_name: metadata.file_name.clone(),
+                detail: format!(
+                    "(index entry {}, file does not parse as an issue)",
+                    metadata.id
+                ),
+            }),
+            Some(id) => {
+                if id != metadata.id {
+                    diagnostics.push(Diagnostic {
+                        class: DiagnosticClass::FileMismatch,
+                        id: Some(metadata.id),
+                        file_name: metadata.file_name.clone(),
+                        detail: format!("(index id {}, file declares {})", metadata.id, id),
+                    });
+                }
+            }
+        }
+    }
+
+    // One diagnostic per issue file on disk that no index entry maps
+    // (orphaned files, r[index-consistent]).
+    let mut indexed_names = HashSet::new();
+    for metadata in &index.issues {
+        indexed_names.insert(metadata.file_name.clone());
+    }
+    for file_name in disk_files {
+        let name = file_name.to_string();
+        if !indexed_names.contains(&name) {
+            diagnostics.push(Diagnostic {
+                class: DiagnosticClass::OrphanedFile,
+                id: None,
+                file_name: name,
+                detail: format!("{}", "(file not in index)"),
+            });
+        }
+    }
+
+    // Deterministic output, sorted by file name with the class tag as the
+    // tie-break (r[index-consistent]: sorted by id/path, machine-greppable).
+    diagnostics.sort_by_key(|d| format!("{}:{}", d.file_name.clone(), d.class.tag()));
+    diagnostics
+}
+
+/// Render the `pebbles doctor` report: a one-line clean bill of health for
+/// a consistent store, or a per-class summary with one indented line per
+/// diagnostic (r[index-consistent]). Deterministic: classes appear in the
+/// fixed order below and their diagnostics arrive sorted by file name.
+pub fn doctor_lines(total_issues: usize, diagnostics: &[Diagnostic]) -> Vec<String> {
+    if diagnostics.is_empty() {
+        return vec![format!(
+            "✓ Store is consistent: {} indexed issue(s); every issue file and index entry match.",
+            total_issues
+        )];
+    }
+    let mut lines = vec![format!(
+        "✗ Found {} divergence(s) between .pebbles/index.json and .pebbles/issues/:",
+        diagnostics.len()
+    )];
+    let classes = [
+        DiagnosticClass::MissingFile,
+        DiagnosticClass::OrphanedFile,
+        DiagnosticClass::UnknownIndexEntry,
+        DiagnosticClass::FileMismatch,
+    ];
+    for class in &classes {
+        let items: Vec<&Diagnostic> = diagnostics.iter().filter(|d| d.class == *class).collect();
+        if items.is_empty() {
+            continue;
+        }
+        lines.push(format!("{} ({}):", class.tag(), items.len()));
+        for d in items {
+            lines.push(format!("  {} {}", d.file_name, d.detail));
+        }
+    }
+    lines
 }
 
 /// Result of a mutating operation: the operation's own value plus any
@@ -2140,6 +2309,82 @@ impl Operations {
     /// appropriate (this command deliberately never runs jj - the typical
     /// repair context is a conflicted index after a merge, which jj commit
     /// cannot meaningfully handle).
+    /// Detect divergence between the store's index and its issue files
+    /// (SPEC r[index-consistent]). Report only; the repair half is
+    /// `pebbles reindex` (r[reindex]). Follows the 187 single-load rule:
+    /// the issue set is read at most once per invocation (one pass per
+    /// indexed file; orphan files are only listed, never parsed).
+    pub fn doctor(&self) -> Result<DoctorOutcome> {
+        if !self.storage.exists() {
+            bail!("Pebbles not initialized. Run 'pebbles init' first.");
+        }
+
+        let index = match self.storage.load_index() {
+            Ok(index) => index,
+            // The index does not parse (malformed JSON or an entry whose
+            // id is not a UUID): no entry can be checked against disk.
+            // Report the store-level unknown and stop; `pebbles reindex`
+            // can rebuild the index from the issue files.
+            Err(e) => {
+                return Ok(DoctorOutcome {
+                    total_issues: 0,
+                    diagnostics: vec![Diagnostic {
+                        class: DiagnosticClass::UnknownIndexEntry,
+                        id: None,
+                        file_name: format!("{}", "index.json"),
+                        detail: format!(
+                            "(the index does not parse: {}; run 'pebbles reindex' to rebuild)",
+                            e
+                        ),
+                    }],
+                })
+            }
+        };
+
+        // One read per indexed issue file: a file that parses records the
+        // id it declares, a file that exists but does not parse records
+        // `None`, and a file absent from disk records nothing (it surfaces
+        // as missing below).
+        let mut loads: Vec<IndexedFileLoad> = Vec::new();
+        for metadata in &index.issues {
+            let path = self.storage.issue_path(&metadata.file_name);
+            match fs::read_to_string(&path) {
+                Ok(content) => match serde_json::from_str::<Issue>(&content) {
+                    Ok(issue) => loads.push(IndexedFileLoad {
+                        file_name: metadata.file_name.clone(),
+                        id: Some(issue.id),
+                    }),
+                    Err(_) => loads.push(IndexedFileLoad {
+                        file_name: metadata.file_name.clone(),
+                        id: None,
+                    }),
+                },
+                Err(_) => {}
+            }
+        }
+
+        // Issue file names on disk, sorted so the pure classification
+        // input - and therefore the diagnostics - is deterministic.
+        let entries = fs::read_dir(&self.storage.issue_path(""))
+            .context("Failed to list .pebbles/issues directory")?;
+        let mut disk_files: Vec<String> = Vec::new();
+        for entry in entries {
+            let entry = entry.context("Failed to read .pebbles/issues directory entry")?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.ends_with(".json") {
+                disk_files.push(name);
+            }
+        }
+        disk_files.sort();
+        let disk_refs: Vec<&str> = disk_files.iter().map(|f| f.as_str()).collect();
+
+        let diagnostics = doctor(&index, &disk_refs, &loads);
+        Ok(DoctorOutcome {
+            total_issues: index.issues.len(),
+            diagnostics,
+        })
+    }
+
     pub fn reindex(&self) -> Result<ReindexOutcome> {
         self.storage.reindex()
     }
@@ -2148,7 +2393,7 @@ impl Operations {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Relationship;
+    use crate::models::{Index, IssueMetadata, Relationship};
 
     #[test]
     fn parse_id_input_line_list_row() {
@@ -3849,5 +4094,218 @@ mod tests {
             &epics(&[("aaaaaaaa-0000-0000-0000-000000000001", "User Auth")]),
         );
         assert!(!guidance.suggest_dependency);
+    }
+
+    // -- pebbles doctor (r[index-consistent]) --------------------------------
+
+    fn metadata(id: &str, file_name: &str) -> IssueMetadata {
+        IssueMetadata {
+            id: uuid(id),
+            file_name: file_name.to_string(),
+        }
+    }
+
+    fn index_with(entries: &[(&str, &str)]) -> Index {
+        let issues: Vec<IssueMetadata> = entries
+            .iter()
+            .map(|(id, file_name)| metadata(*id, *file_name))
+            .collect();
+        Index { issues }
+    }
+
+    fn loads_from(pairs: &[(&str, Option<&str>)]) -> Vec<IndexedFileLoad> {
+        pairs
+            .iter()
+            .map(|(file_name, id)| IndexedFileLoad {
+                file_name: file_name.to_string(),
+                id: id.map(|s| uuid(s)),
+            })
+            .collect::<Vec<_>>()
+    }
+
+    fn classes(diagnostics: &[Diagnostic]) -> Vec<DiagnosticClass> {
+        diagnostics
+            .iter()
+            .map(|d| d.class.clone())
+            .collect::<Vec<_>>()
+    }
+
+    #[test]
+    fn doctor_consistent_store_reports_nothing() {
+        let index = index_with(&[
+            (
+                "11111111-1111-1111-1111-111111111111",
+                "bug-11111111-one.json",
+            ),
+            (
+                "22222222-1111-1111-1111-111111111111",
+                "bug-22222222-two.json",
+            ),
+        ]);
+        let disk = &["bug-11111111-one.json", "bug-22222222-two.json"];
+        let loads = loads_from(&[
+            (
+                "bug-11111111-one.json",
+                Some("11111111-1111-1111-1111-111111111111"),
+            ),
+            (
+                "bug-22222222-two.json",
+                Some("22222222-1111-1111-1111-111111111111"),
+            ),
+        ]);
+        assert_eq!(doctor(&index, disk, &loads), Vec::<Diagnostic>::new());
+    }
+
+    #[test]
+    fn doctor_reports_index_entries_without_a_file_on_disk() {
+        // One indexed file was deleted from disk; the load pass reads only
+        // files that exist, so the missing entry has no load row at all.
+        let index = index_with(&[
+            (
+                "11111111-1111-1111-1111-111111111111",
+                "bug-11111111-one.json",
+            ),
+            (
+                "22222222-1111-1111-1111-111111111111",
+                "bug-22222222-gone.json",
+            ),
+        ]);
+        let disk = &["bug-11111111-one.json"];
+        let loads = loads_from(&[(
+            "bug-11111111-one.json",
+            Some("11111111-1111-1111-1111-111111111111"),
+        )]);
+        let diagnostics = doctor(&index, disk, &loads);
+        assert_eq!(classes(&diagnostics), vec![DiagnosticClass::MissingFile]);
+        assert_eq!(diagnostics[0].file_name, "bug-22222222-gone.json");
+    }
+
+    #[test]
+    fn doctor_reports_files_on_disk_without_an_index_entry() {
+        // The repo's historical test-pollution files land here: issue
+        // files on disk the index knows nothing about.
+        let index = index_with(&[(
+            "11111111-1111-1111-1111-111111111111",
+            "bug-11111111-one.json",
+        )]);
+        let disk = &["bug-11111111-one.json", "stray-test-pollution.json"];
+        let loads = loads_from(&[(
+            "bug-11111111-one.json",
+            Some("11111111-1111-1111-1111-111111111111"),
+        )]);
+        let diagnostics = doctor(&index, disk, &loads);
+        assert_eq!(classes(&diagnostics), vec![DiagnosticClass::OrphanedFile]);
+        assert_eq!(diagnostics[0].file_name, "stray-test-pollution.json");
+    }
+
+    #[test]
+    fn doctor_reports_index_entries_that_do_not_parse_as_issues() {
+        // The indexed file exists but its content is not a valid Issue:
+        // the entry resolves to nothing, mirroring the load-time warning
+        // for unparsable files (r[schema-valid-issues]).
+        let index = index_with(&[
+            (
+                "11111111-1111-1111-1111-111111111111",
+                "bug-11111111-one.json",
+            ),
+            (
+                "44444444-1111-1111-1111-111111111111",
+                "broken-44444444-not-an-issue.json",
+            ),
+        ]);
+        let disk = &["bug-11111111-one.json", "broken-44444444-not-an-issue.json"];
+        let loads = loads_from(&[
+            (
+                "bug-11111111-one.json",
+                Some("11111111-1111-1111-1111-111111111111"),
+            ),
+            ("broken-44444444-not-an-issue.json", None),
+        ]);
+        let diagnostics = doctor(&index, disk, &loads);
+        assert_eq!(
+            classes(&diagnostics),
+            vec![DiagnosticClass::UnknownIndexEntry]
+        );
+        assert_eq!(
+            diagnostics[0].file_name,
+            "broken-44444444-not-an-issue.json"
+        );
+    }
+
+    #[test]
+    fn doctor_reports_index_file_names_that_mismatch_the_file_on_disk() {
+        // The index maps 22222222 to bug-22222222-jwt.json, but that file
+        // parses as an issue declaring a different id (e.g. another file
+        // copied over the indexed name).
+        let index = index_with(&[(
+            "22222222-1111-1111-1111-111111111111",
+            "bug-22222222-jwt.json",
+        )]);
+        let disk = &["bug-22222222-jwt.json"];
+        let loads = loads_from(&[(
+            "bug-22222222-jwt.json",
+            Some("55555555-1111-1111-1111-111111111111"),
+        )]);
+        let diagnostics = doctor(&index, disk, &loads);
+        assert_eq!(classes(&diagnostics), vec![DiagnosticClass::FileMismatch]);
+        assert_eq!(diagnostics[0].file_name, "bug-22222222-jwt.json");
+    }
+
+    #[test]
+    fn doctor_output_is_deterministic_sorted_by_file_name() {
+        // Every class in one store, index order scrambled: diagnostics
+        // come back sorted by file name, one per troubled entry/file.
+        let index = index_with(&[
+            (
+                "22222222-1111-1111-1111-111111111111",
+                "bug-22222222-jwt.json",
+            ),
+            (
+                "33333333-1111-1111-1111-111111111111",
+                "uc-33333333-gone.json",
+            ),
+            (
+                "11111111-1111-1111-1111-111111111111",
+                "bug-11111111-one.json",
+            ),
+        ]);
+        let disk = &[
+            "zz-stray.json",
+            "broken-44444444-x.json",
+            "bug-11111111-one.json",
+            "bug-22222222-jwt.json",
+        ];
+        let loads = loads_from(&[
+            (
+                "bug-11111111-one.json",
+                Some("11111111-1111-1111-1111-111111111111"),
+            ),
+            (
+                "bug-22222222-jwt.json",
+                Some("55555555-1111-1111-1111-111111111111"),
+            ),
+        ]);
+        let diagnostics = doctor(&index, disk, &loads);
+        assert_eq!(
+            classes(&diagnostics),
+            vec![
+                DiagnosticClass::OrphanedFile,
+                DiagnosticClass::FileMismatch,
+                DiagnosticClass::MissingFile,
+                DiagnosticClass::OrphanedFile,
+            ]
+        );
+        assert_eq!(
+            diagnostics
+                .iter()
+                .map(|d| d.file_name.clone())
+                .collect::<Vec<_>>(),
+            vec![
+                "broken-44444444-x.json",
+                "bug-22222222-jwt.json",
+                "uc-33333333-gone.json",
+                "zz-stray.json",
+            ]
+        );
     }
 }
