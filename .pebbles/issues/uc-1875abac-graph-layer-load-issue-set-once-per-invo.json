@@ -2,7 +2,7 @@
   "id": "1875abac-e0b2-4158-871d-812330067af0",
   "title": "graph layer: load issue set once per invocation",
   "description": "Ensure the CLI reads the issue set exactly once per invocation: a command loads the index and issues once, then serves every query (id resolution, related/incoming relationship titles, epic counts, dependency blocking) from that in-memory data.\n\nThis is NOT the case today: Operations::get_related_titles loads each related issue individually (N+1 file reads inside show/epic display), convert reads the target issue plus the full issue set plus the index, and add_relationship/remove_relationship interleave several storage loads in one invocation. The TUI already loads each project once per refresh (load_project_data in tui.rs); the CLI has no equivalent.\n\nImplement an operations/graph layer that reads all files once per invocation and routes every command through it (counts, incoming relationships, id resolution, dependency checks).",
-  "status": "todo",
+  "status": "in_progress",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-09-06T13:31:32.150899089Z",
-  "updated_at": "2026-09-23T18:05:26.972986387Z"
+  "updated_at": "2026-09-24T00:44:35.316397381Z"
 }
