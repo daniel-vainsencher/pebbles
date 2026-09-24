@@ -56,7 +56,11 @@ pebbles init
 
 This initializes a jj repository (if needed) and creates the `.pebbles/` directory.
 
-### Create Issues
+### Flat Issues
+
+Everyday commands for creating, viewing, and changing individual issues: `new`, `list`, `show`, `update`, `status`, `approve`, `delete`.
+
+#### Create Issues
 
 ```bash
 # Create a bug (starts as proposed, awaiting review)
@@ -73,22 +77,7 @@ pebbles new "Authentication Epic" --issue-type epic
 
 **Issue types:** `bug`, `ux` (shorthand for `ux_problem`), `usecase`, `design`, `validation`, `epic`, `milestone`
 
-### Review Proposed Issues
-
-New issues start in `proposed` status until they are approved. See what is waiting for review, then approve or delete:
-
-```bash
-# See all proposed issues
-pebbles review
-
-# Approve one (moves it to todo)
-pebbles approve a1b2
-
-# Reject one
-pebbles delete a1b2
-```
-
-### List and Filter
+#### List and Filter
 
 ```bash
 # List all issues
@@ -108,7 +97,7 @@ pebbles list --status in_progress --issue-type epic
 
 **Statuses:** `proposed`, `todo`, `in_progress`, `blocked`, `done`
 
-### View Details
+#### View Details
 
 ```bash
 pebbles show <id>
@@ -119,7 +108,7 @@ pebbles show a1b
 
 [^1]: Any prefix that uniquely identifies one issue works, even 1-2 characters, as long as it is unambiguous. Pebbles displays a 3-character prefix by default and only extends it when needed. As your project grows, you may need longer prefixes if short IDs become ambiguous.
 
-### Update Issues
+#### Update Issues
 
 ```bash
 # Change status
@@ -136,7 +125,61 @@ pebbles update a1b2 --title "New title"
 pebbles update a1b2 --description "New description"
 ```
 
-### Link Issues
+#### Delete Issues
+
+```bash
+pebbles delete <id>
+```
+
+### Project Management
+
+Commands for organizing issues into epics and work streams: `epic`, `next`, `link`, `unlink`, `convert`.
+
+#### Epics
+
+Show one epic with its child issues and progress:
+
+```bash
+pebbles epic a1b2
+```
+
+Example output:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Epic: User Authentication Epic
+ID: 444
+Status: TODO
+
+Implement complete user authentication system
+
+Progress: 0/3
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Child Issues:
+  333 [des] [TODO] JWT token authentication system
+  222 [uc] [TODO] User can login with email and password
+  111 [bug] [TODO] Login button doesn't respond on mobile
+...
+```
+
+#### Next
+
+Show actionable issues whose dependencies are all done (no blockers):
+
+```bash
+pebbles next
+```
+
+Example output:
+
+```
+333 [des] [TODO] JWT token authentication system → (blocking: 222)
+111 [bug] [TODO] Login button doesn't respond on mobile ✓
+444 [epic] [TODO] User Authentication Epic ✓ (0/2, 0/3 total)
+```
+
+#### Link Issues
 
 ```bash
 # Make issue part of an epic
@@ -154,12 +197,52 @@ pebbles unlink <issue-id> part_of <epic-id>
 
 **Relationship types:** `part_of`, `required_for`, `scheduled_before`
 
-### Delete Issues
+#### Convert
+
+Change an issue to a different type (its file name and index entry are updated):
 
 ```bash
-pebbles delete <id>
+pebbles convert a1b2 usecase
 ```
 
+### Other Views
+
+Views over the whole issue store: `review`, `summary`, `tui`, `flow`. The last two are experimental.
+
+#### Review
+
+New issues start in `proposed` status until they are approved. See what is waiting for review:
+
+```bash
+pebbles review
+```
+
+Approve a proposed issue with `pebbles approve <id>` (moves it to `todo`; see [Update Issues](#update-issues)) or reject it with `pebbles delete <id>` (see [Delete Issues](#delete-issues)).
+
+#### Summary
+
+Project-wide statistics by status and type:
+
+```bash
+pebbles summary
+```
+
+#### TUI (EXPERIMENTAL)
+
+An interactive terminal browser for your issues:
+
+```bash
+pebbles tui
+```
+
+#### Flow (EXPERIMENTAL)
+
+Visualize issue dependencies as a project flow:
+
+```bash
+pebbles flow
+pebbles flow --format svg -o flow.svg
+```
 ## Usage Examples
 
 ### Planning a Feature
