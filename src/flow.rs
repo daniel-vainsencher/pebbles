@@ -1,4 +1,4 @@
-use crate::models::{Issue, RelationType};
+use crate::models::{Issue, RelationType, Status};
 use anyhow::{bail, Result};
 use rust_sugiyama::configure::Config;
 use std::collections::HashMap;
@@ -357,13 +357,215 @@ pub fn render_svg(
     svg
 }
 
+/// Escape text for safe inclusion in a double-quoted DOT string: backslash,
+/// double quote, and newline are the characters with special meaning inside
+/// DOT quotes. Mirrors `escape_xml` for the SVG backend.
+fn escape_dot(text: &str) -> String {
+    text.replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('\n', "\\n")
+}
+
+/// DOT fill color for an issue's status, matching pebbles' status colors
+/// (the same palette the CLI paints status names with): green done, yellow
+/// todo, blue in_progress, red blocked, white proposed.
+fn status_dot_color(status: Status) -> &'static str {
+    match status {
+        Status::Done => "green",
+        Status::Todo => "yellow",
+        Status::InProgress => "blue",
+        Status::Blocked => "red",
+        Status::Proposed => "white",
+    }
+}
+
+/// Dependency edges with the relationship type that created them, for DOT
+/// edge labels. `PartOf` is excluded exactly as in `build_dependency_graph`.
+fn labeled_dependency_edges(issues: &[Issue]) -> Vec<(u32, u32, RelationType)> {
+    let id_to_index: HashMap<Uuid, u32> = issues
+        .iter()
+        .enumerate()
+        .map(|(i, issue)| (issue.id, i as u32))
+        .collect();
+
+    let mut edges = Vec::new();
+    for (idx, issue) in issues.iter().enumerate() {
+        for rel in &issue.relationships {
+            match rel.relation_type {
+                RelationType::RequiredFor | RelationType::ScheduledBefore => {
+                    if let Some(&target_idx) = id_to_index.get(&rel.target_id) {
+                        edges.push((idx as u32, target_idx, rel.relation_type.clone()));
+                    }
+                }
+                RelationType::PartOf => {
+                    // Skip - epics don't create flow dependencies
+                }
+            }
+        }
+    }
+
+    edges
+}
+
+/// Partition issue indices into the connected components of the dependency
+/// graph, ordered by lowest issue index. `PartOf` edges stay out of the
+/// graph (matching `build_dependency_graph`), so every multi-member
+/// component is one disconnected flow.
+fn dependency_components(issues: &[Issue]) -> Vec<Vec<usize>> {
+    let edges = labeled_dependency_edges(issues);
+    let mut adjacency: Vec<Vec<usize>> = vec![Vec::new(); issues.len()];
+    for &(from, to, _) in &edges {
+        adjacency[from as usize].push(to as usize);
+        adjacency[to as usize].push(from as usize);
+    }
+
+    let mut visited: Vec<bool> = vec![false; issues.len()];
+    let mut components: Vec<Vec<usize>> = Vec::new();
+    for start in 0..issues.len() {
+        if visited[start] {
+            continue;
+        }
+        let mut component: Vec<usize> = Vec::new();
+        let mut queue: Vec<usize> = vec![start];
+        visited[start] = true;
+        while let Some(node) = queue.pop() {
+            component.push(node);
+            for &next in &adjacency[node] {
+                if !visited[next] {
+                    visited[next] = true;
+                    queue.push(next);
+                }
+            }
+        }
+        component.sort();
+        components.push(component);
+    }
+
+    components
+}
+
+/// Render layout as Graphviz DOT
+///
+/// Emits a `digraph pebbles_flow` with `rankdir=LR` and `node [shape=box]`
+/// defaults, so consumers can render it with `dot -Tsvg flow.dot > flow.svg`.
+/// Nodes are labeled with the truncated issue title and colored by status
+/// (green done, yellow todo, blue in_progress, red blocked, white
+/// proposed); edges are labeled with the relationship type
+/// (`required_for`/`scheduled_before`); disconnected components become
+/// `subgraph cluster_*` blocks.
+///
+/// `_goal` is the goal issue whose critical chain should be highlighted.
+/// Threading it here is the seam for the --goal loan (e4937f0b); the
+/// highlighting itself is implemented in that loan, which renames this
+/// parameter to `goal` as it consumes it.
+///
+/// ```rust
+/// # use pebbles::flow::{render_dot, FlowLayout};
+/// # use pebbles::models::{Issue, IssueType};
+/// # use std::collections::HashMap;
+/// let layout = FlowLayout {
+///     coordinates: vec![(0, (0.0, 0.0))],
+///     width: 100.0,
+///     height: 30.0,
+/// };
+/// let dot = render_dot(
+///     &vec![Issue::new("A".to_string(), None, IssueType::Bug)],
+///     &layout,
+///     &HashMap::new(),
+///     None,
+/// );
+/// assert!(dot.contains("digraph pebbles_flow {"));
+/// assert!(dot.contains("[label=\"A\" color=\"white\" style=filled]"));
+/// ```
+pub fn render_dot(
+    issues: &[Issue],
+    layout: &FlowLayout,
+    id_prefixes: &HashMap<Uuid, String>,
+    _goal: Option<Uuid>,
+) -> String {
+    let mut output = String::new();
+    output.push_str("digraph pebbles_flow {\n");
+    output.push_str("  rankdir=LR;\n");
+    output.push_str("  node [shape=box];\n");
+
+    if layout.coordinates.is_empty() {
+        output.push_str("}\n");
+        return output;
+    }
+
+    output.push('\n');
+
+    let edges = labeled_dependency_edges(issues);
+    let components = dependency_components(issues);
+
+    // Components with edges become cluster subgraphs; standalone issues
+    // stay at the top level, mirroring the text renderer's "Issues with
+    // dependencies" then "Standalone issues" section order.
+    for comp in 0..components.len() {
+        let component = &components[comp];
+        if component.len() == 1 {
+            continue;
+        }
+        output.push_str(&format!("  subgraph cluster_{} {{\n", comp));
+        for member in 0..component.len() {
+            let idx = component[member];
+            let issue = &issues[idx];
+            output.push_str(&format!(
+                "    \"{}\" [label=\"{}\" color=\"{}\" style=filled];\n",
+                escape_dot(&issue_id_prefix(issue.id, id_prefixes)),
+                escape_dot(&issue.title.chars().take(30).collect::<String>()),
+                status_dot_color(issue.status),
+            ));
+        }
+        // Only edges whose source lives in this component (all dependency
+        // edges stay inside their component by construction).
+        output.push('\n');
+        for &(source, target, ref rel_type) in &edges {
+            if !component.contains(&(source as usize)) {
+                continue;
+            }
+            output.push_str(&format!(
+                "    \"{}\" -> \"{}\" [label=\"{}\"];\n",
+                escape_dot(&issue_id_prefix(issues[source as usize].id, id_prefixes)),
+                escape_dot(&issue_id_prefix(issues[target as usize].id, id_prefixes)),
+                rel_type.clone(),
+            ));
+        }
+        output.push_str("  }\n\n");
+    }
+
+    for comp in 0..components.len() {
+        let component = &components[comp];
+        if component.len() != 1 {
+            continue;
+        }
+        let idx = component[0];
+        let issue = &issues[idx];
+        output.push_str(&format!(
+            "  \"{}\" [label=\"{}\" color=\"{}\" style=filled];\n",
+            escape_dot(&issue_id_prefix(issue.id, id_prefixes)),
+            escape_dot(&issue.title.chars().take(30).collect::<String>()),
+            status_dot_color(issue.status),
+        ));
+    }
+
+    output.push_str("}\n");
+    output
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{Issue, IssueType};
+    use crate::models::{Issue, IssueType, Status};
 
     fn issue(title: &str) -> Issue {
         Issue::new(title.to_string(), None, IssueType::Bug)
+    }
+
+    fn issue_with_status(title: &str, status: Status) -> Issue {
+        let mut issue = issue(title);
+        issue.status = status;
+        issue
     }
 
     /// `compute_flow_layout` must reject cyclic dependency graphs with an
@@ -412,5 +614,136 @@ mod tests {
         assert!(!svg.contains("<script>"), "raw markup leaked into SVG");
         assert!(svg.contains("&lt;script&gt;"), "escaped text missing");
         assert!(svg.contains("&amp;"), "& not escaped");
+    }
+
+    /// `render_dot` emits a deterministic digraph: one cluster subgraph per
+    /// connected component, relationship labels on edges (part_of excluded),
+    /// per-status node colors, and standalone issues at the top level.
+    #[test]
+    fn test_render_dot_fixture() {
+        let mut a = issue_with_status("A", Status::Done);
+        let mut b = issue("B");
+        b.status = Status::Todo;
+        let c = issue("C");
+        b.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: a.id,
+        });
+        b.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: a.id,
+        });
+        b.relationships.push(crate::models::Relationship {
+            relation_type: RelationType::ScheduledBefore,
+            target_id: a.id,
+        });
+
+        let mut id_prefixes: HashMap<Uuid, String> = HashMap::new();
+        id_prefixes.insert(a.id, "aaa".to_string());
+        id_prefixes.insert(b.id, "bbb".to_string());
+        id_prefixes.insert(c.id, "ccc".to_string());
+
+        let issues = vec![a, b, c];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0)), (1, (0.0, 30.0)), (2, (0.0, 60.0))],
+            width: 100.0,
+            height: 90.0,
+        };
+        let dot = render_dot(&issues, &layout, &id_prefixes, None);
+        assert_eq!(
+            dot,
+            concat!(
+                "digraph pebbles_flow {\n",
+                "  rankdir=LR;\n",
+                "  node [shape=box];\n",
+                "\n",
+                "  subgraph cluster_0 {\n",
+                "    \"aaa\" [label=\"A\" color=\"green\" style=filled];\n",
+                "    \"bbb\" [label=\"B\" color=\"yellow\" style=filled];\n",
+                "\n",
+                "    \"bbb\" -> \"aaa\" [label=\"required_for\"];\n",
+                "    \"bbb\" -> \"aaa\" [label=\"scheduled_before\"];\n",
+                "  }\n",
+                "\n",
+                "  \"ccc\" [label=\"C\" color=\"white\" style=filled];\n",
+                "}\n",
+            ),
+        );
+    }
+
+    /// DOT labels must escape quotes, backslashes, and newlines so the
+    /// output stays a single valid double-quoted DOT string.
+    #[test]
+    fn test_render_dot_escapes_titles() {
+        let issue = issue("Say \"hi\" \\ line\nnext");
+        let mut id_prefixes: HashMap<Uuid, String> = HashMap::new();
+        id_prefixes.insert(issue.id, "xxx".to_string());
+        let issues = vec![issue];
+        let layout = FlowLayout {
+            coordinates: vec![(0, (0.0, 0.0))],
+            width: 100.0,
+            height: 30.0,
+        };
+        let dot = render_dot(&issues, &layout, &id_prefixes, None);
+        assert_eq!(
+            dot,
+            concat!(
+                "digraph pebbles_flow {\n",
+                "  rankdir=LR;\n",
+                "  node [shape=box];\n",
+                "\n",
+                "  \"xxx\" [label=\"Say \\\"hi\\\" \\\\ line\\nnext\" color=\"white\" style=filled];\n",
+                "}\n",
+            ),
+        );
+    }
+
+    /// DOT labels truncate the title to 30 chars like the SVG renderer.
+    #[test]
+    fn test_render_dot_truncates_titles() {
+        let issue = issue("0123456789012345678901234567890123456789");
+        let dot = render_dot(
+            &vec![issue],
+            &FlowLayout {
+                coordinates: vec![(0, (0.0, 0.0))],
+                width: 100.0,
+                height: 30.0,
+            },
+            &HashMap::new(),
+            None,
+        );
+        assert!(
+            dot.contains("label=\"012345678901234567890123456789\""),
+            "title not truncated to 30 chars: {dot}"
+        );
+        assert!(
+            !dot.contains("label=\"0123456789012345678901234567890"),
+            "title leaked past 30 chars: {dot}"
+        );
+    }
+
+    /// An empty layout still yields a valid empty digraph that Graphviz
+    /// can consume.
+    #[test]
+    fn test_render_dot_empty() {
+        let dot = render_dot(
+            &vec![],
+            &FlowLayout {
+                coordinates: Vec::new(),
+                width: 0.0,
+                height: 0.0,
+            },
+            &HashMap::new(),
+            None,
+        );
+        assert_eq!(
+            dot,
+            concat!(
+                "digraph pebbles_flow {\n",
+                "  rankdir=LR;\n",
+                "  node [shape=box];\n",
+                "}\n",
+            ),
+        );
     }
 }

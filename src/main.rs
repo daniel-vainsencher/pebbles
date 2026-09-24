@@ -595,10 +595,9 @@ fn main() -> Result<()> {
             show_done,
             goal,
         } => {
-            // The json and dot backends are separate loans (e7dd87ca,
-            // ea4b09f2). The flags parse and dispatch today; each backend
-            // lands by replacing its bail below with a render call.
-            if matches!(format, cli::FlowFormat::Json | cli::FlowFormat::Dot) {
+            // The json backend is a separate loan (e7dd87ca); the dot
+            // backend (ea4b09f2) is implemented in this loan.
+            if matches!(format, cli::FlowFormat::Json) {
                 anyhow::bail!(
                     "{} output is not implemented yet; only 'text' and 'svg' are available",
                     format
@@ -635,7 +634,8 @@ fn main() -> Result<()> {
             let content = match format {
                 cli::FlowFormat::Text => flow::render_text(&issues, &layout, &id_prefixes, goal),
                 cli::FlowFormat::Svg => flow::render_svg(&issues, &layout, &id_prefixes, goal),
-                cli::FlowFormat::Json | cli::FlowFormat::Dot => unreachable!(),
+                cli::FlowFormat::Dot => flow::render_dot(&issues, &layout, &id_prefixes, goal),
+                cli::FlowFormat::Json => unreachable!(),
             };
 
             // Output to file or stdout
