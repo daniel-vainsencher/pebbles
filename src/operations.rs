@@ -2,7 +2,7 @@ use anyhow::{bail, Context, Result};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -1046,6 +1046,64 @@ pub fn sorted_metadata(issue: &Issue) -> Vec<(String, String)> {
     pairs
 }
 
+/// One prompted field of a type-specific creation template: the metadata
+/// key the answer is stored under (`key`) and the prompt text shown to the
+/// user (`label`). See `template_fields_for` (r[type-templates]).
+#[derive(Debug, Clone)]
+pub struct TemplateField {
+    pub key: String,
+    pub label: String,
+}
+
+/// The template fields prompted for when creating an issue of
+/// `issue_type` interactively (stdin is a terminal). Each field's `key` is
+/// the metadata key the answer is stored under (r[metadata-set-upsert]);
+/// types without a field set prompt nothing and create exactly as before.
+/// The prompts are interactive-only: when stdin is not a terminal the flow
+/// skips them silently, so piped and scripted creates never block or print
+/// prompt text (r[type-templates]). Pure: no storage access and no I/O, so
+/// field sets are unit-testable without a terminal.
+///
+/// ```rust
+/// # use pebbles::models::IssueType;
+/// # use pebbles::operations::template_fields_for;
+/// assert_eq!(template_fields_for(IssueType::UxProblem).len(), 2);
+/// assert_eq!(template_fields_for(IssueType::Bug)[0].key, "expected");
+/// assert!(template_fields_for(IssueType::Epic).is_empty());
+/// ```
+// r[impl type-templates]
+pub fn template_fields_for(issue_type: IssueType) -> Vec<TemplateField> {
+    match issue_type {
+        IssueType::Bug => vec![
+            TemplateField {
+                key: "expected".to_string(),
+                label: "Expected behavior".to_string(),
+            },
+            TemplateField {
+                key: "actual".to_string(),
+                label: "Actual behavior".to_string(),
+            },
+        ],
+        IssueType::UxProblem => vec![
+            TemplateField {
+                key: "before_screenshot".to_string(),
+                label: "Before screenshot (path or URL)".to_string(),
+            },
+            TemplateField {
+                key: "after_screenshot".to_string(),
+                label: "After screenshot (path or URL)".to_string(),
+            },
+        ],
+        IssueType::Usecase => vec![TemplateField {
+            key: "acceptance_criteria".to_string(),
+            label: "Acceptance criteria".to_string(),
+        }],
+        IssueType::Design | IssueType::Validation | IssueType::Epic | IssueType::Milestone => {
+            Vec::new()
+        }
+    }
+}
+
 pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
     let total_issues = issues.len();
 
@@ -1243,6 +1301,7 @@ impl Operations {
         description: Option<String>,
         issue_type: IssueType,
         approved: bool,
+        metadata: BTreeMap<String, String>,
     ) -> Result<MutationOutcome<Issue>> {
         if !self.storage.exists() {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
@@ -1255,6 +1314,13 @@ impl Operations {
         let mut issue = Issue::new(title, description, issue_type);
         if approved {
             issue.status = Status::Todo;
+        }
+
+        // r[impl type-templates] - type-specific template answers (captured
+        // interactively by the `new` flow) land in the issue's existing
+        // metadata map; no model change (r[metadata-file-order]).
+        for (key, value) in metadata {
+            set_metadata_on_issue(&mut issue, &key, &value);
         }
 
         let mut index = self.storage.load_index()?;
@@ -3823,6 +3889,69 @@ mod tests {
                 ("zeta".to_string(), "1".to_string()),
             ]
         );
+    }
+
+    // -- type templates (r[type-templates]) ------------------------------------
+
+    #[test]
+    fn template_fields_for_bug_prompts_expected_and_actual() {
+        // Bug issues ask what should have happened and what did happen.
+        let fields = template_fields_for(IssueType::Bug);
+        assert_eq!(
+            fields
+                .iter()
+                .map(|f| f.key.clone())
+                .collect::<Vec<String>>(),
+            vec!["expected".to_string(), "actual".to_string()]
+        );
+        assert_eq!(fields[0].label, "Expected behavior");
+        assert_eq!(fields[1].label, "Actual behavior");
+    }
+
+    #[test]
+    fn template_fields_for_ux_problem_prompts_before_and_after_screenshots() {
+        // UX issues ask for reproduction evidence: before/after screenshots.
+        let fields = template_fields_for(IssueType::UxProblem);
+        assert_eq!(
+            fields
+                .iter()
+                .map(|f| f.key.clone())
+                .collect::<Vec<String>>(),
+            vec![
+                "before_screenshot".to_string(),
+                "after_screenshot".to_string(),
+            ]
+        );
+        assert_eq!(fields[0].label, "Before screenshot (path or URL)");
+        assert_eq!(fields[1].label, "After screenshot (path or URL)");
+    }
+
+    #[test]
+    fn template_fields_for_usecase_prompts_acceptance_criteria() {
+        // Usecases ask for the checkable definition of done.
+        let fields = template_fields_for(IssueType::Usecase);
+        assert_eq!(
+            fields
+                .iter()
+                .map(|f| f.key.clone())
+                .collect::<Vec<String>>(),
+            vec!["acceptance_criteria".to_string()]
+        );
+        assert_eq!(fields[0].label, "Acceptance criteria");
+    }
+
+    #[test]
+    fn template_fields_for_types_without_templates_is_empty() {
+        // Types without a template prompt nothing: the interactive create
+        // flow then behaves exactly as before.
+        for issue_type in [
+            IssueType::Design,
+            IssueType::Validation,
+            IssueType::Epic,
+            IssueType::Milestone,
+        ] {
+            assert!(template_fields_for(issue_type).is_empty());
+        }
     }
 
     // -- parse_text_query / filter_by_text_query ------------------------------

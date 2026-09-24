@@ -299,6 +299,30 @@ r[new-issues-default-proposed]
   The title must be non-empty after trimming; empty or whitespace-only titles are an error.
   Example: [Quick Start](README.md#create-issues) | Test: [core-workflow](tests/workflows/core-workflow.trycmd#create-a-new-issue) | Review workflow: [review-workflow](tests/workflows/review-workflow.trycmd#review-proposed-issues)
 
+r[type-templates]
+- `new` additionally prompts for **type-specific template fields** when the
+  create is interactive (stdin is a terminal). Each field asks for one piece
+  of evidence the issue type needs; the answer is stored as metadata on the
+  new issue (key = field key, value = answer; r[metadata-set-upsert]) and is
+  shown by `show` and in exports like any other metadata - no extra display
+  work. Field sets per issue type:
+
+  - `bug`: `expected` (Expected behavior), `actual` (Actual behavior)
+  - `ux_problem`: `before_screenshot` (Before screenshot (path or URL)),
+    `after_screenshot` (After screenshot (path or URL))
+  - `usecase`: `acceptance_criteria` (Acceptance criteria)
+  - `design`, `validation`, `epic`, `milestone`: no template fields
+    (behavior identical to `new` before templates existed)
+
+  The prompts are **interactive-only**: when stdin is not a terminal (piped
+  or scripted create, e.g. the trycmd harness), the fields are skipped
+  silently - no prompt text is printed, nothing is read, and the create
+  neither blocks nor waits. Every template field is optional: a blank answer
+  (bare Enter, or EOF) is skipped and stores nothing for that key.
+  Implementation: [`template_fields_for()`](src/operations.rs) (pure map) |
+  Interactive prompting: [`prompt_template_fields()`](src/main.rs) |
+  Test: [type-templates](tests/workflows/type-templates.trycmd#create-a-bug-from-piped-stdin-does-not-prompt-or-block)
+
 r[guidance-tips]
 After a successful `new`, pebbles may print optional guidance tips (hints,
 never errors) so beginners and LLM users discover features contextually:

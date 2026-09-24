@@ -19,7 +19,7 @@ use display::{
     print_summary,
 };
 use operations::Operations;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use std::io::{BufRead, IsTerminal, Write};
 use uuid::Uuid;
@@ -46,7 +46,17 @@ fn main() -> Result<()> {
             approved,
         } => {
             let issue_type = issue_type.parse().map_err(|e: String| anyhow::anyhow!(e))?;
-            let outcome = ops.create(title, description, issue_type, approved)?;
+            // r[type-templates] - the type's template fields are prompted
+            // only when stdin is a terminal (an interactive create). Piped
+            // and scripted creates (stdin not a terminal) skip the fields
+            // silently, so they never prompt, never block, and their
+            // behavior is byte-identical to before.
+            let template_answers = if std::io::stdin().is_terminal() {
+                prompt_template_fields(&issue_type)?
+            } else {
+                BTreeMap::new()
+            };
+            let outcome = ops.create(title, description, issue_type, approved, template_answers)?;
             print_warnings(&outcome.warnings);
             let issue = outcome.value;
             let short_id = ops.appropriate_length_id(&issue.id)?;
@@ -627,6 +637,35 @@ fn print_warnings(warnings: &[LoadWarning]) {
     for warning in warnings {
         eprintln!("{}", warning.cli_line());
     }
+}
+
+/// Prompt for an issue type's template fields on an interactive terminal
+/// and return the answers keyed by metadata key (r[type-templates]). Only
+/// called when stdin is a terminal: the `new` flow gates the call on
+/// `stdin().is_terminal()` so piped and scripted creates never reach the
+/// prompts. A blank answer (bare Enter, or EOF) is skipped, so every
+/// template field is optional.
+fn prompt_template_fields(issue_type: &IssueType) -> Result<BTreeMap<String, String>> {
+    let fields = operations::template_fields_for(issue_type.clone());
+    let mut answers: BTreeMap<String, String> = BTreeMap::new();
+    if fields.is_empty() {
+        return Ok(answers);
+    }
+    let stdin = std::io::stdin();
+    let mut input = stdin.lock();
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+    for field in fields {
+        write!(out, "{} (blank to skip): ", field.label)?;
+        out.flush()?;
+        let mut line = String::new();
+        input.read_line(&mut line)?;
+        let answer = line.trim();
+        if !answer.is_empty() {
+            answers.insert(field.key, answer.to_string());
+        }
+    }
+    Ok(answers)
 }
 
 /// Collect issue ID inputs for a bulk command: the positional IDs, or —

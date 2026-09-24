@@ -1,0 +1,121 @@
+# Type-specific templates workflow
+
+`pebbles new` prompts for type-specific template fields when creating
+interactively (stdin is a terminal) and stores the answers as metadata on
+the new issue (r[type-templates]). When stdin is not a terminal - piped
+and scripted creates, like the trycmd harness - the fields are skipped:
+no prompt text is printed, nothing is read from stdin, and the create
+never blocks. This workflow exercises the non-interactive path.
+
+## Create a bug from piped stdin does not prompt or block
+
+The bug template fields (`expected`, `actual`) are skipped: the create
+prints exactly the usual output with no prompt lines, and completes
+without reading stdin (a blocking read would hang this harness).
+
+r[verify type-templates]
+```console
+$ pebbles new "Crash on login" --issue-type bug
+Created bug [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Crash on login
+Type: Bug
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: bug-[..]-crash-on-login.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+
+No template metadata was stored by the piped create: the `expected` and
+`actual` keys were skipped, so the metadata filters match nothing.
+
+```console
+$ pebbles list --metadata expected=
+No issues found.
+
+```
+```console
+$ pebbles list --metadata actual=
+No issues found.
+
+```
+
+## Create a ux_problem from piped stdin
+
+The ux_problem template (`before_screenshot`, `after_screenshot`) is
+likewise skipped when stdin is not a terminal.
+
+```console
+$ pebbles new "Onboarding header cut off" --issue-type ux_problem
+Created ux_problem [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Onboarding header cut off
+Type: UxProblem
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: ux-[..]-onboarding-header-cut-off.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata before_screenshot=
+No issues found.
+
+```
+```console
+$ pebbles list --metadata after_screenshot=
+No issues found.
+
+```
+
+## Create a usecase from piped stdin
+
+The usecase template (`acceptance_criteria`) is skipped too.
+
+```console
+$ pebbles new "Export to CSV" --issue-type usecase
+Created usecase [..]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ID: [..]
+Title: Export to CSV
+Type: Usecase
+Status: PROPOSED
+
+Created: [..]
+Updated: [..]
+File: uc-[..]-export-to-csv.json
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+```
+```console
+$ pebbles list --metadata acceptance_criteria=
+No issues found.
+
+```
+
+## All three created issues exist
+
+Each piped create did create the issue (with no template metadata).
+
+```console
+$ pebbles list --issue-type bug
+[..] [bug] [PROPOSED] Crash on login ✓
+
+```
+```console
+$ pebbles list --issue-type ux_problem
+[..] [ux] [PROPOSED] Onboarding header cut off ✓
+
+```
+```console
+$ pebbles list --issue-type usecase
+[..] [uc] [PROPOSED] Export to CSV ✓
+
+```
