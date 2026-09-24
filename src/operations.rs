@@ -1,6 +1,7 @@
 use anyhow::{bail, Context, Result};
 use fuzzy_matcher::skim::SkimMatcherV2;
 use fuzzy_matcher::FuzzyMatcher;
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
@@ -9,7 +10,7 @@ use crate::export::{drop_missing_relationships, parse_export_bundle, validate_im
 use crate::jj::JJ;
 use crate::models::{
     build_dependency_adjacency, build_epic_counts, build_incoming_relationships_map, creates_cycle,
-    Issue, IssueType, RelationType, Relationship, Status,
+    IncomingRelationship, Issue, IssueType, RelationType, Relationship, Status,
 };
 use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
 
@@ -24,6 +25,90 @@ pub struct ProjectSummary {
     pub actionable_count: usize,
     pub total_relationships: usize,
     pub by_relationship_type: HashMap<RelationType, usize>,
+}
+
+/// In-memory view of the issue set for one invocation: the issues keyed by
+/// id plus the derived maps the display queries need (related titles,
+/// incoming relationships, epic counts). Built once by `build_project_graph`
+/// from the single `storage.load_all_issues` read made by
+/// `Operations::load_graph`, then served to every query without further
+/// storage reads.
+#[derive(Clone)]
+pub struct ProjectGraph {
+    issues: HashMap<Uuid, Issue>,
+    /// Per issue: titles of the targets of its relationships that exist in
+    /// the set (targets missing from the set are skipped).
+    related_titles: HashMap<Uuid, HashMap<Uuid, String>>,
+    /// Per target id: relationships pointing at it, from
+    /// `build_incoming_relationships_map`.
+    incoming: HashMap<Uuid, Vec<IncomingRelationship>>,
+    /// Per epic id: `(total, done)` part_of child counts.
+    epic_counts: HashMap<Uuid, (usize, usize)>,
+}
+
+impl ProjectGraph {
+    /// Titles of the targets of `issue`'s relationships that exist in the
+    /// set.
+    pub fn related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
+        self.related_titles
+            .get(&issue.id)
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// Incoming relationships pointing at `issue_id` as
+    /// `(source_id, source_title, relation_type)` tuples.
+    pub fn incoming_relationships(&self, issue_id: &Uuid) -> Vec<(Uuid, String, RelationType)> {
+        self.incoming
+            .get(issue_id)
+            .map(|rels| {
+                rels.iter()
+                    .map(|r| (r.source_id, r.source_title.clone(), r.relation_type.clone()))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Per-epic `(total, done)` part_of child counts over the full set.
+    pub fn epic_counts(&self) -> &HashMap<Uuid, (usize, usize)> {
+        &self.epic_counts
+    }
+
+    /// Iterate the full issue set.
+    pub fn issues(&self) -> impl Iterator<Item = &Issue> {
+        self.issues.values()
+    }
+}
+
+/// Build the in-memory graph layer for an issue set: index issues by id and
+/// derive the maps the display queries need. Pure, no I/O; the caller
+/// decides when the set is loaded.
+pub fn build_project_graph(issues: &[Issue]) -> ProjectGraph {
+    let by_id: HashMap<Uuid, Issue> = issues
+        .iter()
+        .map(|issue| (issue.id, issue.clone()))
+        .collect();
+    let related_titles = issues
+        .iter()
+        .map(|issue| {
+            let titles = issue
+                .relationships
+                .iter()
+                .filter_map(|rel| {
+                    by_id
+                        .get(&rel.target_id)
+                        .map(|target| (rel.target_id, target.title.clone()))
+                })
+                .collect();
+            (issue.id, titles)
+        })
+        .collect();
+    ProjectGraph {
+        issues: by_id,
+        related_titles,
+        incoming: build_incoming_relationships_map(issues),
+        epic_counts: build_epic_counts(issues),
+    }
 }
 
 /// Result of a mutating operation: the operation's own value plus any
@@ -135,6 +220,10 @@ pub fn match_id_prefix(id_str: &str, known_ids: &[Uuid]) -> Result<Uuid> {
 pub struct Operations {
     storage: Storage,
     jj: JJ,
+    /// The issue-set graph loaded once per invocation by `load_graph`;
+    /// served to `get_related_titles` / `get_incoming_relationships` so
+    /// display commands make a single `load_all_issues` read.
+    graph: RefCell<Option<(ProjectGraph, Vec<LoadWarning>)>>,
 }
 
 /// Build the list of paths to pass to `JJ::commit` based on what
@@ -913,7 +1002,11 @@ impl Operations {
         let storage = Storage::new(repo_path)?;
         let jj = JJ::new(repo_path)?;
 
-        Ok(Self { storage, jj })
+        Ok(Self {
+            storage,
+            jj,
+            graph: RefCell::new(None),
+        })
     }
 
     // r[impl init-lost-index]
@@ -1031,7 +1124,12 @@ impl Operations {
         }
 
         let uuid = self.resolve_id(id)?;
-        self.storage.load_issue(&uuid)
+        let issue = self.storage.load_issue(&uuid)?;
+        // Load the issue set once up front so the caller's related/incoming
+        // queries are served from the in-memory graph, not per-issue
+        // storage reads.
+        self.load_graph()?;
+        Ok(issue)
     }
 
     /// Returns `Ok(false)` when the issue already had the requested status
@@ -1623,15 +1721,16 @@ impl Operations {
             );
         }
 
-        let (all_issues, warnings) = self.storage.load_all_issues()?;
-        let mut child_issues: Vec<Issue> = all_issues
-            .into_iter()
+        let (graph, warnings) = self.load_graph()?;
+        let mut child_issues: Vec<Issue> = graph
+            .issues()
             .filter(|issue| {
                 issue
                     .relationships
                     .iter()
                     .any(|rel| rel.relation_type == RelationType::PartOf && rel.target_id == uuid)
             })
+            .cloned()
             .collect();
 
         // r[impl issue-ordering]
@@ -1727,15 +1826,16 @@ impl Operations {
             bail!("Pebbles not initialized. Run 'pebbles init' first.");
         }
 
-        let (all_issues, warnings) = self.storage.load_all_issues()?;
+        let (graph, warnings) = self.load_graph()?;
+        let all_issues: Vec<Issue> = graph.issues().cloned().collect();
         Ok((calculate_summary(&all_issues), warnings))
     }
 
     /// Epic child progress `(total, done)` computed over the FULL issue set,
     /// independent of any view filter. See SPEC r[epic-progress-counts].
     pub fn epic_counts(&self) -> Result<HashMap<Uuid, (usize, usize)>> {
-        let (all_issues, _) = self.storage.load_all_issues()?;
-        Ok(build_epic_counts(&all_issues))
+        let (graph, _) = self.graph_or_load()?;
+        Ok(graph.epic_counts().clone())
     }
 
     /// Dependency/blocker status computed over the FULL issue set,
@@ -1747,14 +1847,33 @@ impl Operations {
         Ok(build_blocker_status(&all_issues))
     }
 
-    pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
-        let mut titles = HashMap::new();
-        for rel in &issue.relationships {
-            if let Ok(related_issue) = self.storage.load_issue(&rel.target_id) {
-                titles.insert(rel.target_id, related_issue.title);
-            }
+    /// Load the full issue set once and keep it as the invocation's graph.
+    /// Exactly one `storage.load_all_issues` (which itself reads the
+    /// index); later `get_related_titles` / `get_incoming_relationships`
+    /// calls in the same invocation are served from the cached graph, so a
+    /// display command makes one read of the issue set per invocation.
+    pub fn load_graph(&self) -> Result<(ProjectGraph, Vec<LoadWarning>)> {
+        let (all_issues, warnings) = self.storage.load_all_issues()?;
+        let graph = build_project_graph(&all_issues);
+        let snapshot = (graph, warnings);
+        let result = snapshot.clone();
+        *self.graph.borrow_mut() = Some(snapshot);
+        Ok(result)
+    }
+
+    /// The invocation's graph, loading it once when no command has loaded
+    /// it yet.
+    fn graph_or_load(&self) -> Result<(ProjectGraph, Vec<LoadWarning>)> {
+        if let Some(snapshot) = self.graph.borrow().as_ref() {
+            return Ok(snapshot.clone());
         }
-        titles
+        self.load_graph()
+    }
+
+    pub fn get_related_titles(&self, issue: &Issue) -> HashMap<Uuid, String> {
+        self.graph_or_load()
+            .map(|(graph, _)| graph.related_titles(issue))
+            .unwrap_or_default()
     }
 
     /// Returns incoming relationships: other issues that have relationships pointing to this issue.
@@ -1765,19 +1884,8 @@ impl Operations {
         &self,
         issue_id: &Uuid,
     ) -> Result<(Vec<(Uuid, String, RelationType)>, Vec<LoadWarning>)> {
-        let (all_issues, warnings) = self.storage.load_all_issues()?;
-        let incoming_map = build_incoming_relationships_map(&all_issues);
-
-        let incoming = incoming_map
-            .get(issue_id)
-            .map(|rels| {
-                rels.iter()
-                    .map(|r| (r.source_id, r.source_title.clone(), r.relation_type.clone()))
-                    .collect()
-            })
-            .unwrap_or_default();
-
-        Ok((incoming, warnings))
+        let (graph, warnings) = self.graph_or_load()?;
+        Ok((graph.incoming_relationships(issue_id), warnings))
     }
 
     /// Returns minimal unambiguous ID prefixes for every ID in the index.
@@ -2011,6 +2119,84 @@ mod tests {
         issue.id = uuid(id);
         issue.status = status;
         issue
+    }
+
+    // -- project graph --------------------------------------------------------
+
+    #[test]
+    fn build_project_graph_serves_related_titles_and_incoming() {
+        let mut a = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Alpha",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        let mut b = issue_with_type(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "Beta",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        a.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: b.id,
+        });
+        b.relationships.push(Relationship {
+            relation_type: RelationType::RequiredFor,
+            target_id: a.id,
+        });
+
+        let graph = build_project_graph(&[a.clone(), b.clone()]);
+
+        // related-titles lookup resolves targets from the in-memory set
+        assert_eq!(
+            graph.related_titles(&a),
+            HashMap::from([(b.id, "Beta".to_string())])
+        );
+
+        // incoming lookup, source_title carried the same way as
+        // build_incoming_relationships_map
+        assert_eq!(
+            graph.incoming_relationships(&b.id),
+            vec![(a.id, "Alpha".to_string(), RelationType::PartOf)]
+        );
+        assert_eq!(
+            graph.incoming_relationships(&a.id),
+            vec![(b.id, "Beta".to_string(), RelationType::RequiredFor)]
+        );
+    }
+
+    #[test]
+    fn build_project_graph_counts_epic_children() {
+        let mut epic = issue_with_type(
+            "aaaaaaaa-1111-2222-3333-444444444444",
+            "Epic",
+            Status::Todo,
+            IssueType::Epic,
+        );
+        let mut child_done = issue_with_type(
+            "bbbbbbbb-1111-2222-3333-444444444444",
+            "Child done",
+            Status::Done,
+            IssueType::Bug,
+        );
+        let mut child_todo = issue_with_type(
+            "cccccccc-1111-2222-3333-444444444444",
+            "Child todo",
+            Status::Todo,
+            IssueType::Bug,
+        );
+        child_done.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: epic.id,
+        });
+        child_todo.relationships.push(Relationship {
+            relation_type: RelationType::PartOf,
+            target_id: epic.id,
+        });
+
+        let graph = build_project_graph(&[child_done.clone(), child_todo.clone(), epic.clone()]);
+        assert_eq!(graph.epic_counts().get(&epic.id), Some(&(2, 1)));
     }
 
     #[test]
