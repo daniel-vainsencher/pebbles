@@ -2,7 +2,7 @@
   "id": "7584b92b-0e04-4396-995c-e41e5e19fc2d",
   "title": "Add colored indicators for relationship status",
   "description": "Use terminal colors to indicate relationship health in list and show output:\n\nColors for dependencies:\n- Green ✓ - Issue has no blockers, ready to work on\n- Yellow ⚠ - Issue is blocked by incomplete dependencies\n- Red ⛔ - Issue has circular dependency or invalid relationship\n- Blue → - Issue is blocking other issues (informational)\n\nColors for epic membership:\n- Cyan [epic] with child count colored by completion percentage\n- Gray for issues not in any epic (when epics exist)\n\nBenefits:\n- Instant visual feedback on project health\n- Quickly identify problems (red indicators)\n- See what's ready to work on (green)\n- Navigate by visual cues\n\nShould respect terminal color support and --no-color flag.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "ux_problem",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-01-11T03:08:07.475037336Z",
-  "updated_at": "2026-01-11T05:15:33.705585064Z"
+  "updated_at": "2026-09-24T00:05:07.184533763Z"
 }
