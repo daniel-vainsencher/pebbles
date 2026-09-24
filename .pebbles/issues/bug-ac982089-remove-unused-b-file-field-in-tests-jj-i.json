@@ -2,11 +2,11 @@
   "id": "ac982089-9401-4753-90ee-920bbf5b114d",
   "title": "Remove unused b_file field in tests/jj_integration.rs ThreeBugs struct",
   "description": "Pre-existing dead-code warning (flagged by the ec3 worker 2026-09-23, also observed by b6c worker): tests/jj_integration.rs:1204 struct ThreeBugs has `field b_file is never read`. Test-only struct; likely leftover from fixture design. Remove the field and its construction/usage after confirming no assertion relies on it.",
-  "status": "proposed",
+  "status": "todo",
   "issue_type": "bug",
   "tags": [],
   "relationships": [],
   "metadata": {},
   "created_at": "2026-09-24T00:10:52.313498456Z",
-  "updated_at": "2026-09-24T00:10:52.313498456Z"
+  "updated_at": "2026-09-24T02:08:31.188529103Z"
 }
