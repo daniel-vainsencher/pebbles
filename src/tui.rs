@@ -486,11 +486,13 @@ pub struct EditState {
     pub issue_id: Uuid,
     /// The highlighted field.
     pub field: EditField,
-    /// True while typing Title/Description or cycling Type/Status. While
-    /// false, `j`/`k` move between fields and `Esc` closes the pane.
+    /// True while editing a typed field (Title/Description); cycled fields
+    /// (Type/Status) apply directly from navigation, so they never arm.
+    /// While false, `j`/`k` move between fields and `Esc` closes the pane.
     pub editing: bool,
-    /// Text buffer for Title/Description, pre-filled from the live issue.
-    pub buffer: String,
+    /// In-buffer text editing state for Title/Description, pre-filled from
+    /// the live issue (r[tui-edit]).
+    pub buffer: EditBuffer,
     /// Pending type; `Enter` applies it via `Operations::convert`.
     pub pending_type: IssueType,
     /// Pending status; `Enter` applies it via `Operations::update_status`.
@@ -503,10 +505,142 @@ impl EditState {
             issue_id: issue.id,
             field: EditField::Title,
             editing: false,
-            buffer: String::new(),
+            buffer: EditBuffer::new(String::new()),
             pending_type: issue.issue_type.clone(),
             pending_status: issue.status.clone(),
         }
+    }
+}
+/// In-buffer editing for the typed fields: a list of lines plus a cursor
+/// position. The cursor is a byte index into the lines joined by `\n`, so
+/// Left/Right/Home/End and Backspace/Delete map onto line and column
+/// uniformly. Multi-line buffers render one row per line with the cursor
+/// on its line (r[tui-edit]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EditBuffer {
+    /// The buffer content, one entry per line (never empty; an empty buffer
+    /// is a single empty line).
+    lines: Vec<String>,
+    /// Byte index of the cursor into `lines.join("\n")`.
+    cursor: usize,
+}
+
+impl EditBuffer {
+    /// A buffer pre-filled with `text`, cursor at the end (typing appends,
+    /// matching the pane's append-first behavior).
+    fn new(text: String) -> Self {
+        let lines: Vec<String> = text.split('\n').map(str::to_string).collect();
+        EditBuffer {
+            cursor: text.len(),
+            lines,
+        }
+    }
+
+    #[cfg(test)]
+    fn is_empty(&self) -> bool {
+        self.lines.iter().all(|l| l.is_empty())
+    }
+
+    /// The buffer as a single string, lines joined by `\n`.
+    fn to_string(&self) -> String {
+        self.lines.join("\n")
+    }
+
+    /// Byte offset where `line` starts in the joined text.
+    fn line_start(&self, line: usize) -> usize {
+        self.lines[..line].iter().map(|l| l.len() + 1).sum()
+    }
+
+    /// (line index, byte column) of the cursor within the joined text.
+    fn line_col(&self) -> (usize, usize) {
+        let mut acc = 0;
+        for (i, line) in self.lines.iter().enumerate() {
+            if self.cursor <= acc + line.len() {
+                return (i, self.cursor - acc);
+            }
+            acc += line.len() + 1;
+        }
+        let last = self.lines.len() - 1;
+        (last, self.lines[last].len())
+    }
+
+    fn insert_char(&mut self, c: char) {
+        let (line, col) = self.line_col();
+        self.lines[line].insert(col, c);
+        self.cursor += c.len_utf8();
+    }
+
+    fn insert_newline(&mut self) {
+        let (line, col) = self.line_col();
+        let rest = self.lines[line].split_off(col);
+        self.lines.insert(line + 1, rest);
+        self.cursor = self.line_start(line + 1);
+    }
+
+    fn backspace(&mut self) {
+        let (line, col) = self.line_col();
+        if col > 0 {
+            let prev = self.lines[line][..col]
+                .chars()
+                .next_back()
+                .expect("col > 0 implies a char")
+                .len_utf8();
+            self.lines[line].remove(col - prev);
+            self.cursor -= prev;
+        } else if line > 0 {
+            let merged_end = self.lines[line - 1].len();
+            let tail = self.lines.remove(line);
+            self.lines[line - 1].push_str(&tail);
+            self.cursor = self.line_start(line - 1) + merged_end;
+        }
+    }
+
+    fn delete(&mut self) {
+        let (line, col) = self.line_col();
+        if col < self.lines[line].len() {
+            self.lines[line].remove(col);
+        } else if line + 1 < self.lines.len() {
+            let tail = self.lines.remove(line + 1);
+            self.lines[line].push_str(&tail);
+        }
+    }
+
+    fn move_left(&mut self) {
+        let (line, col) = self.line_col();
+        if col > 0 {
+            let prev = self.lines[line][..col]
+                .chars()
+                .next_back()
+                .expect("col > 0 implies a char")
+                .len_utf8();
+            self.cursor -= prev;
+        } else if line > 0 {
+            self.cursor = self.line_start(line) - 1; // end of the previous line
+        }
+    }
+
+    fn move_right(&mut self) {
+        let (line, col) = self.line_col();
+        if col < self.lines[line].len() {
+            let next = self.lines[line][col..]
+                .chars()
+                .next()
+                .expect("char at col")
+                .len_utf8();
+            self.cursor += next;
+        } else if line + 1 < self.lines.len() {
+            self.cursor = self.line_start(line + 1);
+        }
+    }
+
+    fn home(&mut self) {
+        let (line, _) = self.line_col();
+        self.cursor = self.line_start(line);
+    }
+
+    fn end(&mut self) {
+        let (line, _) = self.line_col();
+        self.cursor = self.line_start(line) + self.lines[line].len();
     }
 }
 
@@ -1619,18 +1753,22 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
     };
     let id = edit.issue_id.to_string();
     let outcome = match edit.field {
-        EditField::Title => ops.update(&id, Some(edit.buffer.clone()), None).map(|out| {
-            (
-                out.value,
-                fold_warnings("\u{2713} Updated title".to_string(), &out.warnings),
-            )
-        }),
-        EditField::Description => ops.update(&id, None, Some(edit.buffer.clone())).map(|out| {
-            (
-                out.value,
-                fold_warnings("\u{2713} Updated description".to_string(), &out.warnings),
-            )
-        }),
+        EditField::Title => ops
+            .update(&id, Some(edit.buffer.to_string()), None)
+            .map(|out| {
+                (
+                    out.value,
+                    fold_warnings("\u{2713} Updated title".to_string(), &out.warnings),
+                )
+            }),
+        EditField::Description => ops
+            .update(&id, None, Some(edit.buffer.to_string()))
+            .map(|out| {
+                (
+                    out.value,
+                    fold_warnings("\u{2713} Updated description".to_string(), &out.warnings),
+                )
+            }),
         EditField::Type => ops.convert(&id, edit.pending_type.clone()).map(|out| {
             (
                 out.value,
@@ -1684,7 +1822,10 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
 
 /// Keys while the inline edit pane is open (r[tui-edit]). Esc cancels
 /// without writing: an in-progress field edit is discarded, and in
-/// navigation it closes the pane. Nothing runs until Enter applies a field.
+/// navigation it closes the pane. Enter applies the highlighted field:
+/// immediately for the cycled Type/Status (commit-and-stay), after editing
+/// for Title/Description (arm-then-commit); in the multi-line Description
+/// edit Enter inserts a newline and Tab applies.
 fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
     let Some(mut edit) = app.edit.clone() else {
         return Ok(());
@@ -1698,29 +1839,62 @@ fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
         KeyCode::Char('k') | KeyCode::Up | KeyCode::BackTab if !edit.editing => {
             edit.field = step_field(edit.field, -1);
         }
-        KeyCode::Enter if !edit.editing => {
-            let Some(issue) = issue_with_project(app, edit.issue_id).map(|(i, _)| i.clone()) else {
-                app.message = Some("Issue no longer available".to_string());
-                close_edit(app);
-                return Ok(());
-            };
-            edit.editing = true;
-            match edit.field {
-                EditField::Title => edit.buffer = issue.title.clone(),
-                EditField::Description => {
-                    edit.buffer = issue.description.clone().unwrap_or_default()
+        // Enter from navigation arms the typed fields (Title/Description
+        // keep arm-then-commit) and applies the cycled fields (Type/Status)
+        // on the first press, staying in the pane (r[tui-edit]).
+        KeyCode::Enter if !edit.editing => match edit.field {
+            EditField::Type | EditField::Status => {
+                commit_edit(app, &mut edit)?;
+            }
+            EditField::Title | EditField::Description => {
+                let Some(issue) = issue_with_project(app, edit.issue_id).map(|(i, _)| i.clone())
+                else {
+                    app.message = Some("Issue no longer available".to_string());
+                    close_edit(app);
+                    return Ok(());
+                };
+                edit.editing = true;
+                match edit.field {
+                    EditField::Title => {
+                        edit.buffer = EditBuffer::new(issue.title.clone());
+                    }
+                    EditField::Description => {
+                        edit.buffer =
+                            EditBuffer::new(issue.description.clone().unwrap_or_default());
+                    }
+                    EditField::Type | EditField::Status => unreachable!("handled above"),
                 }
-                EditField::Type | EditField::Status => {}
+            }
+        },
+        KeyCode::Left => {
+            if edit.editing {
+                edit.buffer.move_left();
+            } else {
+                cycle_edit(&mut edit, -1);
             }
         }
-        KeyCode::Left => cycle_edit(&mut edit, -1),
-        KeyCode::Right => cycle_edit(&mut edit, 1),
-        KeyCode::Enter => commit_edit(app, &mut edit)?,
+        KeyCode::Right => {
+            if edit.editing {
+                edit.buffer.move_right();
+            } else {
+                cycle_edit(&mut edit, 1);
+            }
+        }
+        KeyCode::Home if edit.editing => edit.buffer.home(),
+        KeyCode::End if edit.editing => edit.buffer.end(),
+        // In the Description edit Enter inserts a newline (multi-line), so
+        // Tab is the apply key there; Title applies on Enter (r[tui-edit]).
+        KeyCode::Enter if edit.editing => match edit.field {
+            EditField::Title => commit_edit(app, &mut edit)?,
+            EditField::Description => edit.buffer.insert_newline(),
+            EditField::Type | EditField::Status => unreachable!("cycled fields never arm"),
+        },
+        KeyCode::Tab if edit.editing => commit_edit(app, &mut edit)?,
         KeyCode::Esc => {
             if edit.editing {
                 // Cancel the in-progress field edit without writing.
                 edit.editing = false;
-                edit.buffer.clear();
+                edit.buffer = EditBuffer::new(String::new());
                 if let Some(issue) = issue_with_project(app, edit.issue_id) {
                     edit.pending_type = issue.0.issue_type.clone();
                     edit.pending_status = issue.0.status.clone();
@@ -1729,13 +1903,12 @@ fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
                 closed = true;
             }
         }
-        KeyCode::Backspace | KeyCode::Delete if edit.editing => {
-            edit.buffer.pop();
-        }
+        KeyCode::Backspace if edit.editing => edit.buffer.backspace(),
+        KeyCode::Delete if edit.editing => edit.buffer.delete(),
         KeyCode::Char(c)
             if edit.editing && matches!(edit.field, EditField::Title | EditField::Description) =>
         {
-            edit.buffer.push(c);
+            edit.buffer.insert_char(c);
         }
         _ => {}
     }
@@ -1748,9 +1921,11 @@ fn edit_key(app: &mut App, code: KeyCode) -> Result<()> {
 }
 
 /// The edit pane's content: one row per field (selected row marked `> ` and
-/// highlighted) plus a hint line. Title/Description show the live values
-/// while navigating and the buffer while typing; Type/Status show the
-/// pending values (live until cycled).
+/// highlighted) plus a hint line. Every row except the active one shows the
+/// issue's LIVE value while editing; only the active row shows the buffer
+/// (one row per line for a multi-line Description, cursor on its line).
+/// Type/Status show the pending (cycled) value only while they are the
+/// active field (r[tui-edit]).
 fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
     let Some(edit) = &app.edit else {
         return vec![Line::raw("No edit in progress")];
@@ -1760,55 +1935,70 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
 
     let mut rows = Vec::new();
     for field in EDIT_FIELDS {
-        let marker = if edit.field == field { "> " } else { "  " };
-        let value_style = if edit.field == field {
-            highlight
-        } else {
-            Style::new()
-        };
-        let value = match field {
-            EditField::Title => {
-                if edit.editing {
-                    format!("{}{}", edit.buffer, EDIT_CURSOR)
-                } else {
-                    issue.map(|i| i.title.clone()).unwrap_or_default()
-                }
-            }
-            EditField::Description => {
-                if edit.editing {
-                    format!("{}{}", edit.buffer, EDIT_CURSOR)
-                } else {
-                    issue
-                        .map(|i| i.description.clone().unwrap_or_default().replace('\n', " "))
-                        .unwrap_or_default()
-                }
-            }
-            EditField::Type => {
-                let value = if edit.field == EditField::Type {
-                    edit.pending_type.clone()
-                } else {
-                    issue
-                        .map(|i| i.issue_type.clone())
-                        .unwrap_or_else(|| edit.pending_type.clone())
-                };
-                value.to_string()
-            }
-            EditField::Status => {
-                let value = if edit.field == EditField::Status {
-                    edit.pending_status.clone()
-                } else {
-                    issue
-                        .map(|i| i.status.clone())
-                        .unwrap_or_else(|| edit.pending_status.clone())
-                };
-                value.to_string()
-            }
-        };
+        let active = edit.field == field;
+        let marker = if active { "> " } else { "  " };
+        let value_style = if active { highlight } else { Style::new() };
         let label = match field {
             EditField::Title => "Title",
             EditField::Description => "Description",
             EditField::Type => "Type",
             EditField::Status => "Status",
+        };
+        // The active typed field renders its buffer: one row per line, the
+        // cursor on its line, the label on the first row.
+        if edit.editing && active {
+            let (cursor_line, cursor_col) = edit.buffer.line_col();
+            for (i, line) in edit.buffer.lines.iter().enumerate() {
+                let row_marker = if i == 0 { "> " } else { "  " };
+                let label_span = if i == 0 {
+                    Span::styled(
+                        format!("{label}: "),
+                        Style::new().add_modifier(Modifier::BOLD),
+                    )
+                } else {
+                    Span::raw("")
+                };
+                let text = if i == cursor_line {
+                    format!(
+                        "{}{}{}",
+                        &line[..cursor_col],
+                        EDIT_CURSOR,
+                        &line[cursor_col..]
+                    )
+                } else {
+                    line.clone()
+                };
+                rows.push(Line::from(vec![
+                    Span::raw(row_marker),
+                    label_span,
+                    Span::styled(text, value_style),
+                ]));
+            }
+            continue;
+        }
+        let value = match field {
+            EditField::Title => issue.map(|i| i.title.clone()).unwrap_or_default(),
+            EditField::Description => issue
+                .map(|i| i.description.clone().unwrap_or_default().replace('\n', " "))
+                .unwrap_or_default(),
+            EditField::Type => {
+                if active {
+                    edit.pending_type.to_string()
+                } else {
+                    issue
+                        .map(|i| i.issue_type.to_string())
+                        .unwrap_or_else(|| edit.pending_type.to_string())
+                }
+            }
+            EditField::Status => {
+                if active {
+                    edit.pending_status.to_string()
+                } else {
+                    issue
+                        .map(|i| i.status.to_string())
+                        .unwrap_or_else(|| edit.pending_status.to_string())
+                }
+            }
         };
         rows.push(Line::from(vec![
             Span::raw(marker),
@@ -1821,15 +2011,20 @@ fn edit_pane_lines(app: &App) -> Vec<Line<'static>> {
     }
     let hint = if edit.editing {
         match edit.field {
-            EditField::Title | EditField::Description => {
-                "typing ... Enter applies, Esc cancels".to_string()
-            }
-            EditField::Type | EditField::Status => {
-                "Left/Right cycles, Enter applies, Esc cancels".to_string()
-            }
+            EditField::Description => "Enter: new line, Tab: apply, Esc: cancel".to_string(),
+            EditField::Title => "Enter applies, Esc cancels".to_string(),
+            // Cycled fields never arm, but keep rendering sane if they do.
+            EditField::Type | EditField::Status => "Enter applies, Esc cancels".to_string(),
         }
     } else {
-        "j/k move, Enter edits, Left/Right cycles type/status, Esc closes".to_string()
+        match edit.field {
+            EditField::Title | EditField::Description => {
+                "j/k move, Enter edits, Esc closes".to_string()
+            }
+            EditField::Type | EditField::Status => {
+                "Left/Right cycles, Enter applies, j/k move, Esc closes".to_string()
+            }
+        }
     };
     rows.push(Line::from(Span::styled(
         hint,
@@ -2791,6 +2986,59 @@ mod tests {
         (app, epic_id)
     }
 
+    /// An edit state backed by a real on-disk store (`.no_jj` marker, so no
+    /// jj integration): commits go through the operations layer and the
+    /// reload path like in production.
+    fn edit_app_ops() -> (tempfile::TempDir, App, Uuid) {
+        let tempdir = tempfile::Builder::new()
+            .prefix("pebbles-tui-edit-")
+            .tempdir()
+            .expect("tempdir");
+        let root = tempdir.path().to_path_buf();
+        let pebbles = root.join(".pebbles");
+        std::fs::create_dir_all(pebbles.join("issues")).expect("issues dir");
+        std::fs::write(pebbles.join(".no_jj"), "").expect("no_jj marker");
+        // Short id is the first 8 chars of the uuid string (models short_id):
+        // build the uuid so `00007777` is both the file short and the uuid
+        // prefix (same convention as the e2e fixtures).
+        let id_u128: u128 = 0x7777;
+        let id = Uuid::parse_str(&format!("{:08x}-1111-4222-8333-{:012x}", id_u128, id_u128))
+            .expect("fixture uuid");
+        let file = "bug-00007777-x.json".to_string();
+        let issue = format!(
+            "{{\"id\":\"{id}\",\"title\":\"Solo bug\",\"description\":null,\"status\":\"todo\",\"issue_type\":\"bug\",\"tags\":[],\"relationships\":[],\"metadata\":{{}},\"created_at\":\"2026-01-01T00:00:00Z\",\"updated_at\":\"2026-01-01T00:00:00Z\"}}\n"
+        );
+        std::fs::write(pebbles.join("issues").join(&file), issue).expect("issue file");
+        std::fs::write(
+            pebbles.join("index.json"),
+            format!("{{\"issues\":[{{\"id\":\"{id}\",\"file_name\":\"{file}\"}}]}}"),
+        )
+        .expect("index");
+        let mut app = App::load(&[root.clone()]).expect("load temp project");
+        app.tree_state_mut()
+            .select(vec![root.to_string_lossy().to_string(), id.to_string()]);
+        open_edit(&mut app).unwrap();
+        (tempdir, app, id)
+    }
+
+    fn issue_file(root: &std::path::Path, id: Uuid) -> std::path::PathBuf {
+        let short = id.to_string()[..8].to_string();
+        let files: Vec<std::path::PathBuf> = root
+            .join(".pebbles/issues")
+            .read_dir()
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| {
+                p.file_name()
+                    .map(|n| n.to_string_lossy().contains(&short))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert_eq!(files.len(), 1, "one matching issue file for {id}");
+        files.into_iter().next().unwrap()
+    }
+
     #[test]
     fn step_field_wraps_and_cycles_cover_all_values() {
         assert_eq!(step_field(EditField::Title, 1), EditField::Description);
@@ -2832,6 +3080,41 @@ mod tests {
     }
 
     #[test]
+    fn edit_pane_non_active_rows_show_live_values_while_editing() {
+        let (mut app, epic_id) = edit_app();
+        // Give the epic a description so the live description is visible.
+        let issue = app
+            .projects
+            .iter_mut()
+            .flat_map(|p| p.issues.iter_mut())
+            .find(|i| i.id == epic_id)
+            .unwrap();
+        issue.description = Some("Two lines\nhere".to_string());
+        // Enter arms the title edit; every other row must show the live
+        // value (the display bug: the shared empty buffer + cursor took
+        // over the other text rows while editing any field).
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert!(app.edit.as_ref().unwrap().editing);
+        let rows = draw(&mut app);
+        let joined = rows.join("\n");
+        assert!(
+            joined.contains("> Title: The epic\u{258f}"),
+            "active row shows buffer + cursor: {joined}"
+        );
+        assert!(
+            joined.contains("Description: Two lines here"),
+            "description row shows the live value: {joined}"
+        );
+        assert!(joined.contains("Type: epic"), "{joined}");
+        assert!(joined.contains("Status: todo"), "{joined}");
+        assert_eq!(
+            rows.iter().filter(|r| r.contains('\u{258f}')).count(),
+            1,
+            "cursor appears only on the active row: {rows:?}"
+        );
+    }
+
+    #[test]
     fn edit_pane_renders_fields_pending_values_and_hints() {
         let (mut app, _) = edit_app();
         let rows = draw(&mut app);
@@ -2859,25 +3142,13 @@ mod tests {
             rows.iter().any(|r| r.contains("> Status: in_progress")),
             "{rows:?}"
         );
-        // While editing the field, Esc reverts the pending cycle to the
-        // live value and returns to navigation (the pane stays open).
-        edit_key(&mut app, KeyCode::Enter).unwrap();
-        assert!(app.edit.as_ref().unwrap().editing);
-        edit_key(&mut app, KeyCode::Right).unwrap();
-        assert_eq!(
-            app.edit.as_ref().unwrap().pending_status,
-            Status::Done,
-            "in_progress + one Right = done (already cycled once above)"
+        assert!(
+            rows.iter()
+                .any(|r| r.contains("Left/Right cycles, Enter applies")),
+            "cycled-field hint: {rows:?}"
         );
-        edit_key(&mut app, KeyCode::Esc).unwrap();
-        let edit = app.edit.as_ref().unwrap();
-        assert!(!edit.editing, "Esc leaves the field edit");
-        assert_eq!(
-            edit.pending_status,
-            Status::Todo,
-            "Esc cancels the uncommitted cycle"
-        );
-        // Esc in navigation closes the pane without writing.
+        // Esc in navigation closes the pane without writing: the uncommitted
+        // cycle is dropped with it.
         edit_key(&mut app, KeyCode::Esc).unwrap();
         assert_eq!(app.mode, Mode::Browser);
         assert!(app.edit.is_none());
@@ -2890,15 +3161,15 @@ mod tests {
         edit_key(&mut app, KeyCode::Enter).unwrap();
         let edit = app.edit.as_ref().unwrap();
         assert!(edit.editing);
-        assert_eq!(edit.buffer, "The epic");
+        assert_eq!(edit.buffer.to_string(), "The epic");
         // q types while editing instead of quitting.
         edit_key(&mut app, KeyCode::Char('q')).unwrap();
         edit_key(&mut app, KeyCode::Char('!')).unwrap();
         edit_key(&mut app, KeyCode::Char('?')).unwrap();
         assert!(!app.should_quit, "q appends while editing");
-        assert_eq!(app.edit.as_ref().unwrap().buffer, "The epicq!?");
+        assert_eq!(app.edit.as_ref().unwrap().buffer.to_string(), "The epicq!?");
         edit_key(&mut app, KeyCode::Backspace).unwrap();
-        assert_eq!(app.edit.as_ref().unwrap().buffer, "The epicq!");
+        assert_eq!(app.edit.as_ref().unwrap().buffer.to_string(), "The epicq!");
         // The buffer (with cursor) is rendered while editing.
         let rows = draw(&mut app);
         assert!(
@@ -2926,7 +3197,8 @@ mod tests {
     #[test]
     fn edit_enter_from_navigation_only_starts_editing() {
         let (mut app, _) = edit_app();
-        // One Enter must not apply anything: it enters editing mode.
+        // One Enter on a typed field must not apply anything: it enters
+        // editing mode (cycled fields do apply on the first Enter).
         edit_key(&mut app, KeyCode::Enter).unwrap();
         edit_key(&mut app, KeyCode::Esc).unwrap();
         let rows = draw(&mut app);
@@ -2946,5 +3218,279 @@ mod tests {
         let (mut app, _) = edit_app();
         edit_key(&mut app, KeyCode::Char('q')).unwrap();
         assert!(app.should_quit, "q quits while navigating the pane");
+    }
+
+    // ---- in-buffer editing (r[tui-edit]) ----
+
+    #[test]
+    fn edit_buffer_roundtrips_and_starts_cursor_at_end() {
+        let b = EditBuffer::new("The epic".to_string());
+        assert_eq!(b.to_string(), "The epic");
+        assert_eq!(b.line_col(), (0, 8), "cursor at end for append typing");
+        let empty = EditBuffer::new(String::new());
+        assert!(empty.is_empty());
+        assert_eq!(empty.to_string(), "");
+        // Multi-line text keeps its lines.
+        let multi = EditBuffer::new("one\ntwo".to_string());
+        assert_eq!(multi.to_string(), "one\ntwo");
+        assert_eq!(multi.lines, vec!["one".to_string(), "two".to_string()]);
+    }
+
+    #[test]
+    fn edit_buffer_inserts_at_cursor_and_moves() {
+        let mut b = EditBuffer::new("abc".to_string());
+        b.move_left();
+        b.insert_char('X');
+        assert_eq!(b.to_string(), "abXc");
+        assert_eq!(b.line_col(), (0, 3));
+        b.home();
+        b.insert_char('0');
+        assert_eq!(b.to_string(), "0abXc");
+        b.end();
+        b.insert_char('Z');
+        assert_eq!(b.to_string(), "0abXcZ");
+        // Left at the start of line 0 is a no-op.
+        b.home();
+        b.move_left();
+        assert_eq!(b.line_col(), (0, 0));
+    }
+
+    #[test]
+    fn edit_buffer_backspace_and_delete_at_cursor() {
+        let mut b = EditBuffer::new("abc".to_string());
+        b.backspace();
+        assert_eq!(b.to_string(), "ab");
+        b.home();
+        b.delete();
+        assert_eq!(b.to_string(), "b");
+        assert_eq!(b.line_col(), (0, 0), "delete keeps the cursor put");
+        b.home();
+        b.backspace();
+        assert_eq!(b.to_string(), "b", "backspace at start is a no-op");
+        b.delete();
+        b.delete();
+        assert!(b.is_empty(), "delete to the end");
+    }
+
+    #[test]
+    fn edit_buffer_newline_splits_lines_and_joins_on_commit() {
+        let mut b = EditBuffer::new("first".to_string());
+        b.insert_newline();
+        assert_eq!(b.lines, vec!["first".to_string(), String::new()]);
+        assert_eq!(b.line_col(), (1, 0), "cursor on the fresh line");
+        b.insert_char('s');
+        b.insert_char('e');
+        b.insert_char('c');
+        b.insert_char('o');
+        b.insert_char('n');
+        b.insert_char('d');
+        assert_eq!(b.to_string(), "first\nsecond");
+        // Backspace at the start of a line merges it into the previous one.
+        b.home();
+        b.backspace();
+        assert_eq!(b.to_string(), "firstsecond", "joined lines");
+        assert_eq!(b.line_col(), (0, 5), "cursor at the join point");
+        // Delete at the join point removes the merged line's first char.
+        b.delete();
+        assert_eq!(b.to_string(), "firstecond");
+    }
+
+    #[test]
+    fn edit_buffer_home_end_and_cross_line_navigation() {
+        let mut b = EditBuffer::new("line one\nline two".to_string());
+        b.home();
+        assert_eq!(
+            b.line_col(),
+            (1, 0),
+            "home goes to the current line's start"
+        );
+        b.home();
+        assert_eq!(b.line_col(), (1, 0), "home is line-scoped");
+        b.move_left();
+        assert_eq!(b.line_col(), (0, 8), "left from line start joins line 0");
+        b.home();
+        assert_eq!(b.line_col(), (0, 0));
+        b.move_right();
+        assert_eq!(b.line_col(), (0, 1));
+        b.end();
+        assert_eq!(b.line_col(), (0, 8));
+        // Right at the end of line 0 moves to the start of line 1.
+        b.move_right();
+        assert_eq!(b.line_col(), (1, 0));
+        // Left at the start of line 1 moves to the end of line 0.
+        b.move_left();
+        assert_eq!(b.line_col(), (0, 8));
+    }
+
+    #[test]
+    fn edit_buffer_multibyte_chars_stay_on_boundaries() {
+        let mut b = EditBuffer::new("caf\u{e9}".to_string());
+        assert_eq!(b.line_col(), (0, 5), "é is two bytes");
+        b.move_left();
+        b.insert_char('\u{e9}');
+        assert_eq!(b.to_string(), "caf\u{e9}\u{e9}");
+        b.backspace();
+        assert_eq!(b.to_string(), "caf\u{e9}");
+        b.home();
+        b.delete();
+        assert_eq!(b.to_string(), "af\u{e9}");
+    }
+
+    #[test]
+    fn edit_pane_multi_line_description_renders_rows_with_cursor() {
+        let (mut app, epic_id) = edit_app();
+        let issue = app
+            .projects
+            .iter_mut()
+            .flat_map(|p| p.issues.iter_mut())
+            .find(|i| i.id == epic_id)
+            .unwrap();
+        issue.description = Some("first line\nsecond line".to_string());
+        // Step to Description and arm its edit.
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert!(app.edit.as_ref().unwrap().editing);
+        assert_eq!(
+            app.edit.as_ref().unwrap().buffer.lines.len(),
+            2,
+            "pre-filled with both lines"
+        );
+        // The cursor pre-fills at the end of the text; Home then Left puts
+        // it at the end of line 0, so Enter splits the first line.
+        edit_key(&mut app, KeyCode::Home).unwrap();
+        edit_key(&mut app, KeyCode::Left).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().buffer.line_col(), (0, 10));
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().buffer.to_string(),
+            "first line\n\nsecond line"
+        );
+        let rows = draw(&mut app);
+        let joined = rows.join("\n");
+        assert!(
+            joined.contains("> Description: first line"),
+            "label on the first buffer row: {joined}"
+        );
+        assert!(joined.contains("\u{258f}"), "cursor visible: {joined}");
+        assert!(
+            rows.iter().any(|r| r.contains("second line")),
+            "later buffer lines are their own rows: {rows:?}"
+        );
+        // Non-active rows still show live values, no cursor.
+        assert!(joined.contains("Title: The epic"), "{joined}");
+        assert!(
+            joined.contains("Enter: new line, Tab: apply, Esc: cancel"),
+            "multi-line hint: {joined}"
+        );
+        assert_eq!(
+            rows.iter().filter(|r| r.contains('\u{258f}')).count(),
+            1,
+            "cursor only on the active buffer line: {rows:?}"
+        );
+    }
+
+    #[test]
+    fn edit_cycle_applies_on_first_enter_and_stays() {
+        let (tempdir, mut app, id) = edit_app_ops();
+        let root = tempdir.path().to_path_buf();
+        // Status: step to it, cycle todo -> in_progress, one Enter applies.
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().field, EditField::Status);
+        edit_key(&mut app, KeyCode::Right).unwrap();
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert_eq!(app.mode, Mode::Edit, "pane stays open");
+        assert!(!edit.editing, "no re-arm after the apply");
+        assert_eq!(edit.field, EditField::Status, "highlight stays");
+        assert_eq!(
+            edit.pending_status,
+            Status::InProgress,
+            "pending re-synced to the applied value"
+        );
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap()
+                .contains("Status: in_progress"),
+            "message: {:?}",
+            app.message
+        );
+        let content = std::fs::read_to_string(issue_file(&root, id)).unwrap();
+        assert!(content.contains("\"status\": \"in_progress\""), "{content}");
+        // Enter again without cycling: no-change, still stays.
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert_eq!(
+            app.message.as_deref().unwrap(),
+            "No changes: nothing to update"
+        );
+        assert_eq!(app.mode, Mode::Edit);
+        assert!(!app.edit.as_ref().unwrap().editing);
+        // Type: back to Type, cycle bug -> ux_problem -> usecase (two
+        // Rights in cycle order), one Enter applies.
+        edit_key(&mut app, KeyCode::Char('k')).unwrap();
+        assert_eq!(app.edit.as_ref().unwrap().field, EditField::Type);
+        edit_key(&mut app, KeyCode::Right).unwrap();
+        edit_key(&mut app, KeyCode::Right).unwrap();
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert_eq!(app.mode, Mode::Edit, "still stays after type apply");
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap()
+                .contains("Converted to usecase"),
+            "message: {:?}",
+            app.message
+        );
+        let content = std::fs::read_to_string(issue_file(&root, id)).unwrap();
+        assert!(content.contains("\"issue_type\": \"usecase\""), "{content}");
+        // Esc closes the pane (navigation).
+        edit_key(&mut app, KeyCode::Esc).unwrap();
+        assert_eq!(app.mode, Mode::Browser);
+        assert!(app.edit.is_none());
+    }
+
+    #[test]
+    fn edit_description_enter_inserts_newline_and_tab_applies() {
+        let (tempdir, mut app, id) = edit_app_ops();
+        let root = tempdir.path().to_path_buf();
+        // Step to Description, arm, type a two-line value.
+        edit_key(&mut app, KeyCode::Char('j')).unwrap();
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        for c in "Fixes login".chars() {
+            edit_key(&mut app, KeyCode::Char(c)).unwrap();
+        }
+        edit_key(&mut app, KeyCode::Enter).unwrap();
+        assert_eq!(
+            app.edit.as_ref().unwrap().buffer.to_string(),
+            "Fixes login\n"
+        );
+        for c in "for real".chars() {
+            edit_key(&mut app, KeyCode::Char(c)).unwrap();
+        }
+        // Tab applies the multi-line description (Enter is the newline key).
+        edit_key(&mut app, KeyCode::Tab).unwrap();
+        let edit = app.edit.as_ref().unwrap();
+        assert!(!edit.editing, "Tab applies and leaves the field edit");
+        assert_eq!(
+            edit.buffer.to_string(),
+            "Fixes login\nfor real",
+            "buffer retains the committed text until the next arm"
+        );
+        assert_eq!(app.mode, Mode::Edit, "pane stays open");
+        assert!(
+            app.message
+                .as_deref()
+                .unwrap()
+                .contains("Updated description"),
+            "message: {:?}",
+            app.message
+        );
+        let content = std::fs::read_to_string(issue_file(&root, id)).unwrap();
+        assert!(
+            content.contains("\"description\": \"Fixes login\\nfor real\""),
+            "{content}"
+        );
     }
 }

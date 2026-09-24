@@ -922,7 +922,8 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
         "title applied"
     );
 
-    // Status: step to the field, start editing, cycle todo -> done, apply.
+    // Status: step to the field, cycle todo -> done in navigation, one
+    // Enter applies (commit-and-stay: cycled fields never arm).
     for (needle, _label) in [
         ("> Description:", "desc"),
         ("> Type:", "type"),
@@ -934,11 +935,10 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
             "step to {needle}"
         );
     }
-    t.send(Key::Enter)?;
     assert!(
-        settled(&mut t, "status edit", |s| s
-            .contains("Left/Right cycles, Enter applies, Esc cancels")),
-        "status edit"
+        settled(&mut t, "status hint", |s| s
+            .contains("Left/Right cycles, Enter applies")),
+        "status hint"
     );
     t.send(Key::Right)?;
     t.send(Key::Right)?;
@@ -953,18 +953,21 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
             .contains("Status: done")),
         "status applied"
     );
+    // The apply stays in the pane: the field is still highlighted, ready
+    // to cycle again, without an arming state.
+    assert!(
+        settled(&mut t, "status stays", |s| {
+            s.contains("> Status: done") && !s.contains("Enter applies, Esc cancels")
+        }),
+        "status stays"
+    );
 
-    // Type: back up one field, cycle bug -> usecase, apply.
+    // Type: back up one field, cycle bug -> usecase, apply on the first
+    // Enter after the cycle.
     t.send(Key::Char('k'))?;
     assert!(
         settled(&mut t, "back to type", |s| s.contains("> Type:")),
         "back to type"
-    );
-    t.send(Key::Enter)?;
-    assert!(
-        settled(&mut t, "type edit", |s| s
-            .contains("Left/Right cycles, Enter applies, Esc cancels")),
-        "type edit"
     );
     t.send(Key::Right)?;
     t.send(Key::Right)?;
@@ -980,7 +983,8 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
         "type applied"
     );
 
-    // Description: back up one field, type a value, apply.
+    // Description: back up one field, type a value; Enter inserts a newline
+    // (multi-line buffer), Tab applies.
     t.send(Key::Char('k'))?;
     assert!(
         settled(&mut t, "back to description", |s| s
@@ -990,13 +994,19 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     t.send(Key::Enter)?;
     assert!(
         settled(&mut t, "description edit", |s| s
-            .contains("Enter applies, Esc cancels")),
+            .contains("Enter: new line, Tab: apply")),
         "description edit"
     );
     for c in "Fixes login".chars() {
         t.send(Key::Char(c))?;
     }
     t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "description newline", |s| s
+            .contains("> Description: Fixes login")),
+        "description newline"
+    );
+    t.send(Key::Tab)?;
     assert!(
         settled(&mut t, "description applied", |s| {
             s.row_text(23).contains("Updated description") && s.contains("Fixes login")
@@ -1074,11 +1084,134 @@ fn tui_edit_pane_updates_fields_and_esc_cancels() -> termlens::Result<()> {
     assert!(content.contains("\"status\": \"done\""), "{content}");
     assert!(content.contains("\"issue_type\": \"usecase\""), "{content}");
     assert!(
-        content.contains("\"description\": \"Fixes login\""),
-        "{content}"
+        content.contains("\"description\": \"Fixes login\\n\""),
+        "the description keeps its typed trailing newline: {content}"
     );
     assert!(
         !content.contains("Login bug!"),
+        "the cancelled title edit must not be written: {content}"
+    );
+    Ok(())
+}
+/// While editing one field the other rows keep showing the issue's live
+/// values (regression: the shared empty buffer + cursor used to take over
+/// every text row), and cycled fields apply on the FIRST Enter without an
+/// arming step (r[tui-edit]).
+#[test]
+fn tui_edit_pane_live_rows_and_cycle_applies_on_first_enter() -> termlens::Result<()> {
+    let (_tempdir, root) = fixture_with_issues();
+
+    let mut t = Terminal::builder()
+        .size(100, 24)
+        .env_clear()
+        .env("PEBBLES_DB_PATH", ".pebbles")
+        .env("NO_COLOR", "1")
+        .timeout(std::time::Duration::from_secs(10))
+        .current_dir(&root)
+        .arg("tui")
+        .spawn(env!("CARGO_BIN_EXE_pebbles"))?;
+
+    t.wait_until(|s| s.contains("Auth epic"))?;
+    // Focus the detail pane and open the edit pane on Login bug.
+    t.send(Key::BackTab)?;
+    t.wait_until(|s| s.row_text(23).trim_end().is_empty())?;
+    t.send(Key::Char('e'))?;
+    assert!(
+        settled(&mut t, "edit pane open", |s| {
+            s.contains("edit: 22222222") && s.contains("> Title: Login bug")
+        }),
+        "edit pane open"
+    );
+
+    // Arm the Title edit: the cursor glyph appears on exactly one row, and
+    // no non-active row shows it - those rows keep live values.
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "live non-active rows", |s| {
+            let mut cursor_rows = 0;
+            let mut non_active_clean = true;
+            for y in 0..24 {
+                let row = s.row_text(y);
+                if row.contains('\u{258f}') {
+                    cursor_rows += 1;
+                }
+                if (row.contains("Description:")
+                    || row.contains("Type:")
+                    || row.contains("Status:"))
+                    && row.contains('\u{258f}')
+                {
+                    non_active_clean = false;
+                }
+            }
+            s.contains("> Title: Login bug")
+                && cursor_rows == 1
+                && non_active_clean
+                && s.contains("Status: todo")
+        }),
+        "live non-active rows"
+    );
+    t.send(Key::Esc)?;
+    assert!(
+        settled(&mut t, "field edit cancelled", |s| {
+            s.contains("j/k move, Enter edits") && s.contains("Status: todo")
+        }),
+        "field edit cancelled"
+    );
+
+    // Status: step to it (three j presses wrap Title to Status), cycle
+    // todo -> done, and apply with the FIRST Enter - no arm first.
+    for _ in 0..3 {
+        t.send(Key::Char('j'))?;
+    }
+    assert!(
+        settled(&mut t, "on status", |s| s.contains("> Status: todo")),
+        "on status"
+    );
+    t.send(Key::Right)?;
+    t.send(Key::Right)?;
+    t.send(Key::Enter)?;
+    assert!(
+        settled(&mut t, "status applied", |s| s
+            .row_text(23)
+            .contains("Status: done")),
+        "status applied"
+    );
+    // One Enter applied and stayed: no second arming state, the pane is
+    // still open on the same field.
+    assert!(
+        settled(&mut t, "no re-arm", |s| {
+            s.contains("> Status: done")
+                && s.contains("Left/Right cycles, Enter applies")
+                && s.row_text(23).contains("Status: done")
+        }),
+        "no re-arm"
+    );
+
+    t.send(Key::Esc)?;
+    assert!(
+        settled(&mut t, "pane closed", |s| !s.contains("edit: 22222222")),
+        "pane closed"
+    );
+    t.send(Key::Char('q'))?;
+    let status = t.wait_exit()?;
+    assert!(status.success(), "exit: {status}");
+
+    // The single Enter landed on disk.
+    let files: Vec<String> = root
+        .join(".pebbles/issues")
+        .read_dir()
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .map(|e| e.file_name().to_string_lossy().to_string())
+        .collect();
+    let edited = files
+        .iter()
+        .find(|f| f.contains("22222222"))
+        .unwrap_or_else(|| panic!("edited issue file: {files:?}"));
+    let content = fs::read_to_string(root.join(".pebbles/issues").join(edited)).unwrap();
+    assert!(content.contains("\"status\": \"done\""), "{content}");
+    assert!(
+        content.contains("\"title\": \"Login bug\""),
         "the cancelled title edit must not be written: {content}"
     );
     Ok(())
