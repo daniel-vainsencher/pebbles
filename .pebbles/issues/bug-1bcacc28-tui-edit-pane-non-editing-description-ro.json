@@ -1,0 +1,12 @@
+{
+  "id": "1bcacc28-063d-4090-9b8a-45af26f36966",
+  "title": "TUI edit pane: non-editing Description row flattens newlines to spaces",
+  "description": "The edit pane's non-active Description row renders the issue description with `replace('\\n', ' ')` (src/tui.rs field_row), so a multi-line description shows as one run-on line when the field is not being edited - hard to parse. The detail pane and the active-edit widget both preserve line breaks. Fix: render the non-active Description row as multiple lines in the pane (split on '\\n' like the detail pane), keep wrap behavior, and update the related unit test that asserts the flattened form. Reported by user 2026-09-24.",
+  "status": "todo",
+  "issue_type": "bug",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-09-25T13:13:40.270793156Z",
+  "updated_at": "2026-09-25T13:13:40.270793156Z"
+}

@@ -439,6 +439,10 @@
     {
       "id": "e4b6ab33-fd53-4d6b-bdd1-446f71d4197f",
       "file_name": "ux-e4b6ab33-test-ux-issue.json"
+    },
+    {
+      "id": "1bcacc28-063d-4090-9b8a-45af26f36966",
+      "file_name": "bug-1bcacc28-tui-edit-pane-non-editing-description-ro.json"
     }
   ]
 }
