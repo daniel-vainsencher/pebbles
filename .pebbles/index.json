@@ -443,6 +443,10 @@
     {
       "id": "1bcacc28-063d-4090-9b8a-45af26f36966",
       "file_name": "bug-1bcacc28-tui-edit-pane-non-editing-description-ro.json"
+    },
+    {
+      "id": "11265333-8fa8-4afa-ba15-c579ff681f40",
+      "file_name": "bug-11265333-tui-edit-pane-description-editor-slot-cl.json"
     }
   ]
 }
