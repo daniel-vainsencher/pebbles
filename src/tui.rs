@@ -1920,7 +1920,19 @@ fn field_row(edit: &EditState, issue: Option<&Issue>, field: EditField) -> Line<
     let value = match field {
         EditField::Title => issue.map(|i| i.title.clone()).unwrap_or_default(),
         EditField::Description => issue
-            .map(|i| i.description.clone().unwrap_or_default().replace('\n', " "))
+            // First line only; continuation lines are emitted by
+            // field_rows so multi-line descriptions stay parseable (bug 1bc).
+            .map(|i| {
+                let first = i
+                    .description
+                    .clone()
+                    .unwrap_or_default()
+                    .split('\n')
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()[0]
+                    .clone();
+                first
+            })
             .unwrap_or_default(),
         EditField::Type => {
             if active {
@@ -1992,6 +2004,45 @@ fn is_edit_slot(edit: &EditState, field: EditField) -> bool {
         && edit.field == field
 }
 
+/// Pane row count for a non-slot field: one, except the non-edited
+/// Description keeps its line structure (split on '\n', mirroring the
+/// detail pane) so multi-line descriptions stay parseable (bug 1bc).
+fn field_row_count(edit: &EditState, issue: Option<&Issue>, field: EditField) -> usize {
+    if field == EditField::Description && !is_edit_slot(edit, field) {
+        let desc = issue
+            .map(|i| i.description.clone().unwrap_or_default())
+            .unwrap_or_default();
+        return desc
+            .split('\n')
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+            .len()
+            .max(1);
+    }
+    1
+}
+
+/// Rows for a non-slot field. The Description's continuation lines render
+/// indented under the first (label) row; all other fields are one row.
+fn field_rows(edit: &EditState, issue: Option<&Issue>, field: EditField) -> Vec<Line<'static>> {
+    let n = field_row_count(edit, issue, field);
+    if n == 1 {
+        return vec![field_row(edit, issue, field)];
+    }
+    let desc = issue
+        .map(|i| i.description.clone().unwrap_or_default())
+        .unwrap_or_default();
+    let mut out = Vec::new();
+    for (i, part) in desc.split('\n').enumerate() {
+        if i == 0 {
+            out.push(field_row(edit, issue, field));
+        } else {
+            out.push(Line::raw(format!("  {part}")));
+        }
+    }
+    out
+}
+
 /// Rows and heights for the rect-based edit pane (d31): `above` rows on
 /// top, then the widget slot of `editor_height` rows, then `below` rows
 /// (including the hint). When no typed field is armed the slot is empty
@@ -2003,6 +2054,7 @@ fn edit_pane_geometry(app: &App, width: usize) -> (usize, usize, usize) {
     let Some(edit) = &app.edit else {
         return (0, 0, 0);
     };
+    let issue: Option<&Issue> = issue_with_project(app, edit.issue_id).map(|(i, _)| i);
     let mut above = 0;
     let mut below = 0;
     let mut editor_height = 0;
@@ -2011,10 +2063,11 @@ fn edit_pane_geometry(app: &App, width: usize) -> (usize, usize, usize) {
             editor_height = edit_area_height(&edit.textarea, width);
             continue;
         }
+        let rows = field_row_count(edit, issue, *field);
         if i < field_index(edit.field) {
-            above += 1;
+            above += rows;
         } else {
-            below += 1;
+            below += rows;
         }
     }
     let hint_height = 1;
@@ -2045,7 +2098,9 @@ fn render_edit_pane(f: &mut Frame, app: &mut App, area: Rect) {
         if slot == Some(field) {
             continue;
         }
-        rows.push(field_row(edit, issue, field));
+        for r in field_rows(edit, issue, field) {
+            rows.push(r);
+        }
     }
     let (_, slot_h_raw, _) = edit_pane_geometry(app, inner.width as usize);
     // slot_h = label row + wrapped content rows (or just the content when
@@ -3185,8 +3240,16 @@ mod tests {
             "title content in the widget slot: {joined}"
         );
         assert!(
-            joined.contains("Description: Two lines here"),
-            "description row shows the live value: {joined}"
+            joined.contains("Description: Two lines"),
+            "description first line shows in the live row: {joined}"
+        );
+        assert!(
+            joined.contains("  here"),
+            "description continuation line keeps its line break (bug 1bc): {joined}"
+        );
+        assert!(
+            !joined.contains("Two lines here"),
+            "description no longer flattens to one line (bug 1bc): {joined}"
         );
         assert!(joined.contains("Type: epic"), "{joined}");
         assert!(joined.contains("Status: todo"), "{joined}");
