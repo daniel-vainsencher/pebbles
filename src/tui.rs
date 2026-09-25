@@ -2070,10 +2070,11 @@ fn edit_pane_geometry(app: &App, width: usize) -> (usize, usize, usize) {
             below += rows;
         }
     }
-    let hint_height = 1;
-    // The slot also hosts the active field's label row, above the widget.
-    let available = (above + below + hint_height + if editor_height > 0 { 1 } else { 0 }).max(1);
-    (above, editor_height.min(available).max(1), below)
+    // The slot grows with the widget's wrapped content; render_edit_pane
+    // clamps it to what the detail area actually affords (bug 2c0 - the old
+    // 'available' clamp capped the editor by the pane's OTHER rows, so a
+    // multi-line description got a 3-4 line window in any terminal).
+    (above, editor_height.max(1), below)
 }
 
 /// Render the inline edit pane into the detail area: field rows above and
@@ -3573,6 +3574,33 @@ mod tests {
             !joined.contains("> Title: The epic"),
             "the active field is the widget slot, not a highlighted row: {joined}"
         );
+    }
+
+    #[test]
+    fn edit_pane_description_slot_grows_with_content() {
+        // Regression (bug 11265333): the editor slot was capped by the pane's
+        // OTHER rows (~3-4 lines) instead of the content/area, so long
+        // descriptions got a tiny window even in a large terminal. With
+        // the fix the slot grows: 6 description lines must all render.
+        let (mut app, epic_id) = edit_app();
+        let issue = app
+            .projects
+            .iter_mut()
+            .flat_map(|p| p.issues.iter_mut())
+            .find(|i| i.id == epic_id)
+            .unwrap();
+        issue.description = Some("line 1\nline 2\nline 3\nline 4\nline 5\nline 6".to_string());
+        // Step to Description and arm its edit.
+        edit_key(&mut app, key_event(KeyCode::Char('j'))).unwrap();
+        edit_key(&mut app, key_event(KeyCode::Enter)).unwrap();
+        assert!(app.edit.as_ref().unwrap().editing);
+        let rows = draw(&mut app);
+        for n in 1..6 {
+            assert!(
+                rows.iter().any(|r| r.contains(&format!("line {n}"))),
+                "description line {n} visible in the grown slot: {rows:?}"
+            );
+        }
     }
 
     fn edit_cycle_applies_on_first_enter_and_stays() {
