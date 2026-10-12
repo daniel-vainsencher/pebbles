@@ -1,0 +1,12 @@
+{
+  "id": "5056de82-bd36-44e8-8f3c-67c44c4fe558",
+  "title": "Flow edge cases: missing relationship targets and very large graphs",
+  "description": "Two edge cases from the original flow-error-handling pass (ca83f52a, closed as done 2026-10-06) that remain unhandled:\n\n1. Missing relationship targets: a required_for/scheduled_before edge whose target issue does not exist in the store. Decide skip vs warn; give a clear message. Add unit tests and document in help text.\n2. Very large graphs (>500 issues): warn or paginate instead of unbounded layout.\n\nEverything else from ca83f52a is merged: cycle and self-cycle rejection, empty-store message, unknown-goal error, isolated-goal error (see flow.rs tests and tests/workflows/flow-goal.trycmd).",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-10-12T15:29:45.197209005Z",
+  "updated_at": "2026-10-12T15:29:45.197209005Z"
+}
