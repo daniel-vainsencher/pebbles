@@ -1,0 +1,12 @@
+{
+  "id": "258370c9-0e89-40dc-85ba-b1d6da60bd1e",
+  "title": "TUI edit pane: system clipboard paste/copy and widget-keymap docs",
+  "description": "The ratatui-textarea edit pane (d31) already works for editable-text keys via the widget: ctrl+Left/Right word moves, shift+arrow selection, ctrl+z/ctrl+r undo/redo, and ctrl+c/x/v against the widget's internal yank buffer all function (verified 2026-10-06; the pane routes every key code plus modifiers to TextArea::input while a field is armed). Two conveniences are genuinely missing:\n\n1. System-clipboard paste: text from outside pebbles cannot enter the editor. The TUI event loop (src/tui.rs event_loop) matches only Event::Key and silently drops Event::Paste; bracketed paste is not enabled; and the widget's Ctrl+V pastes only its internal yank. Fix by configuring, not replacing: enable crossterm bracketed paste, route Event::Paste into the armed TextArea (set_yank_text + paste(), or insert_str), and make Ctrl+V read the system clipboard (clipboard crate, e.g. arboard; OSC 52 / xclip as fallback).\n\n2. System-clipboard copy: widget Ctrl+C copies into the internal yank buffer only; text cannot leave pebbles. Add pane-level copy-out of the selection (or current field) to the system clipboard.\n\nAlso:\n- Document the widget editing keymap (word moves, selection, undo/redo, internal yank copy/cut/paste) in the edit-pane hint and SPEC r[tui-edit]; it is currently undocumented.\n- Add termlens e2e (tests/tui_e2e.rs) for widget conveniences: paste event, ctrl+arrow word move, shift+arrow selection, ctrl+z undo, ctrl+v internal paste.\n\nReplace the widget only if configuration cannot express these - it should not need to, since the widget accepts arbitrary Input and inserted text.",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-10-12T15:51:31.687090880Z",
+  "updated_at": "2026-10-12T15:51:31.687090880Z"
+}
