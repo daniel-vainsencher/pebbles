@@ -48,7 +48,7 @@ pub struct ImportPlan {
 /// regardless of the in-memory load order (r[export-order]).
 fn sorted_by_id(issues: &[Issue]) -> Vec<Issue> {
     let mut out: Vec<Issue> = issues.to_vec();
-    out.sort_by(|a, b| a.id.to_string().cmp(&b.id.to_string()));
+    out.sort_by_key(|a| a.id.to_string());
     out
 }
 
