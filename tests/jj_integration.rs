@@ -1091,7 +1091,7 @@ fn t30_reindex_repairs_conflicted_index() {
     // adopt it (the files are the truth).
     let new_file = "bug-55555555-hand-written-issue.json";
     std::fs::write(
-        repo.root.join(".pebbles/issues").join(&new_file),
+        repo.root.join(".pebbles/issues").join(new_file),
         r#"{
            "id": "55555555-5555-5555-5555-555555555555",
            "title": "Hand written issue",
@@ -1123,7 +1123,7 @@ fn t30_reindex_repairs_conflicted_index() {
     let paths = parse_summary_paths(&diff);
     assert_eq!(
         &paths,
-        &p(&[&issue_path(&new_file), INDEX_PATH]),
+        &p(&[&issue_path(new_file), INDEX_PATH]),
         "reindex leaves only the index change: {:?}",
         paths
     );
@@ -1152,7 +1152,7 @@ fn t31_store_without_jj_repo_writes_and_exits_0() {
     remove_dir_all(&repo.root.join(".jj")).expect("remove .jj");
 
     let output = Command::new(PEBBLES_BIN)
-        .args(&["new", "Beta", "-t", "bug", "--approved"])
+        .args(["new", "Beta", "-t", "bug", "--approved"])
         .current_dir(&repo.root)
         .env("PEBBLES_DB_PATH", ".pebbles")
         .env("NO_COLOR", "1")
@@ -1186,7 +1186,7 @@ fn remove_dir_all(path: &std::path::Path) -> std::io::Result<()> {
         if entry.path().is_dir() {
             remove_dir_all(&entry.path())?;
         } else {
-            std::fs::remove_file(&entry.path())?;
+            std::fs::remove_file(entry.path())?;
         }
     }
     std::fs::remove_dir(path)

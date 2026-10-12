@@ -242,7 +242,6 @@ pub fn render_text(
     let mut blocked = vec![false; issues.len()];
     let mut blocks_others = vec![false; issues.len()];
     let mut has_edges = vec![false; issues.len()];
-    let mut has_edges = vec![false; issues.len()];
     for &(source, target) in &edges {
         has_edges[source as usize] = true;
         has_edges[target as usize] = true;
@@ -267,8 +266,8 @@ pub fn render_text(
     // Issues without dependency edges have no layer and no indicator;
     // they render as a trailing list.
     let mut standalone: Vec<usize> = Vec::new();
-    for idx in 0..issues.len() {
-        if !has_edges[idx] {
+    for (idx, has_edge) in has_edges.iter().enumerate() {
+        if !has_edge {
             standalone.push(idx);
         }
     }
@@ -353,7 +352,7 @@ pub fn render_text(
                 .iter()
                 .map(|(idx, _)| *idx)
                 .collect::<Vec<_>>();
-            sorted_by_layer.insert(layer.clone(), indices);
+            sorted_by_layer.insert(layer, indices);
         }
 
         let mut rows: Vec<Vec<String>> = Vec::new();
@@ -707,12 +706,12 @@ pub fn critical_issues(issues: &[Issue], goal: Uuid) -> Result<HashSet<usize>, S
     // Check if any visited node is a root (no predecessors)
     let has_root = visited.iter().any(|&idx| predecessors[idx].is_empty());
     if !has_root {
-        return Err(format!("Goal issue has no path to any root"));
+        return Err("Goal issue has no path to any root".to_string());
     }
 
     // Goal isolated (no incoming edges, no outgoing edges) -> error
     if visited.len() == 1 && predecessors[goal_idx].is_empty() && successors[goal_idx].is_empty() {
-        return Err(format!("Goal issue has no path to any root"));
+        return Err("Goal issue has no path to any root".to_string());
     }
 
     Ok(visited)
@@ -784,14 +783,12 @@ pub fn render_dot(
     // Components with edges become cluster subgraphs; standalone issues
     // stay at the top level, mirroring the text renderer's "Issues with
     // dependencies" then "Standalone issues" section order.
-    for comp in 0..components.len() {
-        let component = &components[comp];
+    for (comp, component) in components.iter().enumerate() {
         if component.len() == 1 {
             continue;
         }
         output.push_str(&format!("  subgraph cluster_{} {{\n", comp));
-        for member in 0..component.len() {
-            let idx = component[member];
+        for &idx in component {
             let issue = &issues[idx];
             let penwidth_attr = if critical.contains(&idx) {
                 " penwidth=2"
@@ -829,8 +826,7 @@ pub fn render_dot(
         output.push_str("  }\n\n");
     }
 
-    for comp in 0..components.len() {
-        let component = &components[comp];
+    for component in &components {
         if component.len() != 1 {
             continue;
         }
@@ -981,7 +977,7 @@ pub fn render_json(
             short_id: issue.short_id(),
             title: issue.title.clone(),
             issue_type: issue.issue_type.clone(),
-            status: issue.status.clone(),
+            status: issue.status,
             x,
             y,
             in_critical_path: if goal.is_some() {
@@ -1184,7 +1180,7 @@ mod tests {
             text,
             format!(
                 "═══ Project Flow ═══\n\nStandalone issues (1 total):\n  {} Lone\n",
-                issues[0].id.to_string()[..8].to_string()
+                &issues[0].id.to_string()[..8]
             ),
         );
     }
@@ -1193,7 +1189,7 @@ mod tests {
     #[test]
     fn test_render_text_empty() {
         let text = render_text(
-            &vec![],
+            &[],
             &FlowLayout {
                 coordinates: Vec::new(),
                 width: 0.0,
@@ -1258,7 +1254,7 @@ mod tests {
     /// per-status node colors, and standalone issues at the top level.
     #[test]
     fn test_render_dot_fixture() {
-        let mut a = issue_with_status("A", Status::Done);
+        let a = issue_with_status("A", Status::Done);
         let mut b = issue("B");
         b.status = Status::Todo;
         let c = issue("C");
@@ -1340,7 +1336,7 @@ mod tests {
     fn test_render_dot_truncates_titles() {
         let issue = issue("0123456789012345678901234567890123456789");
         let dot = render_dot(
-            &vec![issue],
+            &[issue],
             &FlowLayout {
                 coordinates: vec![(0, (0.0, 0.0))],
                 width: 100.0,
@@ -1364,7 +1360,7 @@ mod tests {
     #[test]
     fn test_render_dot_empty() {
         let dot = render_dot(
-            &vec![],
+            &[],
             &FlowLayout {
                 coordinates: Vec::new(),
                 width: 0.0,
@@ -1502,11 +1498,8 @@ mod tests {
         let nodes = root.get("nodes").unwrap().as_array().unwrap();
         assert_eq!(nodes.len(), 2);
         // Both nodes are on critical path (A root, B goal)
-        for i in 0..nodes.len() {
-            assert_eq!(
-                nodes[i].get("in_critical_path").unwrap().as_bool().unwrap(),
-                true
-            );
+        for node in nodes {
+            assert!(node.get("in_critical_path").unwrap().as_bool().unwrap());
         }
     }
 
@@ -1515,7 +1508,7 @@ mod tests {
     #[test]
     fn test_render_json_empty() {
         let json = render_json(
-            &vec![],
+            &[],
             &FlowLayout {
                 coordinates: Vec::new(),
                 width: 0.0,
@@ -1560,7 +1553,7 @@ mod tests {
     fn test_render_json_escapes_titles() {
         let escaped = issue("Say \"hi\" \\ line");
         let json = render_json(
-            &vec![escaped],
+            &[escaped],
             &FlowLayout {
                 coordinates: vec![(0, (0.0, 0.0))],
                 width: 100.0,
@@ -1579,7 +1572,6 @@ mod tests {
         assert_eq!(title, "Say \"hi\" \\ line");
     }
 
-    #[test]
     #[test]
     fn test_critical_issues() {
         // Helper to create a relationship

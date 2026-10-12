@@ -510,7 +510,7 @@ impl EditState {
             editing: false,
             textarea: TextArea::default(),
             pending_type: issue.issue_type.clone(),
-            pending_status: issue.status.clone(),
+            pending_status: issue.status,
         }
     }
 
@@ -523,12 +523,7 @@ impl EditState {
     /// (row, col) of the widget cursor, in characters from the line head.
     fn cursor(&self) -> (usize, usize) {
         let cursor = self.textarea.cursor();
-        (cursor.0 as usize, cursor.1 as usize)
-    }
-
-    #[cfg(test)]
-    fn is_empty(&self) -> bool {
-        self.textarea.is_empty()
+        (cursor.0, cursor.1)
     }
 }
 
@@ -603,7 +598,7 @@ fn wrapped_row_count(lines: &[String], width: usize, tab_len: u8) -> usize {
             // for the wide-word case.
             words
                 .iter()
-                .map(|w| (display_width(w, tab_len) + width - 1) / width)
+                .map(|w| display_width(w, tab_len).div_ceil(width))
                 .sum::<usize>()
                 .max(1)
         })
@@ -628,7 +623,7 @@ fn field_index(field: EditField) -> usize {
 /// The field `delta` steps away, wrapping around both ends.
 fn step_field(field: EditField, delta: i8) -> EditField {
     let next = (field_index(field) as i8 + delta).rem_euclid(EDIT_FIELDS.len() as i8) as usize;
-    EDIT_FIELDS[next].clone()
+    EDIT_FIELDS[next]
 }
 
 /// The types the edit pane cycles through, in display order.
@@ -666,7 +661,7 @@ fn cycle_status(status: Status, delta: i8) -> Status {
         .position(|s| *s == status)
         .expect("known status");
     let next = (pos as i8 + delta).rem_euclid(STATUS_CYCLE.len() as i8) as usize;
-    STATUS_CYCLE[next].clone()
+    STATUS_CYCLE[next]
 }
 
 pub struct App {
@@ -968,7 +963,7 @@ impl App {
         }
         // Drop projects that are no longer discovered, then reorder to the
         // registry order (fresh discovery sorts by index mtime, r[project-registry]).
-        self.projects.retain(|p| roots.iter().any(|r| *r == p.root));
+        self.projects.retain(|p| roots.contains(&p.root));
         let mut reordered: Vec<ProjectData> = Vec::new();
         for root in &roots {
             let pos = self
@@ -1300,7 +1295,7 @@ fn selected_project(app: &App) -> Option<&ProjectData> {
     }
     app.projects
         .iter()
-        .find(|pd| pd.root.to_string_lossy().to_string() == *sel)
+        .find(|pd| *pd.root.to_string_lossy() == *sel)
 }
 
 fn render_help(f: &mut Frame, app: &mut App) {
@@ -1633,7 +1628,7 @@ fn delete_selected(app: &mut App) -> Result<()> {
 
 /// The live issue `issue_id` and its project, wherever they are now (the
 /// pane pins the issue, so commits survive tree reloads and re-sorts).
-fn issue_with_project<'a>(app: &'a App, issue_id: Uuid) -> Option<(&'a Issue, &'a ProjectData)> {
+fn issue_with_project(app: &App, issue_id: Uuid) -> Option<(&Issue, &ProjectData)> {
     let pd = app.project_of(&issue_id)?;
     let issue = pd.issues.iter().find(|i| i.id == issue_id)?;
     Some((issue, pd))
@@ -1695,7 +1690,7 @@ fn select_item(app: &mut App, identifier: &str) -> bool {
 fn cycle_edit(edit: &mut EditState, delta: i8) {
     match edit.field {
         EditField::Type => edit.pending_type = cycle_type(edit.pending_type.clone(), delta),
-        EditField::Status => edit.pending_status = cycle_status(edit.pending_status.clone(), delta),
+        EditField::Status => edit.pending_status = cycle_status(edit.pending_status, delta),
         EditField::Title | EditField::Description => {}
     }
 }
@@ -1737,17 +1732,15 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
                 ),
             )
         }),
-        EditField::Status => ops
-            .update_status(&id, edit.pending_status.clone())
-            .map(|out| {
-                (
-                    out.value,
-                    fold_warnings(
-                        format!("\u{2713} Status: {}", edit.pending_status),
-                        &out.warnings,
-                    ),
-                )
-            }),
+        EditField::Status => ops.update_status(&id, edit.pending_status).map(|out| {
+            (
+                out.value,
+                fold_warnings(
+                    format!("\u{2713} Status: {}", edit.pending_status),
+                    &out.warnings,
+                ),
+            )
+        }),
     };
     match outcome {
         Ok((false, _)) => {
@@ -1767,7 +1760,7 @@ fn commit_edit(app: &mut App, edit: &mut EditState) -> Result<()> {
             edit.editing = false;
             if let Some(issue) = issue_with_project(app, edit.issue_id) {
                 edit.pending_type = issue.0.issue_type.clone();
-                edit.pending_status = issue.0.status.clone();
+                edit.pending_status = issue.0.status;
             }
         }
         Err(e) => {
@@ -1869,7 +1862,7 @@ fn edit_key(app: &mut App, key: crossterm::event::KeyEvent) -> Result<()> {
                 edit.editing = false;
                 if let Some(issue) = issue_with_project(app, edit.issue_id) {
                     edit.pending_type = issue.0.issue_type.clone();
-                    edit.pending_status = issue.0.status.clone();
+                    edit.pending_status = issue.0.status;
                 }
             } else {
                 closed = true;
@@ -2115,9 +2108,9 @@ fn render_edit_pane(f: &mut Frame, app: &mut App, area: Rect) {
     } else {
         0
     };
-    let slot_index = slot.map(|f| field_index(f)).unwrap_or(0);
-    let upper: Vec<Line<'static>> = rows[..slot_index].iter().cloned().collect();
-    let mut lower: Vec<Line<'static>> = rows[slot_index..].iter().cloned().collect();
+    let slot_index = slot.map(field_index).unwrap_or(0);
+    let upper: Vec<Line<'static>> = rows[..slot_index].to_vec();
+    let mut lower: Vec<Line<'static>> = rows[slot_index..].to_vec();
     lower.push(edit_hint(edit));
     let [top_area, slot_area, bottom_area] = Layout::vertical([
         Constraint::Length(upper.len() as u16),
@@ -2423,7 +2416,7 @@ mod tests {
             let issue = app
                 .projects
                 .iter()
-                .find(|p| p.root == PathBuf::from("/repos/beta"))
+                .find(|p| p.root == Path::new("/repos/beta"))
                 .unwrap()
                 .issues
                 .iter()
@@ -3153,7 +3146,7 @@ mod tests {
             format!("{{\"issues\":[{{\"id\":\"{id}\",\"file_name\":\"{file}\"}}]}}"),
         )
         .expect("index");
-        let mut app = App::load(&[root.clone()]).expect("load temp project");
+        let mut app = App::load(std::slice::from_ref(&root)).expect("load temp project");
         app.tree_state_mut()
             .select(vec![root.to_string_lossy().to_string(), id.to_string()]);
         open_edit(&mut app).unwrap();
@@ -3260,6 +3253,7 @@ mod tests {
         );
     }
 
+    #[test]
     fn edit_pane_renders_fields_pending_values_and_hints() {
         let (mut app, _) = edit_app();
         let rows = draw(&mut app);
@@ -3408,7 +3402,7 @@ mod tests {
 
     fn textarea_lines_of(ta: &TextArea<'static>) -> (usize, usize) {
         let cursor = ta.cursor();
-        (cursor.0 as usize, cursor.1 as usize)
+        (cursor.0, cursor.1)
     }
 
     #[test]
@@ -3457,7 +3451,7 @@ mod tests {
         b.insert_newline();
         assert_eq!(b.lines(), vec!["first".to_string(), String::new()]);
         assert_eq!(textarea_lines_of(&b), (1, 0), "cursor on the fresh line");
-        b.insert_str("second".to_string());
+        b.insert_str("second");
         assert_eq!(b.lines().join("\n"), "first\nsecond");
         // Backspace at the start of a line merges it into the previous one.
         b.move_cursor(ratatui_textarea::CursorMove::Head);
@@ -3521,6 +3515,7 @@ mod tests {
         assert_eq!(b.lines().join("\n"), "af\u{e9}");
     }
 
+    #[test]
     fn edit_pane_multi_line_description_reserves_slot_and_renders() {
         let (mut app, epic_id) = edit_app();
         let issue = app
@@ -3603,6 +3598,7 @@ mod tests {
         }
     }
 
+    #[test]
     fn edit_cycle_applies_on_first_enter_and_stays() {
         let (tempdir, mut app, id) = edit_app_ops();
         let root = tempdir.path().to_path_buf();

@@ -11,9 +11,9 @@ use uuid::Uuid;
 /// 2. `env_no_color` - `NO_COLOR` set (any value) suppresses color;
 /// 3. `clicolor_zero` - `CLICOLOR=0` suppresses color;
 /// 4. `is_tty` - with no suppressor present, only a terminal gets color.
-/// The imperative shell reads the environment and the flag, then routes
-/// every render through the `colored` crate's global override with this
-/// decision, so list/show/epic/summary/flow/tips all honor it uniformly.
+///    The imperative shell reads the environment and the flag, then routes
+///    every render through the `colored` crate's global override with this
+///    decision, so list/show/epic/summary/flow/tips all honor it uniformly.
 pub fn should_color(
     no_color_flag: bool,
     env_no_color: bool,
@@ -83,8 +83,8 @@ pub struct BlockerMarker {
 /// - " ⛔ (circular)" (red) when it sits on a dependency cycle (a circular
 ///   issue is flagged even when it is also blocked);
 /// - " → (blocking: <ids>)" (blue) when other open issues depend on it.
-/// An issue that is both blocked and blocking only shows the blocked
-/// marker; done issues show no marker at all.
+///   An issue that is both blocked and blocking only shows the blocked
+///   marker; done issues show no marker at all.
 ///
 /// Pure: no I/O and no color emission, so the selection is unit-testable
 /// and the renderer decides whether to actually paint.

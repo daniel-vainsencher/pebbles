@@ -13,7 +13,7 @@ use crate::storage::{unknown_top_level_keys, LoadWarning};
 /// # use pebbles::export::EXPORT_FORMAT;
 /// assert_eq!(EXPORT_FORMAT, "pebbles-export");
 /// ```
-pub const EXPORT_FORMAT: &'static str = "pebbles-export";
+pub const EXPORT_FORMAT: &str = "pebbles-export";
 
 /// The schema version of the export bundle format this pebbles writes and
 /// imports (r[export-bundle]). Bump on any incompatible change to the
@@ -47,7 +47,7 @@ pub struct ImportPlan {
 /// Exports use this order so the output is canonical and diff-friendly
 /// regardless of the in-memory load order (r[export-order]).
 fn sorted_by_id(issues: &[Issue]) -> Vec<Issue> {
-    let mut out: Vec<Issue> = issues.iter().cloned().collect();
+    let mut out: Vec<Issue> = issues.to_vec();
     out.sort_by(|a, b| a.id.to_string().cmp(&b.id.to_string()));
     out
 }
@@ -56,7 +56,7 @@ fn sorted_by_id(issues: &[Issue]) -> Vec<Issue> {
 /// export lists epics, children, and orphans this way so the document is
 /// deterministic (r[export-order]).
 fn sorted_by_title(issues: &[Issue]) -> Vec<Issue> {
-    let mut out: Vec<Issue> = issues.iter().cloned().collect();
+    let mut out: Vec<Issue> = issues.to_vec();
     out.sort_by(|a, b| a.title.cmp(&b.title));
     out
 }
@@ -127,7 +127,7 @@ pub fn export_csv(issues: &[Issue]) -> String {
             Some(d) => d.clone(),
             None => String::new(),
         };
-        let row = vec![
+        let row = [
             csv_encode_field(&issue.id.to_string()),
             csv_encode_field(&issue.title),
             csv_encode_field(&description),
@@ -315,7 +315,7 @@ pub fn parse_export_bundle(content: &str) -> Result<ImportPlan> {
 /// // A duplicate inside the bundle is rejected.
 /// assert!(validate_import(&[a.clone(), a.clone()], &[]).is_err());
 /// // A clash with an existing store id is rejected.
-/// assert!(validate_import(&[a.clone()], &[a.id]).is_err());
+/// assert!(validate_import(std::slice::from_ref(&a), &[a.id]).is_err());
 /// // Distinct ids import cleanly.
 /// assert!(validate_import(&[a.clone(), b.clone()], &[]).is_ok());
 /// ```
@@ -574,7 +574,7 @@ mod tests {
         let a = issue_with_id("11111111-1111-1111-1111-111111111111");
         let b = issue_with_id("22222222-2222-2222-2222-222222222222");
         assert!(validate_import(&[a.clone(), a.clone()], &[]).is_err());
-        assert!(validate_import(&[a.clone()], &[a.id]).is_err());
+        assert!(validate_import(std::slice::from_ref(&a), &[a.id]).is_err());
         assert!(validate_import(&[a.clone(), b], &[]).is_ok());
     }
 

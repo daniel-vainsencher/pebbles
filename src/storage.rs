@@ -169,8 +169,8 @@ pub(crate) fn unknown_top_level_keys(content: &str) -> Vec<String> {
     match value {
         Value::Object(ref map) => map
             .keys()
-            .filter(|key| !KNOWN_ISSUE_KEYS.iter().any(|known| *known == key.as_str()))
-            .map(|key| key.clone())
+            .filter(|key| !KNOWN_ISSUE_KEYS.contains(&key.as_str()))
+            .cloned()
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     }
@@ -370,7 +370,7 @@ impl Storage {
             {
                 continue;
             }
-            let Some(modified) = fs::metadata(&entry.path()).and_then(|m| m.modified()).ok() else {
+            let Some(modified) = fs::metadata(entry.path()).and_then(|m| m.modified()).ok() else {
                 continue;
             };
             if modified > baseline {
@@ -570,7 +570,7 @@ impl Storage {
         let mut duplicates: Vec<String> = Vec::new();
         let mut seen = HashSet::new();
         for file_name in &file_names {
-            let path = self.issue_path(&file_name);
+            let path = self.issue_path(file_name);
             match fs::read_to_string(&path) {
                 Ok(content) => match serde_json::from_str::<Value>(&content) {
                     Ok(value) => match value.get("id") {
@@ -579,7 +579,7 @@ impl Storage {
                             continue;
                         }
                         Some(id_value) => match id_value {
-                            Value::String(id_str) => match Uuid::parse_str(&id_str) {
+                            Value::String(id_str) => match Uuid::parse_str(id_str) {
                                 Ok(uuid) => {
                                     if !seen.insert(uuid) {
                                         duplicates.push(file_name.clone());

@@ -3,7 +3,7 @@
 use termlens::{Key, Screen, Terminal};
 
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// Fixture: one epic with a todo child, one proposed orphan, `.no_jj` mode.
 fn fixture_with_issues() -> (tempfile::TempDir, PathBuf) {
@@ -288,7 +288,7 @@ fn tui_approve_keeps_selection_on_next_item() -> termlens::Result<()> {
 }
 
 /// Build a project (`.pebbles` + `.no_jj`) from (name, id, type, status, title, part_of_epic) rows.
-fn build_project(root: &PathBuf, rows: &[(&str, u128, &str, &str, &str, bool)]) {
+fn build_project(root: &Path, rows: &[(&str, u128, &str, &str, &str, bool)]) {
     let pebbles = root.join(".pebbles");
     fs::create_dir_all(pebbles.join("issues")).expect("issues dir");
     fs::write(pebbles.join(".no_jj"), "").expect("no_jj marker");
@@ -333,7 +333,7 @@ fn build_project(root: &PathBuf, rows: &[(&str, u128, &str, &str, &str, bool)]) 
 /// a manual edit - by writing the issue file and appending it to the index.
 /// Used by the refresh e2e to shape external state while the TUI runs.
 fn add_issue_externally(
-    pebbles: &PathBuf,
+    pebbles: &Path,
     name: &str,
     id: u128,
     itype: &str,
@@ -355,7 +355,7 @@ fn add_issue_externally(
 
 /// Externally flip an issue's status by rewriting its file in place: what
 /// an external `pebbles approve` looks like, with index.json untouched.
-fn set_status_externally(pebbles: &PathBuf, file_name: &str, status: &str) {
+fn set_status_externally(pebbles: &Path, file_name: &str, status: &str) {
     let path = pebbles.join("issues").join(file_name);
     let content = fs::read_to_string(&path).unwrap();
     let updated = content.replace(

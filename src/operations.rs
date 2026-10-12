@@ -14,6 +14,9 @@ use crate::models::{
     IncomingRelationship, Index, Issue, IssueType, RelationType, Relationship, Status,
 };
 use crate::storage::{LoadWarning, ReindexOutcome, SaveOutcome, Storage};
+/// (source_issue_id, source_issue_title, relation_type)
+/// returned by [`Operations::get_incoming_relationships`].
+type IncomingRelationshipRow = (Uuid, String, RelationType);
 
 /// Aggregated view of an issue set for `pebbles summary`: totals by
 /// status and type, per-epic child progress, the actionable (unblocked
@@ -59,7 +62,7 @@ impl ProjectGraph {
 
     /// Incoming relationships pointing at `issue_id` as
     /// `(source_id, source_title, relation_type)` tuples.
-    pub fn incoming_relationships(&self, issue_id: &Uuid) -> Vec<(Uuid, String, RelationType)> {
+    pub fn incoming_relationships(&self, issue_id: &Uuid) -> Vec<IncomingRelationshipRow> {
         self.incoming
             .get(issue_id)
             .map(|rels| {
@@ -235,7 +238,7 @@ pub fn doctor(index: &Index, disk_files: &[&str], loads: &[IndexedFileLoad]) -> 
                 class: DiagnosticClass::OrphanedFile,
                 id: None,
                 file_name: name,
-                detail: format!("{}", "(file not in index)"),
+                detail: "(file not in index)".to_string(),
             });
         }
     }
@@ -1142,7 +1145,7 @@ pub fn calculate_summary(issues: &[Issue]) -> ProjectSummary {
     // Count by status
     let mut by_status: HashMap<Status, usize> = HashMap::new();
     for issue in issues {
-        *by_status.entry(issue.status.clone()).or_insert(0) += 1;
+        *by_status.entry(issue.status).or_insert(0) += 1;
     }
 
     // Count by type
@@ -1447,7 +1450,7 @@ impl Operations {
             });
         }
 
-        let old_status = issue.status.clone();
+        let old_status = issue.status;
         issue.status = new_status;
         issue.update();
 
@@ -2266,7 +2269,7 @@ impl Operations {
     pub fn get_incoming_relationships(
         &self,
         issue_id: &Uuid,
-    ) -> Result<(Vec<(Uuid, String, RelationType)>, Vec<LoadWarning>)> {
+    ) -> Result<(Vec<IncomingRelationshipRow>, Vec<LoadWarning>)> {
         let (graph, warnings) = self.graph_or_load()?;
         Ok((graph.incoming_relationships(issue_id), warnings))
     }
@@ -2461,7 +2464,7 @@ impl Operations {
                     diagnostics: vec![Diagnostic {
                         class: DiagnosticClass::UnknownIndexEntry,
                         id: None,
-                        file_name: format!("{}", "index.json"),
+                        file_name: "index.json".to_string(),
                         detail: format!(
                             "(the index does not parse: {}; run 'pebbles reindex' to rebuild)",
                             e
@@ -2478,8 +2481,8 @@ impl Operations {
         let mut loads: Vec<IndexedFileLoad> = Vec::new();
         for metadata in &index.issues {
             let path = self.storage.issue_path(&metadata.file_name);
-            match fs::read_to_string(&path) {
-                Ok(content) => match serde_json::from_str::<Issue>(&content) {
+            if let Ok(content) = fs::read_to_string(&path) {
+                match serde_json::from_str::<Issue>(&content) {
                     Ok(issue) => loads.push(IndexedFileLoad {
                         file_name: metadata.file_name.clone(),
                         id: Some(issue.id),
@@ -2488,14 +2491,13 @@ impl Operations {
                         file_name: metadata.file_name.clone(),
                         id: None,
                     }),
-                },
-                Err(_) => {}
+                }
             }
         }
 
         // Issue file names on disk, sorted so the pure classification
         // input - and therefore the diagnostics - is deterministic.
-        let entries = fs::read_dir(&self.storage.issue_path(""))
+        let entries = fs::read_dir(self.storage.issue_path(""))
             .context("Failed to list .pebbles/issues directory")?;
         let mut disk_files: Vec<String> = Vec::new();
         for entry in entries {
@@ -2627,7 +2629,7 @@ mod tests {
 
     #[test]
     fn build_project_graph_counts_epic_children() {
-        let mut epic = issue_with_type(
+        let epic = issue_with_type(
             "aaaaaaaa-1111-2222-3333-444444444444",
             "Epic",
             Status::Todo,
@@ -2767,7 +2769,7 @@ mod tests {
         // second load_all_issues). The graph iterates a HashMap, so the
         // referencing set is compared order-insensitively; ordering for the
         // guarded-delete listing comes from the index at call time.
-        let mut target = issue_with_type(
+        let target = issue_with_type(
             "aaaaaaaa-1111-2222-3333-444444444444",
             "Target",
             Status::Todo,
@@ -3123,7 +3125,7 @@ mod tests {
     #[test]
     fn get_unblocked_issues_epic_with_no_children_stays() {
         let epic = epic_with("11111111-2222-3333-4444-555555555555", "epic", Status::Todo);
-        let out = get_unblocked_issues(&[epic.clone()]);
+        let out = get_unblocked_issues(std::slice::from_ref(&epic));
         assert_eq!(ids(&out), vec![epic.id]);
     }
 
@@ -3245,7 +3247,7 @@ mod tests {
             "Standalone",
             Status::Todo,
         );
-        let map = build_blocker_status(&[standalone.clone()]);
+        let map = build_blocker_status(std::slice::from_ref(&standalone));
         assert!(map[&standalone.id].ready);
         assert!(map[&standalone.id].blocked_by.is_empty());
         assert!(map[&standalone.id].blocking.is_empty());
@@ -3501,7 +3503,7 @@ mod tests {
             "Login bug",
             Status::Todo,
         );
-        let out = filter_by_title_query(&[login.clone()], "LOGIN");
+        let out = filter_by_title_query(std::slice::from_ref(&login), "LOGIN");
         assert_eq!(ids(&out), vec![login.id]);
     }
 
@@ -3514,7 +3516,7 @@ mod tests {
             "Login bug",
             Status::Todo,
         );
-        let out = filter_by_title_query(&[login.clone()], "lgb");
+        let out = filter_by_title_query(std::slice::from_ref(&login), "lgb");
         assert_eq!(ids(&out), vec![login.id]);
     }
 
@@ -3559,7 +3561,7 @@ mod tests {
             "Login bug",
             Status::Todo,
         );
-        assert!(filter_by_title_query(&[login.clone()], "zzzz").is_empty());
+        assert!(filter_by_title_query(std::slice::from_ref(&login), "zzzz").is_empty());
     }
 
     #[test]
@@ -3571,8 +3573,8 @@ mod tests {
             "Login bug",
             Status::Todo,
         );
-        assert!(filter_by_title_query(&[login.clone()], "").is_empty());
-        assert!(filter_by_title_query(&[login.clone()], "   ").is_empty());
+        assert!(filter_by_title_query(std::slice::from_ref(&login), "").is_empty());
+        assert!(filter_by_title_query(std::slice::from_ref(&login), "   ").is_empty());
     }
     // -- tag helpers ---------------------------------------------------------
 
@@ -3717,9 +3719,12 @@ mod tests {
     fn filter_by_tags_is_case_sensitive() {
         let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
         a.tags = vec!["backend".to_string()];
-        assert!(filter_by_tags(&[a.clone()], &["Backend".to_string()]).is_empty());
+        assert!(filter_by_tags(std::slice::from_ref(&a), &["Backend".to_string()]).is_empty());
         assert_eq!(
-            ids(&filter_by_tags(&[a.clone()], &["backend".to_string()])),
+            ids(&filter_by_tags(
+                std::slice::from_ref(&a),
+                &["backend".to_string()]
+            )),
             vec![a.id]
         );
     }
@@ -3729,7 +3734,7 @@ mod tests {
         // The CLI rejects an empty --tag filter before this is reachable;
         // vacuously, an issue carries every tag in an empty filter.
         let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
-        let out = filter_by_tags(&[a.clone()], &[]);
+        let out = filter_by_tags(std::slice::from_ref(&a), &[]);
         assert_eq!(ids(&out), vec![a.id]);
     }
 
@@ -3845,18 +3850,18 @@ mod tests {
         let mut a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
         set_metadata_on_issue(&mut a, "priority", "high");
         assert!(filter_by_metadata(
-            &[a.clone()],
+            std::slice::from_ref(&a),
             &[("Priority".to_string(), "high".to_string())]
         )
         .is_empty());
         assert!(filter_by_metadata(
-            &[a.clone()],
+            std::slice::from_ref(&a),
             &[("priority".to_string(), "High".to_string())]
         )
         .is_empty());
         assert_eq!(
             ids(&filter_by_metadata(
-                &[a.clone()],
+                std::slice::from_ref(&a),
                 &[("priority".to_string(), "high".to_string())]
             )),
             vec![a.id]
@@ -3881,7 +3886,7 @@ mod tests {
         // this is reachable; vacuously, an issue carries every pair in an
         // empty filter.
         let a = issue_with("11111111-2222-3333-4444-555555555555", "A", Status::Todo);
-        let out = filter_by_metadata(&[a.clone()], &[]);
+        let out = filter_by_metadata(std::slice::from_ref(&a), &[]);
         assert_eq!(ids(&out), vec![a.id]);
     }
 
@@ -4128,7 +4133,7 @@ mod tests {
             Status::Todo,
         );
         let terms = parse_text_query("clicks").unwrap();
-        let out = filter_by_text_query(&[login.clone()], &terms);
+        let out = filter_by_text_query(std::slice::from_ref(&login), &terms);
         assert_eq!(ids(&out), vec![login.id]);
     }
 
@@ -4141,12 +4146,12 @@ mod tests {
         );
         let terms = parse_text_query("csv").unwrap();
         assert_eq!(
-            ids(&filter_by_text_query(&[csv.clone()], &terms)),
+            ids(&filter_by_text_query(std::slice::from_ref(&csv), &terms)),
             vec![csv.id]
         );
         let terms = parse_text_query("EXPORT").unwrap();
         assert_eq!(
-            ids(&filter_by_text_query(&[csv.clone()], &terms)),
+            ids(&filter_by_text_query(std::slice::from_ref(&csv), &terms)),
             vec![csv.id]
         );
     }
@@ -4159,10 +4164,10 @@ mod tests {
             Status::Todo,
         );
         let terms = parse_text_query("clicks").unwrap();
-        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+        assert!(filter_by_text_query(std::slice::from_ref(&login), &terms).is_empty());
         let terms = parse_text_query("login").unwrap();
         assert_eq!(
-            ids(&filter_by_text_query(&[login.clone()], &terms)),
+            ids(&filter_by_text_query(std::slice::from_ref(&login), &terms)),
             vec![login.id]
         );
     }
@@ -4196,10 +4201,10 @@ mod tests {
         );
         jwt.description = Some("Design and implement JWT-based authentication".to_string());
         let phrase = parse_text_query("\"jwt based\"").unwrap();
-        assert!(filter_by_text_query(&[jwt.clone()], &phrase).is_empty());
+        assert!(filter_by_text_query(std::slice::from_ref(&jwt), &phrase).is_empty());
         let terms = parse_text_query("jwt based").unwrap();
         assert_eq!(
-            ids(&filter_by_text_query(&[jwt.clone()], &terms)),
+            ids(&filter_by_text_query(std::slice::from_ref(&jwt), &terms)),
             vec![jwt.id]
         );
     }
@@ -4231,9 +4236,9 @@ mod tests {
             Status::Todo,
         );
         let terms = parse_text_query("").unwrap();
-        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+        assert!(filter_by_text_query(std::slice::from_ref(&login), &terms).is_empty());
         let terms = parse_text_query("   ").unwrap();
-        assert!(filter_by_text_query(&[login.clone()], &terms).is_empty());
+        assert!(filter_by_text_query(std::slice::from_ref(&login), &terms).is_empty());
     }
 
     #[test]
@@ -4333,11 +4338,10 @@ mod tests {
     #[test]
     fn creation_guidance_existing_relationships_suppress_tips() {
         // Already part of an epic: re-suggesting the epic link would be noise.
-        let mut rels: Vec<Relationship> = Vec::new();
-        rels.push(Relationship {
+        let rels = vec![Relationship {
             relation_type: RelationType::PartOf,
             target_id: uuid("aaaaaaaa-0000-0000-0000-000000000001"),
-        });
+        }];
         let guidance = select_creation_tips(
             &IssueType::Bug,
             &rels,
@@ -4352,11 +4356,10 @@ mod tests {
     fn creation_guidance_dependency_tip_requires_no_relationships() {
         // Any existing relationship suppresses the dependency tip: there is
         // nothing new to teach.
-        let mut rels: Vec<Relationship> = Vec::new();
-        rels.push(Relationship {
+        let rels = vec![Relationship {
             relation_type: RelationType::RequiredFor,
             target_id: uuid("bbbbbbbb-0000-0000-0000-000000000002"),
-        });
+        }];
         let guidance = select_creation_tips(
             &IssueType::Bug,
             &rels,
@@ -4377,7 +4380,7 @@ mod tests {
     fn index_with(entries: &[(&str, &str)]) -> Index {
         let issues: Vec<IssueMetadata> = entries
             .iter()
-            .map(|(id, file_name)| metadata(*id, *file_name))
+            .map(|(id, file_name)| metadata(id, file_name))
             .collect();
         Index { issues }
     }
@@ -4387,7 +4390,7 @@ mod tests {
             .iter()
             .map(|(file_name, id)| IndexedFileLoad {
                 file_name: file_name.to_string(),
-                id: id.map(|s| uuid(s)),
+                id: id.map(uuid),
             })
             .collect::<Vec<_>>()
     }

@@ -537,7 +537,7 @@ pub fn build_incoming_relationships_map(
                 .push(IncomingRelationship {
                     source_id: issue.id,
                     source_title: issue.title.clone(),
-                    source_status: issue.status.clone(),
+                    source_status: issue.status,
                     relation_type: rel.relation_type.clone(),
                 });
         }
