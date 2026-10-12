@@ -1,7 +1,7 @@
 {
   "id": "ca83f52a-2b15-42a7-b0ae-e7cb133763b2",
   "title": "Handle edge cases and error conditions",
-  "description": "Robust error handling for flow visualization:\n\nEdge cases to handle:\n1. Very large graphs (>500 issues) - warn or paginate\n2. Circular dependencies - detect and report clearly\n3. Missing target issues in relationships - skip or warn\n4. Empty repository - friendly message\n5. No issues with dependencies - show standalone list\n6. Invalid --goal ID - clear error message\n7. Goal has no path to roots - report and explain\n\nFor each:\n- Write clear, actionable error messages\n- Add unit tests\n- Document behavior in help text\n\nError messages should guide users to fix the issue, not just report it.",
+  "description": "Robust error handling for flow visualization:\n\nEdge cases to handle:\n1. Very large graphs (>500 issues) - warn or paginate\n2. Circular dependencies - detect and report clearly\n3. Missing target issues in relationships - skip or warn\n4. Empty repository - friendly message\n5. No issues with dependencies - show standalone list\n6. Invalid --goal ID - clear error message\n7. Goal has no path to roots - report and explain\n\nFor each:\n- Write clear, actionable error messages\n- Add unit tests\n- Document behavior in help text\n\nError messages should guide users to fix the issue, not just report it.\nClosed 2026-10-06: cycle and self-cycle rejection, empty-store message, unknown-goal error, and isolated-goal error are implemented and tested (src/flow.rs, tests/workflows/flow-goal.trycmd). The two remaining items (missing relationship targets, >500-issue graphs) moved to 5056de82.",
   "status": "todo",
   "issue_type": "usecase",
   "tags": [],
@@ -17,5 +17,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:46.206845329Z",
-  "updated_at": "2026-02-19T03:19:27.747166310Z"
+  "updated_at": "2026-10-12T15:30:15.651656142Z"
 }
