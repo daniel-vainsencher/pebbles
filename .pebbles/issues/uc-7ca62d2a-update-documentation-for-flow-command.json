@@ -1,7 +1,7 @@
 {
   "id": "7ca62d2a-950a-4494-aa41-b667d1ba2688",
   "title": "Update documentation for flow command",
-  "description": "Comprehensive documentation for flow visualization feature:\n\nREADME.md additions:\n- New 'Visualizing Project Flow' section\n- Command examples with different formats\n- Common use cases: finding ready tasks, critical path analysis\n- Screenshots/examples of text and SVG output\n\nARCHITECTURE.md:\n- Flow visualization design decisions\n- rust-sugiyama integration rationale\n- Coordinate system explanation (X=layers, Y=position)\n\nCommand help text:\n- Clear descriptions of all flags\n- Usage examples\n- Tips for large projects\n\nConsider:\n- Video demo/GIF showing flow command in action\n- Example project with interesting dependency structure\n- Blog post explaining feature and design choices",
+  "description": "Comprehensive documentation for flow visualization feature:\n\nREADME.md additions:\n- New 'Visualizing Project Flow' section\n- Command examples with different formats\n- Common use cases: finding ready tasks, critical path analysis\n- Screenshots/examples of text and SVG output\n\nARCHITECTURE.md:\n- Flow visualization design decisions\n- rust-sugiyama integration rationale\n- Coordinate system explanation (X=layers, Y=position)\n\nCommand help text:\n- Clear descriptions of all flags\n- Usage examples\n- Tips for large projects\n\nConsider:\n- Video demo/GIF showing flow command in action\n- Example project with interesting dependency structure\n- Blog post explaining feature and design choices\nClosed 2026-10-06: the flow command is documented in README 'Flow (EXPERIMENTAL)' (formats, --output, --goal) and the JSON export schema in docs/flow-json-schema.md. Screenshots/video remain optional polish, not required here.",
   "status": "todo",
   "issue_type": "usecase",
   "tags": [],
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:53.953969924Z",
-  "updated_at": "2026-02-19T03:13:19.393465556Z"
+  "updated_at": "2026-10-12T15:30:05.117597750Z"
 }
