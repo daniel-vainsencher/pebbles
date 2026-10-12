@@ -1,7 +1,7 @@
 {
   "id": "e99e93c5-7411-4286-8ded-6cfaf0da1569",
   "title": "Review and tune SVG output",
-  "description": "Review current SVG output from spike and identify tuning needs:\n\nCurrent state (from spike):\n- Basic boxes with issue IDs and titles\n- Arrows showing dependencies\n- Color coding by status (done=green, blocked=red, etc.)\n- Works but needs polish\n\nReview and tune:\n- Box sizing and spacing (too cramped?)\n- Arrow positioning (currently center, should be edge?)\n- Font sizes and readability\n- Title truncation handling\n- Color palette consistency with pebbles style\n- Layout dimensions (currently very wide?)\n\nDocument findings for follow-up enhancement task.",
+  "description": "Polish the SVG output of 'pebbles flow --format svg'. The backend renders a column-based layout with status colors and 30-char title truncation (src/flow.rs render_svg), but the output has not been reviewed or tuned, and it is not currently used in production, so this work remains open.\n\nGoals:\n- Box sizing and spacing (currently cramped?)\n- Arrow positioning (currently center; should be edge?)\n- Font sizes and readability\n- Title truncation handling\n- Color palette consistency with pebbles style\n- Layout dimensions (currently very wide?)\n\nInteractive enhancements (tooltips, HTML export) are tracked separately in b7bfe193.",
   "status": "todo",
   "issue_type": "validation",
   "tags": [],
@@ -17,5 +17,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:00.670844759Z",
-  "updated_at": "2026-02-19T03:19:32.228402887Z"
+  "updated_at": "2026-10-12T15:30:15.338848680Z"
 }
