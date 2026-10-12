@@ -1,0 +1,12 @@
+{
+  "id": "99a7f1dd-ef38-4270-baad-67b1be5e5f6d",
+  "title": "Flow trycmd coverage: shape layouts, SVG/JSON/DOT structure, empty-store and cycle errors",
+  "description": "Finish the flow integration-test coverage started in 33a55c30 (closed as done 2026-10-06; the merged coverage and current flag surface are described there).\n\nOpen scenarios:\n- Shape layout tests over the existing tests/workflows/flow-patterns.in stores (chain, diamond, disconnected, fan-in, fan-out, mixed): text layout layers, indicator glyphs, standalone sections, --show-done differences. The stores are built and load cleanly but no trycmd test references them yet.\n- SVG generation: run --format svg -o out.svg and assert the file exists with the expected structure (column layout, status colors, critical-path classes with --goal).\n- JSON export: validate the exported structure against docs/flow-json-schema.md, with --show-done and --goal.\n- DOT export: assert digraph structure (nodes, edges, penwidth=2 on critical paths with --goal).\n- Empty store: friendly 'nothing to show' message.\n- Circular dependency: clear error message.\n\nKeep tests fast (small fixture stores) and stable (pattern-match dynamic UUIDs).",
+  "status": "todo",
+  "issue_type": "usecase",
+  "tags": [],
+  "relationships": [],
+  "metadata": {},
+  "created_at": "2026-10-12T15:29:45.043228371Z",
+  "updated_at": "2026-10-12T15:29:45.043228371Z"
+}
