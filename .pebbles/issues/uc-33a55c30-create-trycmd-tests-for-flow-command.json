@@ -2,7 +2,7 @@
   "id": "33a55c30-f943-4e2f-8908-6bc572b53d46",
   "title": "Create trycmd tests for flow command",
   "description": "Flow CLI integration tests, current state (2026-10-06). The flag/error surface and this loan's fixture groundwork are merged; the remaining scenario coverage is tracked in a follow-up pebble.\n\nMerged:\n- tests/cmd/flow-flags.trycmd: flow flag surface (--format text default; --output required for svg/json/dot; --show-done; --goal), the text layout contract (Layer N headers, indicator glyphs, 30-char truncation, standalone section), and the non-text-without--output error.\n- tests/workflows/flow-goal.trycmd with the flow-goal.in fixture stores: goal error cases (unknown goal ID, goal with no path to any root, done goal hidden without --show-done).\n- tests/workflows/flow-patterns.in: six graph-shape fixture stores (chain, diamond, disconnected, fan-in, fan-out, mixed) built for this loan.\n- flow.rs unit tests: cycle and self-cycle rejection, empty-store layout, SVG/XML escaping, DOT empty output.\n\nRemaining (moved to 99a7f1dd): shape-based trycmd layout tests over flow-patterns.in, SVG/JSON/DOT structure assertions, empty-store and cycle-error trycmd scenarios.",
-  "status": "todo",
+  "status": "done",
   "issue_type": "usecase",
   "tags": [],
   "relationships": [
@@ -13,5 +13,5 @@
   ],
   "metadata": {},
   "created_at": "2026-02-19T03:12:15.935687239Z",
-  "updated_at": "2026-10-12T15:30:04.806863572Z"
+  "updated_at": "2026-10-12T15:30:04.961650596Z"
 }
